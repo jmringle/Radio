@@ -407,3 +407,96 @@ def test_12m_modes_and_edges(freq, mode, license_class, allowed, cite):
     result = check(mhz(freq), mode, license_class)
     assert result.allowed is allowed
     assert cite in result.citations
+
+
+# 10 m: §97.301(b)/(d)/(e), §97.305(c)(3)(xvii)-(xx), §97.307(f)(10)
+
+
+def test_10m_data_is_allowed_for_general_with_citations():
+    result = check(mhz("28.074"), Mode.DATA, GENERAL)
+    assert result.allowed
+    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xvii)")
+
+
+@pytest.mark.parametrize(
+    ("freq", "cite"),
+    [
+        ("28.400", "§97.305(c)(3)(xviii)"),
+        ("28.700", "§97.305(c)(3)(xix)"),
+        ("29.600", "§97.305(c)(3)(xx)"),
+    ],
+)
+def test_10m_phone_segments_are_allowed_for_general(freq, cite):
+    result = check(mhz(freq), Mode.PHONE, GENERAL)
+    assert result.allowed
+    assert result.citations == ("§97.301(d)", cite)
+
+
+def test_10m_cw_is_allowed_for_extra():
+    assert check(mhz("28.010"), Mode.CW, EXTRA).allowed
+
+
+def test_10m_technician_data_is_allowed_no_cw_only_rule():
+    # §97.305(c)(3)(xvii) doesn't reference §97.307(f)(9), so a Technician
+    # may use data/RTTY on 28.0-28.3 (the only HF band where that's true).
+    result = check(mhz("28.074"), Mode.DATA, TECH)
+    assert result.allowed
+    assert result.citations == ("§97.301(e)", "§97.305(c)(3)(xvii)")
+
+
+def test_10m_technician_image_is_denied_cw_and_ssb_only():
+    result = check(mhz("28.400"), Mode.IMAGE, TECH)
+    assert not result.allowed
+    assert "§97.307(f)(10)" in result.citations
+
+
+def test_10m_technician_phone_is_allowed_with_ssb_only_note():
+    result = check(mhz("28.400"), Mode.PHONE, TECH)
+    assert result.allowed
+    assert result.notes == ("SSB only (J3E/R3E), §97.307(f)(10)",)
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "license_class", "allowed", "cite"),
+    [
+        ("28.400", Mode.DATA, EXTRA, False, "§97.305(c)"),  # data only below 28.3
+        ("28.200", Mode.PHONE, GENERAL, False, "§97.305(c)"),  # phone only above 28.3
+        ("28.400", Mode.IMAGE, GENERAL, True, "§97.305(c)(3)(xviii)"),  # (f)(10) is Tech-only
+        # Band edges.
+        ("28.000", Mode.CW, GENERAL, True, "§97.305(a)"),
+        ("27.999999", Mode.CW, EXTRA, False, "§97.301"),
+        ("29.700", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(xx)"),
+        ("29.700001", Mode.CW, GENERAL, False, "§97.301"),
+        # Shared phone edges: first segment cited.
+        ("28.500", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(xviii)"),
+        ("29.000", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(xix)"),
+        # Technician edges and shared edge 28.300 (inclusive).
+        ("28.000", Mode.DATA, TECH, True, "§97.305(c)(3)(xvii)"),
+        ("28.300", Mode.DATA, TECH, True, "§97.305(c)(3)(xvii)"),
+        ("28.299999", Mode.PHONE, TECH, False, "§97.305(c)"),
+        ("28.300", Mode.IMAGE, TECH, False, "§97.307(f)(10)"),
+        ("28.500", Mode.CW, TECH, True, "§97.305(a)"),
+        ("28.500001", Mode.CW, TECH, False, "§97.301"),
+        ("28.600", Mode.PHONE, TECH, False, "§97.301"),
+    ],
+)
+def test_10m_modes_and_edges(freq, mode, license_class, allowed, cite):
+    result = check(mhz(freq), mode, license_class)
+    assert result.allowed is allowed
+    assert cite in result.citations
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "license_class", "notes"),
+    [
+        ("28.300", Mode.PHONE, TECH, ("SSB only (J3E/R3E), §97.307(f)(10)",)),  # edge
+        ("28.500", Mode.PHONE, TECH, ("SSB only (J3E/R3E), §97.307(f)(10)",)),  # edge
+        ("28.400", Mode.PHONE, GENERAL, ()),  # the SSB-only rule is Technician-only
+        ("28.400", Mode.CW, TECH, ()),  # CW needs no note
+        ("28.074", Mode.DATA, TECH, ()),
+    ],
+)
+def test_10m_ssb_only_note_applies_only_to_technician_phone(freq, mode, license_class, notes):
+    result = check(mhz(freq), mode, license_class)
+    assert result.allowed
+    assert result.notes == notes
