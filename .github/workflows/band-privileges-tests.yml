@@ -1,0 +1,22 @@
+name: band-privileges tests
+on:
+  push:
+    paths: ["band-privileges/**", ".github/workflows/band-privileges-tests.yml"]
+  pull_request:
+    paths: ["band-privileges/**", ".github/workflows/band-privileges-tests.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: band-privileges
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest
+      - run: pip-audit -r requirements-dev.txt  # no runtime deps, so audit the dev ones
