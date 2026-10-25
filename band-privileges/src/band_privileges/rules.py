@@ -1,7 +1,7 @@
 """Rule engine: is a frequency + mode allowed for a US amateur license class?
 
 Values come from 47 CFR Part 97 for ITU Region 2 (the continental US), checked
-against eCFR on 2026-10-25 (eCFR current as of 2026-10-22). Only 80/75, 40, 20 and 15 m are
+against eCFR on 2026-10-25 (eCFR current as of 2026-10-22). Only 160, 80/75, 40, 20 and 15 m are
 entered so far; the other HF bands are added test-first.
 
 Frequencies are integer Hz so band edges compare exactly (floats can't hold
@@ -52,12 +52,14 @@ class Result:
 # §97.301: frequencies each class may use (Region 2 column).
 PRIVILEGES: dict[LicenseClass, list[Segment]] = {
     LicenseClass.EXTRA: [
+        Segment(mhz("1.800"), mhz("2.000"), "§97.301(b)"),
         Segment(mhz("3.500"), mhz("4.000"), "§97.301(b)"),  # 80 m + 75 m
         Segment(mhz("7.000"), mhz("7.300"), "§97.301(b)"),
         Segment(mhz("14.000"), mhz("14.350"), "§97.301(b)"),
         Segment(mhz("21.000"), mhz("21.450"), "§97.301(b)"),
     ],
     LicenseClass.GENERAL: [
+        Segment(mhz("1.800"), mhz("2.000"), "§97.301(d)"),
         Segment(mhz("3.525"), mhz("3.600"), "§97.301(d)"),
         Segment(mhz("3.800"), mhz("4.000"), "§97.301(d)"),
         Segment(mhz("7.025"), mhz("7.125"), "§97.301(d)"),
@@ -83,6 +85,7 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
 # modes share one list. 60 m is the exception (phone but not image); split
 # this if 60 m comes into scope.
 _PHONE_AND_IMAGE: list[Segment] = [
+    Segment(mhz("1.800"), mhz("2.000"), "§97.305(c)(2)(iv)"),
     Segment(mhz("3.600"), mhz("4.000"), "§97.305(c)(3)(ii)"),
     Segment(mhz("7.125"), mhz("7.300"), "§97.305(c)(3)(vii)"),
     Segment(mhz("14.15"), mhz("14.35"), "§97.305(c)(3)(x)"),
@@ -91,6 +94,7 @@ _PHONE_AND_IMAGE: list[Segment] = [
 
 EMISSIONS: dict[Mode, list[Segment]] = {
     Mode.DATA: [
+        Segment(mhz("1.800"), mhz("2.000"), "§97.305(c)(2)(iii)"),
         Segment(mhz("3.500"), mhz("3.600"), "§97.305(c)(3)(i)"),
         Segment(mhz("7.000"), mhz("7.100"), "§97.305(c)(3)(iv)"),
         Segment(mhz("7.100"), mhz("7.125"), "§97.305(c)(3)(vi)"),
