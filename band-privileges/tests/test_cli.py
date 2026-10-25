@@ -40,7 +40,9 @@ def test_note_is_printed_on_its_own_line(capsys):
     ("argv", "message"),
     [
         (["abc", "data", "general"], "frequency must be a number"),
-        (["nan", "data", "general"], "frequency must be finite"),
+        (["nan", "data", "general"], "frequency must be a number"),
+        (["1e10000000", "cw", "extra"], "frequency must be a number"),  # must not hang
+        (["1_4.074", "data", "general"], "frequency must be a number"),
         (["0", "data", "general"], "greater than 0"),
         (["-14.074", "data", "general"], "greater than 0"),  # not mistaken for a flag
         (["14.0740001", "data", "general"], "finer than 1 Hz"),
@@ -79,3 +81,11 @@ def test_warning_is_printed_after_the_result_and_notes(capsys):
         "NOTE: SSB only (J3E/R3E), §97.307(f)(10)\n"
         "WARNING: within 3 kHz of 28.300 MHz, where phone stops being allowed for technician\n"
     )
+
+
+def test_help_exits_0_and_lists_modes_and_classes(capsys):
+    assert main(["--help"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("usage: bandcheck")
+    assert "cw, phone, data, image" in out
+    assert "technician, general, extra" in out
