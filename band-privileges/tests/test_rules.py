@@ -1,4 +1,4 @@
-"""20 m rules from §97.301 and §97.305 (eCFR checked 2026-10-25)."""
+"""HF rules from §97.301, §97.305 and §97.307 (eCFR checked 2026-10-25)."""
 
 import pytest
 
@@ -35,3 +35,105 @@ def test_20m_privileges(freq, mode, license_class, allowed):
 
 def test_mhz_converts_without_float_rounding():
     assert mhz("14.150") == 14_150_000
+
+
+# 40 m: §97.301(b)/(d)/(e), §97.305(c)(3)(iv)-(vii), §97.307(f)(9)/(11)
+
+
+def test_40m_extra_only_cw_segment_is_allowed_for_extra():
+    assert check(mhz("7.010"), Mode.CW, EXTRA).allowed
+
+
+def test_40m_data_is_allowed_for_general_with_citations():
+    result = check(mhz("7.074"), Mode.DATA, GENERAL)
+    assert result.allowed
+    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(iv)")
+
+
+def test_40m_general_has_no_privileges_in_the_7125_to_7175_gap():
+    result = check(mhz("7.150"), Mode.PHONE, GENERAL)
+    assert not result.allowed
+    assert result.citations == ("§97.301",)
+
+
+def test_40m_phone_above_7175_is_allowed_for_general_with_citations():
+    result = check(mhz("7.200"), Mode.PHONE, GENERAL)
+    assert result.allowed
+    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(vii)")
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "allowed"),
+    [
+        ("7.110", Mode.DATA, True),  # §97.305(c)(3)(vi)
+        ("7.200", Mode.DATA, False),  # phone/image only above 7.125
+        ("7.200", Mode.IMAGE, True),  # §97.305(c)(3)(vii)
+        ("7.050", Mode.IMAGE, False),
+    ],
+)
+def test_40m_mode_segments_for_extra(freq, mode, allowed):
+    assert check(mhz(freq), mode, EXTRA).allowed is allowed
+
+
+def test_40m_phone_7075_to_7100_is_denied_for_continental_us_station():
+    result = check(mhz("7.090"), Mode.PHONE, EXTRA)
+    assert not result.allowed
+    assert "§97.307(f)(11)" in result.citations
+
+
+def test_40m_technician_may_use_cw():
+    assert check(mhz("7.050"), Mode.CW, TECH).allowed
+
+
+def test_40m_technician_data_is_denied_cw_only():
+    result = check(mhz("7.074"), Mode.DATA, TECH)
+    assert not result.allowed
+    assert "§97.307(f)(9)" in result.citations
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "license_class", "allowed"),
+    [
+        ("7.000", Mode.CW, EXTRA, True),  # lower band edge
+        ("7.300", Mode.PHONE, EXTRA, True),  # upper band edge
+        ("7.300001", Mode.CW, EXTRA, False),  # 1 Hz past the band
+        ("7.024999", Mode.CW, GENERAL, False),  # 1 Hz below General
+        ("7.025", Mode.CW, GENERAL, True),
+        # Shared edge 7.125: inside General's lower segment, and on both the
+        # data and phone mode segments (edges inclusive).
+        ("7.125", Mode.DATA, GENERAL, True),
+        ("7.125", Mode.PHONE, GENERAL, True),
+        ("7.125001", Mode.DATA, GENERAL, False),
+        ("7.175", Mode.PHONE, GENERAL, True),
+        ("7.174999", Mode.PHONE, GENERAL, False),
+    ],
+)
+def test_40m_edges(freq, mode, license_class, allowed):
+    assert check(mhz(freq), mode, license_class).allowed is allowed
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "license_class", "allowed", "cite"),
+    [
+        # Shared data edge (iv)/(vi): allowed, first segment cited.
+        ("7.100", Mode.DATA, GENERAL, True, "§97.305(c)(3)(iv)"),
+        # Region-limited phone/image segment 7.075-7.100, both edges.
+        ("7.075", Mode.PHONE, EXTRA, False, "§97.307(f)(11)"),
+        ("7.100", Mode.PHONE, EXTRA, False, "§97.307(f)(11)"),
+        ("7.090", Mode.IMAGE, EXTRA, False, "§97.307(f)(11)"),
+        ("7.074999", Mode.PHONE, EXTRA, False, "§97.305(c)"),
+        # Technician privilege edges and CW-only rule.
+        ("7.024999", Mode.CW, TECH, False, "§97.301"),
+        ("7.025", Mode.CW, TECH, True, "§97.305(a)"),
+        ("7.125", Mode.CW, TECH, True, "§97.305(a)"),
+        ("7.125001", Mode.CW, TECH, False, "§97.301"),
+        ("7.100", Mode.PHONE, TECH, False, "§97.307(f)(9)"),
+        # 7.125 is also the start of phone/image segment (vii); Tech is denied.
+        ("7.125", Mode.PHONE, TECH, False, "§97.307(f)(9)"),
+        ("7.125", Mode.IMAGE, TECH, False, "§97.307(f)(9)"),
+    ],
+)
+def test_40m_shared_and_restricted_edges(freq, mode, license_class, allowed, cite):
+    result = check(mhz(freq), mode, license_class)
+    assert result.allowed is allowed
+    assert cite in result.citations
