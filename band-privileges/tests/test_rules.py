@@ -137,3 +137,62 @@ def test_40m_shared_and_restricted_edges(freq, mode, license_class, allowed, cit
     result = check(mhz(freq), mode, license_class)
     assert result.allowed is allowed
     assert cite in result.citations
+
+
+# 80/75 m: §97.301(b)/(d)/(e), §97.305(c)(3)(i)-(ii), §97.307(f)(9)
+
+
+def test_80m_extra_only_cw_segment_is_allowed_for_extra():
+    assert check(mhz("3.510"), Mode.CW, EXTRA).allowed
+
+
+def test_80m_data_is_allowed_for_general_with_citations():
+    result = check(mhz("3.580"), Mode.DATA, GENERAL)
+    assert result.allowed
+    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(i)")
+
+
+def test_80m_phone_above_3800_is_allowed_for_general_with_citations():
+    result = check(mhz("3.900"), Mode.PHONE, GENERAL)
+    assert result.allowed
+    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(ii)")
+
+
+def test_80m_technician_may_use_cw():
+    assert check(mhz("3.550"), Mode.CW, TECH).allowed
+
+
+def test_80m_technician_data_is_denied_cw_only():
+    result = check(mhz("3.580"), Mode.DATA, TECH)
+    assert not result.allowed
+    assert "§97.307(f)(9)" in result.citations
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "license_class", "allowed", "cite"),
+    [
+        ("3.700", Mode.PHONE, GENERAL, False, "§97.301"),  # General gap 3.600-3.800
+        ("3.700", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(ii)"),
+        ("3.900", Mode.IMAGE, GENERAL, True, "§97.305(c)(3)(ii)"),
+        ("3.550", Mode.IMAGE, EXTRA, False, "§97.305(c)"),  # data/CW only below 3.600
+        ("3.700", Mode.DATA, EXTRA, False, "§97.305(c)"),  # phone/image only above 3.600
+        # Band and class edges.
+        ("3.500", Mode.CW, EXTRA, True, "§97.305(a)"),
+        ("3.499999", Mode.CW, EXTRA, False, "§97.301"),
+        ("4.000", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(ii)"),
+        ("4.000001", Mode.CW, EXTRA, False, "§97.301"),
+        ("3.524999", Mode.CW, GENERAL, False, "§97.301"),
+        ("3.799999", Mode.PHONE, GENERAL, False, "§97.301"),
+        ("3.800", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(ii)"),
+        # Shared data/phone edge 3.600 (inclusive), and Tech denied on it.
+        ("3.600", Mode.DATA, GENERAL, True, "§97.305(c)(3)(i)"),
+        ("3.600", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(ii)"),
+        ("3.600", Mode.CW, TECH, True, "§97.305(a)"),
+        ("3.600", Mode.PHONE, TECH, False, "§97.307(f)(9)"),
+        ("3.600001", Mode.CW, TECH, False, "§97.301"),
+    ],
+)
+def test_80m_modes_and_edges(freq, mode, license_class, allowed, cite):
+    result = check(mhz(freq), mode, license_class)
+    assert result.allowed is allowed
+    assert cite in result.citations
