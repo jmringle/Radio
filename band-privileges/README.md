@@ -2,7 +2,7 @@
 
 Answers "can I operate here?" for US amateur HF: given a frequency, a mode and a license class (Technician, General, Extra), it says whether that's allowed and cites the 47 CFR Part 97 section. It only reads rules; it never talks to a radio or transmits.
 
-Status: in progress. The rule engine covers 160, 80/75, 40, 20 and 15 m; the other HF bands and the command line come next.
+Status: in progress. The rule engine covers 160, 80/75, 40, 30, 20 and 15 m; the other HF bands and the command line come next.
 
 ## Setup
 
@@ -69,4 +69,5 @@ check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)
 
 - Part 97 (amateur service). This tool is advisory and does not transmit; the control operator is still responsible for staying within privileges.
 - Rules used: §97.301 (frequency privileges by class), §97.305 (authorized emission types), §97.307(f)(9)–(11) (Technician limits; 40 m phone on 7.075–7.100 MHz is only for Region 2 stations west of 130° W or south of 20° N, e.g. Hawaii, so v1 denies it).
+- Not checked by this tool (it doesn't model power or sharing): 30 m is limited to 200 W PEP (§97.313(c)(1)), and amateurs there must not cause harmful interference to, and must accept interference from, other nations' fixed-service stations (§97.303(j)).
 - Source: [eCFR 47 CFR Part 97](https://www.ecfr.gov/current/title-47/part-97), checked 2026-10-25.
