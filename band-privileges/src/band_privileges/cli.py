@@ -1,7 +1,10 @@
 """bandcheck: command-line front end for the rule engine."""
 
 import argparse
+from collections.abc import Callable
 from decimal import Decimal
+from enum import Enum
+from typing import TypeVar
 
 from band_privileges.rules import LicenseClass, Mode, Status, check, mhz
 
@@ -13,16 +16,21 @@ _OUTCOMES = {
     Status.NOT_COVERED: ("NOT COVERED", 3),
 }
 
+E = TypeVar("E", bound=Enum)
 
-def _choice(enum: type[Mode] | type[LicenseClass], name: str):
+
+def _names(enum: type[Enum]) -> str:
+    return ", ".join(member.value for member in enum)
+
+
+def _choice(enum: type[E], name: str) -> Callable[[str], E]:
     # Our own message instead of argparse's `choices`, whose wording differs
     # between Python versions.
-    def convert(text: str):
+    def convert(text: str) -> E:
         try:
             return enum(text.lower())
         except ValueError:
-            valid = ", ".join(member.value for member in enum)
-            raise argparse.ArgumentTypeError(f"{name} must be one of: {valid}") from None
+            raise argparse.ArgumentTypeError(f"{name} must be one of: {_names(enum)}") from None
 
     return convert
 
@@ -46,12 +54,12 @@ def _parser() -> argparse.ArgumentParser:
         description="Check US amateur HF privileges (47 CFR Part 97, ITU Region 2).",
     )
     parser.add_argument("freq", type=_frequency, help="frequency in MHz, e.g. 14.074")
-    parser.add_argument("mode", type=_choice(Mode, "mode"), help="cw, phone, data or image")
+    parser.add_argument("mode", type=_choice(Mode, "mode"), help=_names(Mode))
     parser.add_argument(
         "license_class",
         metavar="class",
         type=_choice(LicenseClass, "class"),
-        help="technician, general or extra",
+        help=_names(LicenseClass),
     )
     return parser
 
@@ -62,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exit_:
         # argparse has printed usage and the error to stderr (code 2), or the
         # help text (code 0). Return the code so tests can call main() directly.
-        return exit_.code
+        return int(exit_.code or 0)
 
     result = check(args.freq, args.mode, args.license_class)
     label, code = _OUTCOMES[result.status]

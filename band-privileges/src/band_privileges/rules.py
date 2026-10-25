@@ -9,8 +9,9 @@ Frequencies are integer Hz so band edges compare exactly (floats can't hold
 README's acceptance criteria.
 """
 
+import re
 from dataclasses import dataclass, replace
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
 
@@ -28,18 +29,24 @@ class Mode(Enum):
     IMAGE = "image"
 
 
+# A plain decimal in ASCII digits. Decimal() alone would also accept "1e9",
+# "nan", "1_4.074" and full-width digits: typos or tricks, and huge exponents
+# make the exact math below hang.
+_PLAIN_DECIMAL = re.compile(r"-?[0-9]+(\.[0-9]+)?")
+_MAX_LENGTH = 32
+
+
 def mhz(value: str) -> int:
     """Convert a MHz string like "14.074" to integer Hz without float rounding.
 
-    Raises ValueError (and only ValueError) unless the value is a finite number
-    above 0 with at most 1 Hz resolution (6 decimal places).
+    Raises ValueError (and only ValueError) unless the value is a plain decimal
+    of at most 32 characters, above 0, with at most 1 Hz resolution.
     """
-    try:
-        number = Decimal(value)
-    except InvalidOperation:
-        raise ValueError(f"frequency must be a number in MHz, got {value!r}") from None
-    if not number.is_finite():
-        raise ValueError(f"frequency must be finite, got {value!r}")
+    if len(value) > _MAX_LENGTH:
+        raise ValueError(f"frequency is too long (max {_MAX_LENGTH} characters)")
+    if not _PLAIN_DECIMAL.fullmatch(value):
+        raise ValueError(f"frequency must be a number in MHz like 14.074, got {value!r}")
+    number = Decimal(value)
     if number <= 0:
         raise ValueError(f"frequency must be greater than 0 MHz, got {value!r}")
     # Fraction is exact at any length; Decimal arithmetic rounds to 28 digits.
@@ -281,6 +288,16 @@ def _decide(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
             f"{mode.value} is not authorized at this frequency",
             (privilege.cite, "§97.305(c)"),
         )
+    # With inclusive edges, General's 14.025-14.150 and phone's 14.15-14.35 both
+    # contain 14.150, but only that one frequency: no signal fits, so deny (the
+    # same safe reading as a Technician on 7.125).
+    if min(privilege.high_hz, emission.high_hz) == max(privilege.low_hz, emission.low_hz):
+        return Result(
+            Status.DENIED,
+            f"{license_class.value} privileges and {mode.value} meet only at this edge, "
+            f"so no {mode.value} signal fits",
+            (privilege.cite, emission.cite),
+        )
     notes = tuple(
         f"{note.reason}, {note.segment.cite}"
         for note in NOTES
@@ -292,6 +309,12 @@ def _decide(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
 
 
 def check(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
+    """Answer whether `mode` at `freq_hz` is allowed for `license_class`.
+
+    The Result has a status (allowed, denied or not covered), a reason, the
+    Part 97 citations that decided it, notes, and near-edge warnings. Only an
+    allowed result carries warnings; they never change the status.
+    """
     result = _decide(freq_hz, mode, license_class)
     if not result.allowed:
         return result
@@ -300,6 +323,7 @@ def check(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
 
 # Every segment edge in every table. The answer can only change at one of
 # these, so they're the only places a signal's width can cross into trouble.
+# Built at import time, so it must stay below every table it reads.
 _EDGES = sorted(
     {
         edge

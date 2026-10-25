@@ -40,7 +40,7 @@ CASES = [
     ("80m", "3.800", PHONE, GENERAL, True, "§97.305(c)(3)(ii)"),
     # Shared data/phone edge 3.600 (inclusive); Technician non-CW denied on it.
     ("80m", "3.600", DATA, GENERAL, True, "§97.305(c)(3)(i)"),
-    ("80m", "3.600", PHONE, GENERAL, True, "§97.305(c)(3)(ii)"),
+    ("80m", "3.600", PHONE, GENERAL, False, "§97.305(c)(3)(ii)"),  # single-point overlap
     ("80m", "3.600", CW, TECH, True, "§97.305(a)"),
     ("80m", "3.600", PHONE, TECH, False, "§97.307(f)(9)"),
     ("80m", "3.600001", CW, TECH, False, "§97.301"),
@@ -63,7 +63,7 @@ CASES = [
     # Shared edges: 7.100 data (iv)/(vi) cites the first; 7.125 data/phone.
     ("40m", "7.100", DATA, GENERAL, True, "§97.305(c)(3)(iv)"),
     ("40m", "7.125", DATA, GENERAL, True, "§97.305(c)(3)(vi)"),
-    ("40m", "7.125", PHONE, GENERAL, True, "§97.305(c)(3)(vii)"),
+    ("40m", "7.125", PHONE, GENERAL, False, "§97.305(c)(3)(vii)"),  # single-point overlap
     # Region-limited phone/image 7.075-7.100 (§97.307(f)(11)), both edges.
     ("40m", "7.090", PHONE, EXTRA, False, "§97.307(f)(11)"),
     ("40m", "7.075", PHONE, EXTRA, False, "§97.307(f)(11)"),
@@ -96,6 +96,11 @@ CASES = [
     ("20m", "14.250", PHONE, GENERAL, True, "§97.305(c)(3)(x)"),
     ("20m", "14.074", PHONE, GENERAL, False, "§97.305(c)"),  # phone only above 14.15
     ("20m", "14.250", DATA, GENERAL, False, "§97.305(c)"),  # data only below 14.15
+    # General ends at 14.150 where phone begins: they meet at one frequency, and
+    # no phone signal fits in a single point, so deny (README).
+    ("20m", "14.150", PHONE, GENERAL, False, "§97.305(c)(3)(x)"),
+    ("20m", "14.150", DATA, GENERAL, True, "§97.305(c)(3)(ix)"),  # data overlaps widely
+    ("20m", "14.150", PHONE, EXTRA, True, "§97.305(c)(3)(x)"),  # Extra overlaps widely
     ("20m", "14.074", DATA, TECH, False, "§97.301"),  # no Technician privileges
     # 17 m
     ("17m", "18.080", CW, EXTRA, True, "§97.305(a)"),
@@ -127,7 +132,7 @@ CASES = [
     ("15m", "21.275", PHONE, GENERAL, True, "§97.305(c)(3)(xiv)"),
     # Shared data/phone edge 21.200 (inclusive); Technician non-CW denied on it.
     ("15m", "21.200", DATA, GENERAL, True, "§97.305(c)(3)(xiii)"),
-    ("15m", "21.200", PHONE, GENERAL, True, "§97.305(c)(3)(xiv)"),
+    ("15m", "21.200", PHONE, GENERAL, False, "§97.305(c)(3)(xiv)"),  # single-point overlap
     ("15m", "21.200", CW, TECH, True, "§97.305(a)"),
     ("15m", "21.200", PHONE, TECH, False, "§97.307(f)(9)"),
     ("15m", "21.200001", CW, TECH, False, "§97.301"),
@@ -280,14 +285,24 @@ def test_just_outside_60m_is_an_ordinary_denial(freq):
         ("", "must be a number"),
         ("abc", "must be a number"),
         ("14.074MHz", "must be a number"),
-        ("nan", "must be finite"),
-        ("NaN", "must be finite"),
-        ("inf", "must be finite"),
-        ("-inf", "must be finite"),
+        # Only plain decimals: Decimal() also accepts these, but they're typos
+        # or tricks, never a frequency someone meant.
+        ("nan", "must be a number"),
+        ("NaN", "must be a number"),
+        ("inf", "must be a number"),
+        ("-inf", "must be a number"),
+        ("1e-7", "must be a number"),
+        ("1e10000000", "must be a number"),  # exact math on this hangs
+        ("1_4.074", "must be a number"),  # underscore digit separator
+        ("１４.０７４", "must be a number"),  # full-width digits
+        (" 14.074", "must be a number"),
+        ("+14.074", "must be a number"),
+        ("14.", "must be a number"),
+        (".5", "must be a number"),
+        ("1" * 33, "too long"),
         ("0", "greater than 0"),
         ("-14.074", "greater than 0"),
         ("14.0740001", "finer than 1 Hz"),  # 7 decimal places
-        ("1e-7", "finer than 1 Hz"),
         # 31 significant digits: Decimal arithmetic would round this to a whole Hz.
         ("14.0000000000000000000000000001", "finer than 1 Hz"),
     ],

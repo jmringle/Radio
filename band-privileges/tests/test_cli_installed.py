@@ -1,14 +1,19 @@
 """Smoke test: the installed `bandcheck` command runs (needs `pip install -e .`)."""
 
+import shutil
 import subprocess
-import sys
-from pathlib import Path
+import sysconfig
 
-# The venv's scripts folder sits next to its python, wherever the venv is.
-BANDCHECK = Path(sys.executable).parent / "bandcheck"
+import pytest
+
+# Look in this environment's scripts folder, so a `bandcheck` from elsewhere on
+# PATH can't stand in for the one under test.
+BANDCHECK = shutil.which("bandcheck", path=sysconfig.get_path("scripts"))
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
+    if BANDCHECK is None:
+        pytest.fail("bandcheck isn't installed in this environment: run `pip install -e .`")
     return subprocess.run([BANDCHECK, *args], capture_output=True, text=True, timeout=30)
 
 
