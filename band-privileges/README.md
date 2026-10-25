@@ -2,7 +2,11 @@
 
 Answers "can I operate here?" for US amateur HF: given a frequency, a mode and a license class (Technician, General, Extra), it says whether that's allowed and cites the 47 CFR Part 97 section. It only reads rules; it never talks to a radio or transmits.
 
-Status: v1 complete. Every v1 HF band (160-10 m; 60 m is deferred), the `bandcheck` command and near-edge warnings work. A WARNING means your signal's width may cross an edge (an LSB voice signal at 7.177 MHz reaches down to about 7.174, below General's 7.175 edge); the tool doesn't model sidebands, so it warns on both sides.
+Status: v1 complete, plus a local web page. Every v1 HF band (160-10 m; 60 m is deferred), the `bandcheck` command, the `bandcheck-web` page and near-edge warnings work. A WARNING means your signal's width may cross an edge (an LSB voice signal at 7.177 MHz reaches down to about 7.174, below General's 7.175 edge); the tool doesn't model sidebands, so it warns on both sides.
+
+## Disclaimer
+
+This tool is provided as is, with no warranty. Its answers can be wrong, incomplete or out of date. You, as the control operator, are solely responsible for every transmission and for checking your privileges against the current FCC rules ([47 CFR Part 97](https://www.ecfr.gov/current/title-47/part-97)); see §97.103(a). The author accepts no liability for any transmission made, or any consequence resulting, from using this tool. The same disclaimer appears on the web page and in `bandcheck --help`.
 
 ## Setup
 
@@ -11,7 +15,8 @@ Requires Python 3.12 or newer (CI uses 3.15).
 1. `cd band-privileges`
 2. `python3 -m venv .venv && source .venv/bin/activate`
 3. `pip install -r requirements-dev.txt`
-4. `pip install -e .` (installs the `bandcheck` command into the venv)
+4. `pip install -e .` (installs the `bandcheck` and `bandcheck-web` commands into the venv)
+5. `playwright install chromium` (only for the browser tests; downloads a headless Chromium of about 150 MB)
 
 No configuration or secrets are needed.
 
@@ -35,11 +40,19 @@ bandcheck: error: argument freq: 14074 MHz is 1 GHz or more; did you mean 14.074
 
 Exit codes: `0` allowed, `1` denied, `2` bad input, `3` not covered, so scripts can check `$?`.
 
+### Web page
+
+`bandcheck-web`, then open http://127.0.0.1:8073. It's the same rule engine behind a single form; answers, notes and warnings match the command. It listens on this computer only (127.0.0.1), so other devices on your network can't reach it. Stop it with Ctrl+C.
+
 From Python: `check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)` returns a `Result` with `status`, `reason`, `citations` and `notes`.
 
 ## Running tests
 
-`pytest` from `band-privileges/`. The rule and CLI tests are pure logic, with no hardware or network. `tests/test_cli_installed.py` runs the real `bandcheck` command, so it needs step 4 of Setup. CI runs the same command on every push that touches this folder.
+`pytest` from `band-privileges/` runs everything (about 2 s once the browser is installed). The rule and CLI tests are pure logic, with no hardware or network. `tests/test_cli_installed.py` runs the real `bandcheck` command, so it needs step 4 of Setup. CI runs the same command on every push that touches this folder.
+
+Web tests come in two layers:
+- `tests/test_web.py` uses Flask's test client: fast, no browser, no real network. It covers answers, bad input (HTTP 400), escaping, security headers and the Host check.
+- `tests/test_web_e2e.py` uses [Playwright](https://playwright.dev/python/) (pytest-playwright) to drive a real headless Chromium against the app on a random 127.0.0.1 port. It checks what only a browser can show: the stylesheet really loads under the CSP, Enter submits the form, and the page fits a 360 px phone screen. It needs step 5 of Setup. `pytest --headed` shows the browser window.
 
 ## Design notes
 
@@ -74,7 +87,20 @@ From Python: `check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)` returns a `
 ## Security notes
 
 - No secrets. `.env` files are gitignored at the repo root anyway, and gitleaks scans every push.
-- OWASP Top 10 mostly doesn't apply (no web, no network, no stored data). The relevant habit is input validation (A03 Injection family): treat the arguments as untrusted and reject anything malformed.
+- Input validation: arguments and form fields are untrusted. Frequencies must be plain decimals of at most 32 characters, and modes and classes must be one of the listed words; anything else is rejected with a message.
+
+Threat model for the web page (OWASP Top 10:2025, checked 2026-10-24). What's protected: your computer and browser, and the correctness of the answers. There is no login, no stored data and no radio control.
+
+| ID | Threat | OWASP | Mitigation | Test |
+|----|--------|-------|------------|------|
+| T1 | A typed value is echoed back as HTML and runs as script (XSS) | A05 Injection | Jinja autoescaping; CSP allows no scripts | `test_web.py` escaping test |
+| T2 | Another device, or a hostile website using DNS rebinding (pointing its own name at 127.0.0.1), reaches the page | A01 Broken Access Control | Binds to 127.0.0.1 only; `TRUSTED_HOSTS` rejects any other Host header with 400 | `test_web.py` Host and bind tests |
+| T3 | The Werkzeug debugger runs code sent from the browser | A02 Security Misconfiguration | `debug=False`, enforced by a test | `test_web.py` main test |
+| T4 | An error page leaks a stack trace | A10 Mishandling of Exceptional Conditions | Bad input returns a plain 400 message; unexpected errors return a generic 500 | `test_web.py` 400 and 500 tests |
+| T5 | A huge or odd frequency hangs the server | A10 | 32-character cap; plain decimal digits only; exact integer math | `test_rules.py` abuse cases |
+| T6 | Another site frames the page (clickjacking) or reads where you came from | A02 | CSP `frame-ancestors 'none'`, `Referrer-Policy: no-referrer`, `nosniff` | `test_web.py` header test |
+
+Accepted risk: plain HTTP, no HTTPS. Traffic never leaves this computer (loopback), and nothing secret is sent. Revisit this before ever exposing the page beyond 127.0.0.1.
 - Accepted risk: the tables are hand-entered. A Part 97 change won't update them; re-check eCFR and update the "checked" date in `rules.py`.
 
 ## Regulatory
