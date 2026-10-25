@@ -78,6 +78,17 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
 # operator has privileges (§97.305(a)), so it has no entry here. On a shared
 # edge (e.g. 7.100 data) the first matching segment is cited, so keep each list
 # in frequency order.
+#
+# On every in-scope HF band §97.305 lists "phone, image" together, so the two
+# modes share one list. 60 m is the exception (phone but not image); split
+# this if 60 m comes into scope.
+_PHONE_AND_IMAGE: list[Segment] = [
+    Segment(mhz("3.600"), mhz("4.000"), "§97.305(c)(3)(ii)"),
+    Segment(mhz("7.125"), mhz("7.300"), "§97.305(c)(3)(vii)"),
+    Segment(mhz("14.15"), mhz("14.35"), "§97.305(c)(3)(x)"),
+    Segment(mhz("21.20"), mhz("21.45"), "§97.305(c)(3)(xiv)"),
+]
+
 EMISSIONS: dict[Mode, list[Segment]] = {
     Mode.DATA: [
         Segment(mhz("3.500"), mhz("3.600"), "§97.305(c)(3)(i)"),
@@ -86,18 +97,8 @@ EMISSIONS: dict[Mode, list[Segment]] = {
         Segment(mhz("14.00"), mhz("14.15"), "§97.305(c)(3)(ix)"),
         Segment(mhz("21.0"), mhz("21.2"), "§97.305(c)(3)(xiii)"),
     ],
-    Mode.PHONE: [
-        Segment(mhz("3.600"), mhz("4.000"), "§97.305(c)(3)(ii)"),
-        Segment(mhz("7.125"), mhz("7.300"), "§97.305(c)(3)(vii)"),
-        Segment(mhz("14.15"), mhz("14.35"), "§97.305(c)(3)(x)"),
-        Segment(mhz("21.20"), mhz("21.45"), "§97.305(c)(3)(xiv)"),
-    ],
-    Mode.IMAGE: [
-        Segment(mhz("3.600"), mhz("4.000"), "§97.305(c)(3)(ii)"),
-        Segment(mhz("7.125"), mhz("7.300"), "§97.305(c)(3)(vii)"),
-        Segment(mhz("14.15"), mhz("14.35"), "§97.305(c)(3)(x)"),
-        Segment(mhz("21.20"), mhz("21.45"), "§97.305(c)(3)(xiv)"),
-    ],
+    Mode.PHONE: _PHONE_AND_IMAGE,
+    Mode.IMAGE: _PHONE_AND_IMAGE,
 }
 
 
