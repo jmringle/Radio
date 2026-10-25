@@ -2,7 +2,7 @@
 
 Answers "can I operate here?" for US amateur HF: given a frequency, a mode and a license class (Technician, General, Extra), it says whether that's allowed and cites the 47 CFR Part 97 section. It only reads rules; it never talks to a radio or transmits.
 
-Status: in progress. The rule engine covers 160, 80/75, 40, 30, 20, 17 and 15 m; the other HF bands and the command line come next.
+Status: in progress. The rule engine covers 160, 80/75, 40, 30, 20, 17, 15 and 12 m; the other HF bands and the command line come next.
 
 ## Setup
 
