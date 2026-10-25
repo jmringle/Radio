@@ -2,11 +2,17 @@
 
 import argparse
 from collections.abc import Callable
-from decimal import Decimal
 from enum import Enum
 from typing import TypeVar
 
-from band_privileges.rules import LicenseClass, Mode, Status, check, mhz
+from band_privileges.rules import (
+    LicenseClass,
+    Mode,
+    Status,
+    check,
+    parse_choice,
+    parse_frequency,
+)
 
 # Status -> (output label, exit code). Exit codes are in the README; argparse
 # already uses 2 for usage errors, and bad input of ours uses 2 as well.
@@ -28,30 +34,28 @@ def _choice(enum: type[E], name: str) -> Callable[[str], E]:
     # between Python versions.
     def convert(text: str) -> E:
         try:
-            return enum(text.lower())
-        except ValueError:
-            raise argparse.ArgumentTypeError(f"{name} must be one of: {_names(enum)}") from None
+            return parse_choice(enum, name, text)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(str(error)) from None
 
     return convert
 
 
 def _frequency(text: str) -> int:
     try:
-        freq_hz = mhz(text)
+        return parse_frequency(text)
     except ValueError as error:
         raise argparse.ArgumentTypeError(str(error)) from None
-    if freq_hz >= mhz("1000"):
-        guess = (Decimal(text) / 1000).normalize()
-        raise argparse.ArgumentTypeError(
-            f"{text} MHz is 1 GHz or more; did you mean {guess:f} MHz?"
-        )
-    return freq_hz
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bandcheck",
         description="Check US amateur HF privileges (47 CFR Part 97, ITU Region 2).",
+        epilog=(
+            "Disclaimer: advisory only, no warranty. The control operator is solely "
+            "responsible for every transmission; verify against current 47 CFR Part 97."
+        ),
     )
     parser.add_argument("freq", type=_frequency, help="frequency in MHz, e.g. 14.074")
     parser.add_argument("mode", type=_choice(Mode, "mode"), help=_names(Mode))

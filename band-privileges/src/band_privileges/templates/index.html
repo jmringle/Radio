@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Band privileges</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <h1>Band privileges</h1>
+    <form method="get" action="/">
+      <label for="freq">Frequency (MHz)</label>
+      <input id="freq" name="freq" value="{{ form.freq }}" inputmode="decimal" autocomplete="off" required>
+
+      <label for="mode">Mode</label>
+      <select id="mode" name="mode">
+        {% for mode in modes %}<option value="{{ mode.value }}"{% if form.mode|lower == mode.value %} selected{% endif %}>{{ mode.value }}</option>{% endfor %}
+      </select>
+
+      <label for="class">License class</label>
+      <select id="class" name="class">
+        {% for license_class in classes %}<option value="{{ license_class.value }}"{% if form["class"]|lower == license_class.value %} selected{% endif %}>{{ license_class.value }}</option>{% endfor %}
+      </select>
+
+      <button type="submit">Check</button>
+    </form>
+
+    {% if error %}
+    <section class="error" role="alert">
+      <h2>Check your input</h2>
+      <p>{{ error }}</p>
+    </section>
+    {% elif result %}
+    <section class="result {{ result.status.name|lower }}">
+      <h2>{{ result.status.value|upper }}</h2>
+      <p>{{ result.reason }}</p>
+      {% if result.citations %}<p class="cites">{{ result.citations|join(", ") }}</p>{% endif %}
+      {% for note in result.notes %}<p class="note">Note: {{ note }}</p>{% endfor %}
+      {% for warning in result.warnings %}<p class="warning">Warning: {{ warning }}</p>{% endfor %}
+    </section>
+    {% endif %}
+
+    <footer>
+      <p>US amateur HF privileges, ITU Region 2. Rules from 47 CFR Part 97 (eCFR, checked 2026-10-25); 60&nbsp;m not covered yet.</p>
+      <p><strong>Disclaimer:</strong> advisory only, no warranty. The control operator is solely responsible for every transmission; verify against current 47 CFR Part 97 (§97.103(a)).</p>
+    </footer>
+  </main>
+</body>
+</html>

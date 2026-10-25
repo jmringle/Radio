@@ -89,3 +89,10 @@ def test_help_exits_0_and_lists_modes_and_classes(capsys):
     assert out.startswith("usage: bandcheck")
     assert "cw, phone, data, image" in out
     assert "technician, general, extra" in out
+
+
+def test_help_includes_the_disclaimer(capsys):
+    main(["--help"])
+    out = " ".join(capsys.readouterr().out.split())  # argparse wraps to terminal width
+    assert "no warranty" in out
+    assert "solely responsible for every transmission" in out

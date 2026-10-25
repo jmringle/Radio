@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import Enum
 from fractions import Fraction
+from typing import TypeVar
 
 
 class LicenseClass(Enum):
@@ -54,6 +55,30 @@ def mhz(value: str) -> int:
     if hz.denominator != 1:
         raise ValueError(f"frequency can't be finer than 1 Hz (6 decimal places), got {value!r}")
     return int(hz)
+
+
+def parse_frequency(text: str) -> int:
+    """mhz() for user input: also rejects 1000 MHz or more with a kHz hint.
+
+    Shared by the CLI and the web page so they accept exactly the same input.
+    """
+    freq_hz = mhz(text)
+    if freq_hz >= mhz("1000"):
+        guess = (Decimal(text) / 1000).normalize()
+        raise ValueError(f"{text} MHz is 1 GHz or more; did you mean {guess:f} MHz?")
+    return freq_hz
+
+
+E = TypeVar("E", bound=Enum)
+
+
+def parse_choice(enum: type[E], name: str, text: str) -> E:
+    """Mode or LicenseClass from user input, case-insensitive, with one message."""
+    try:
+        return enum(text.lower())
+    except ValueError:
+        valid = ", ".join(member.value for member in enum)
+        raise ValueError(f"{name} must be one of: {valid}") from None
 
 
 @dataclass(frozen=True)

@@ -1,0 +1,101 @@
+/* Reference-card look: serif text, monospace numbers, one narrow column.
+   Every text color pair meets WCAG AA (checked 2026-10-25). */
+:root {
+  --paper: #faf8f3;
+  --ink: #1f2328;
+  --muted: #545a61;
+  --rule: #6e757c;
+  --allowed: #1a6b3a;
+  --denied: #a12a2a;
+  --warning-ink: #6b4200;
+  --warning-bg: #fff1d6;
+  --error-ink: #8a1f1f;
+  --error-bg: #fdecec;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 1.0625rem/1.5 Charter, "Iowan Old Style", Georgia, serif;
+}
+
+main {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+}
+
+h1 {
+  margin: 0 0 1.5rem;
+  font-size: 1.6rem;
+  font-weight: normal;
+  letter-spacing: 0.01em;
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 0.4rem;
+}
+
+form {
+  display: grid;
+  gap: 0.35rem 1rem;
+}
+
+label { font-weight: bold; margin-top: 0.6rem; }
+
+input, select, button {
+  font: inherit;
+  min-height: 2.75rem; /* comfortable touch target */
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: #fff;
+  color: var(--ink);
+  width: 100%;
+}
+
+input { font-family: var(--mono); }
+
+button {
+  margin-top: 1rem;
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+  cursor: pointer;
+}
+
+:focus-visible { outline: 3px solid var(--allowed); outline-offset: 2px; }
+
+.result, .error {
+  margin-top: 2rem;
+  padding: 0.25rem 0 0.25rem 1rem;
+  border-left: 6px solid var(--muted);
+}
+
+.result h2, .error h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+}
+
+.result.allowed { border-color: var(--allowed); }
+.result.allowed h2 { color: var(--allowed); }
+.result.denied { border-color: var(--denied); }
+.result.denied h2 { color: var(--denied); }
+.result.not_covered h2 { color: var(--muted); }
+
+.cites { font-family: var(--mono); font-size: 0.9rem; color: var(--muted); }
+
+.note, .warning { padding: 0.4rem 0.6rem; }
+.note { border: 1px solid var(--rule); }
+.warning { background: var(--warning-bg); color: var(--warning-ink); }
+
+.error { border-color: var(--error-ink); background: var(--error-bg); color: var(--error-ink); }
+
+footer {
+  margin-top: 3rem;
+  font-size: 0.9rem;
+  color: var(--muted);
+}

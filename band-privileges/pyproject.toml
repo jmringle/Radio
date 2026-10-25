@@ -7,10 +7,14 @@ name = "band-privileges"
 version = "0.1.0"
 description = "Check US amateur HF band privileges (47 CFR Part 97) by frequency, mode and license class"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["flask>=3.1.3"]
 
 [project.scripts]
 bandcheck = "band_privileges.cli:main"
+bandcheck-web = "band_privileges.web:main"
+
+[tool.setuptools.package-data]
+band_privileges = ["templates/*.html", "static/*.css"]
 
 [tool.pytest.ini_options]
 # Lets tests import the src/ package without installing it.
