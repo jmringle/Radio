@@ -299,3 +299,71 @@ def test_mhz_rejects_bad_input_with_one_error_type(value, message):
 
 def test_mhz_accepts_exactly_1_hz_resolution():
     assert mhz("14.000001") == 14_000_001
+
+
+# Near-edge warnings (README: 1 kHz for CW, 3 kHz otherwise, either side, only
+# edges that limit this class and mode; only on allowed results).
+
+
+def test_data_just_below_where_data_stops_warns():
+    result = check(mhz("14.149"), Mode.DATA, GENERAL)
+    assert result.allowed
+    assert result.warnings == (
+        "within 3 kHz of 14.150 MHz, where data stops being allowed for general",
+    )
+
+
+def test_no_warning_mid_segment():
+    assert check(mhz("14.074"), Mode.DATA, GENERAL).warnings == ()
+
+
+def test_edge_with_the_same_mode_beyond_it_does_not_warn():
+    # 7.100 ends data row (iv), but row (vi) continues data to 7.125, so
+    # crossing it is fine for Extra.
+    assert check(mhz("7.099"), Mode.DATA, EXTRA).warnings == ()
+
+
+def _warns_at(edge_mhz, mode, license_class):
+    margin = 1 if mode is Mode.CW else 3
+    return (
+        f"within {margin} kHz of {edge_mhz} MHz, where {mode.value} stops being "
+        f"allowed for {license_class.value}",
+    )
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "license_class", "warnings"),
+    [
+        # CW margin is 1 kHz, inclusive; General CW starts at 14.025.
+        ("14.026", CW, GENERAL, _warns_at("14.025", CW, GENERAL)),
+        ("14.026001", CW, GENERAL, ()),
+        # Other modes: 3 kHz, inclusive.
+        ("14.028", DATA, GENERAL, _warns_at("14.025", DATA, GENERAL)),
+        ("14.028001", DATA, GENERAL, ()),
+        # LSB voice at 7.177 reaches below General's 7.175 phone edge.
+        ("7.177", PHONE, GENERAL, _warns_at("7.175", PHONE, GENERAL)),
+        # Band edge: beyond 29.700 is out of scope (not allowed).
+        ("29.699", PHONE, EXTRA, _warns_at("29.700", PHONE, EXTRA)),
+        # Technician data: 28.300 is allowed (decision 3) but data stops there.
+        ("28.299", DATA, TECH, _warns_at("28.300", DATA, TECH)),
+        ("28.300", DATA, TECH, _warns_at("28.300", DATA, TECH)),  # exactly on the edge
+        # Shared phone edges inside 10 m: phone continues, no warning.
+        ("28.500", PHONE, GENERAL, ()),
+        ("28.999", PHONE, EXTRA, ()),
+        # 30 m band edges, low and high.
+        ("10.101", DATA, GENERAL, _warns_at("10.100", DATA, GENERAL)),
+        ("10.149", DATA, GENERAL, _warns_at("10.150", DATA, GENERAL)),
+    ],
+)
+def test_near_edge_warnings(freq, mode, license_class, warnings):
+    result = check(mhz(freq), mode, license_class)
+    assert result.allowed
+    assert result.warnings == warnings
+
+
+def test_denied_and_not_covered_results_never_warn():
+    assert check(mhz("14.151"), Mode.DATA, GENERAL).warnings == ()  # denied, near edge
+    assert check(mhz("29.701"), Mode.CW, EXTRA).warnings == ()  # not covered
+    # Denied, and the point beyond the nearby 14.150 edge isn't allowed either,
+    # so a warning would fire if denied results were checked.
+    assert check(mhz("14.149"), Mode.PHONE, GENERAL).warnings == ()

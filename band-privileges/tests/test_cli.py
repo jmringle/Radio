@@ -68,3 +68,14 @@ def test_999_mhz_is_valid_input_not_covered_no_khz_hint(capsys):
 
 def test_mode_and_class_are_case_insensitive(capsys):
     assert main(["14.074", "DATA", "General"]) == 0
+
+
+def test_warning_is_printed_after_the_result_and_notes(capsys):
+    code = main(["28.300", "phone", "technician"])
+    out = capsys.readouterr().out
+    assert code == 0  # a warning doesn't change the answer
+    assert out == (
+        "ALLOWED: phone is allowed here (§97.301(e), §97.305(c)(3)(xviii))\n"
+        "NOTE: SSB only (J3E/R3E), §97.307(f)(10)\n"
+        "WARNING: within 3 kHz of 28.300 MHz, where phone stops being allowed for technician\n"
+    )

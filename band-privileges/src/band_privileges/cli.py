@@ -70,4 +70,6 @@ def main(argv: list[str] | None = None) -> int:
     print(f"{label}: {result.reason}{cites}")
     for note in result.notes:
         print(f"NOTE: {note}")
+    for warning in result.warnings:
+        print(f"WARNING: {warning}")
     return code
