@@ -1,9 +1,16 @@
+[build-system]
+requires = ["setuptools>=84"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "band-privileges"
 version = "0.1.0"
 description = "Check US amateur HF band privileges (47 CFR Part 97) by frequency, mode and license class"
 requires-python = ">=3.12"
 dependencies = []
+
+[project.scripts]
+bandcheck = "band_privileges.cli:main"
 
 [tool.pytest.ini_options]
 # Lets tests import the src/ package without installing it.

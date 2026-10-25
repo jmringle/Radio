@@ -2,7 +2,7 @@
 
 Answers "can I operate here?" for US amateur HF: given a frequency, a mode and a license class (Technician, General, Extra), it says whether that's allowed and cites the 47 CFR Part 97 section. It only reads rules; it never talks to a radio or transmits.
 
-Status: in progress. The rule engine covers every v1 HF band (160-10 m; 60 m is deferred); the command line and near-edge warnings come next.
+Status: in progress. Every v1 HF band (160-10 m; 60 m is deferred) and the `bandcheck` command work; near-edge warnings come next. **Until they exist, don't rely on an "allowed" answer within a few kHz of a segment edge**: your signal has width (an LSB voice signal at 7.177 MHz reaches down to about 7.174, below General's 7.175 edge).
 
 ## Setup
 
@@ -11,23 +11,32 @@ Requires Python 3.12 or newer (CI uses 3.15).
 1. `cd band-privileges`
 2. `python3 -m venv .venv && source .venv/bin/activate`
 3. `pip install -r requirements-dev.txt`
+4. `pip install -e .` (installs the `bandcheck` command into the venv)
 
 No configuration or secrets are needed.
 
 ## Usage
 
-The CLI isn't built yet, and the package isn't installable yet. From `band-privileges/`, run Python with `src` on the path (`PYTHONPATH=src python`):
+`bandcheck <MHz> <mode> <class>`. Modes: `cw`, `phone`, `data`, `image`. Classes: `technician`, `general`, `extra`. Case doesn't matter.
 
-```python
-from band_privileges import LicenseClass, Mode, check, mhz
-
-check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)
-# Result(status=<Status.ALLOWED: 'allowed'>, reason='data is allowed here', citations=('§97.301(d)', '§97.305(c)(3)(ix)'), notes=())
 ```
+$ bandcheck 14.074 data general
+ALLOWED: data is allowed here (§97.301(d), §97.305(c)(3)(ix))
+$ bandcheck 28.4 phone technician
+ALLOWED: phone is allowed here (§97.301(e), §97.305(c)(3)(xviii))
+NOTE: SSB only (J3E/R3E), §97.307(f)(10)
+$ bandcheck 14074 data general
+usage: bandcheck [-h] freq mode class
+bandcheck: error: argument freq: 14074 MHz is 1 GHz or more; did you mean 14.074 MHz?
+```
+
+Exit codes: `0` allowed, `1` denied, `2` bad input, `3` not covered, so scripts can check `$?`.
+
+From Python: `check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)` returns a `Result` with `status`, `reason`, `citations` and `notes`.
 
 ## Running tests
 
-`pytest` from `band-privileges/`. The tests are pure logic, with no hardware or network. CI runs the same command on every push that touches this folder.
+`pytest` from `band-privileges/`. The rule and CLI tests are pure logic, with no hardware or network. `tests/test_cli_installed.py` runs the real `bandcheck` command, so it needs step 4 of Setup. CI runs the same command on every push that touches this folder.
 
 ## Design notes
 
