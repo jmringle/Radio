@@ -16,13 +16,13 @@ No configuration or secrets are needed.
 
 ## Usage
 
-The CLI isn't built yet. From Python:
+The CLI isn't built yet, and the package isn't installable yet. From `band-privileges/`, run Python with `src` on the path (`PYTHONPATH=src python`):
 
 ```python
 from band_privileges import LicenseClass, Mode, check, mhz
 
 check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)
-# Result(allowed=True, reason='data is allowed here', citations=('§97.301(d)', '§97.305(c)(3)(ix)'))
+# Result(allowed=True, reason='data is allowed here', citations=('§97.301(d)', '§97.305(c)(3)(ix)'), notes=())
 ```
 
 ## Running tests

@@ -3,500 +3,256 @@
 import pytest
 
 from band_privileges import LicenseClass, Mode, check, mhz
+from band_privileges import rules
 
 EXTRA = LicenseClass.EXTRA
 GENERAL = LicenseClass.GENERAL
 TECH = LicenseClass.TECHNICIAN
+CW, PHONE, DATA, IMAGE = Mode.CW, Mode.PHONE, Mode.DATA, Mode.IMAGE
 
-
-def test_ft8_on_20m_is_allowed_for_general_with_citations():
-    result = check(mhz("14.074"), Mode.DATA, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(ix)")
+# (band, MHz, mode, class, allowed, a citation that must be in the result).
+# Denials cite what decided them: §97.301 (no privileges), §97.305(c) (mode not
+# authorized there) or a §97.307 restriction. CW cites §97.305(a).
+CASES = [
+    # 160 m (§97.305 files it under MF, so (c)(2), not (c)(3))
+    ("160m", "1.810", CW, GENERAL, True, "§97.305(a)"),
+    ("160m", "1.810", CW, TECH, False, "§97.301"),  # no Technician privileges
+    ("160m", "1.950", IMAGE, GENERAL, True, "§97.305(c)(2)(iv)"),
+    ("160m", "1.990", DATA, GENERAL, True, "§97.305(c)(2)(iii)"),  # data across the band
+    ("160m", "1.800", CW, GENERAL, True, "§97.305(a)"),
+    ("160m", "1.799999", CW, EXTRA, False, "§97.301"),
+    ("160m", "2.000", PHONE, GENERAL, True, "§97.305(c)(2)(iv)"),
+    ("160m", "2.000001", CW, EXTRA, False, "§97.301"),
+    # 80/75 m
+    ("80m", "3.510", CW, EXTRA, True, "§97.305(a)"),  # 3.500-3.525 is Extra only
+    ("80m", "3.700", PHONE, GENERAL, False, "§97.301"),  # General gap 3.600-3.800
+    ("80m", "3.700", PHONE, EXTRA, True, "§97.305(c)(3)(ii)"),
+    ("80m", "3.900", IMAGE, GENERAL, True, "§97.305(c)(3)(ii)"),
+    ("80m", "3.550", IMAGE, EXTRA, False, "§97.305(c)"),  # data/CW only below 3.600
+    ("80m", "3.700", DATA, EXTRA, False, "§97.305(c)"),  # phone/image only above 3.600
+    ("80m", "3.550", CW, TECH, True, "§97.305(a)"),
+    ("80m", "3.580", DATA, TECH, False, "§97.307(f)(9)"),  # Technician CW only
+    ("80m", "3.500", CW, EXTRA, True, "§97.305(a)"),
+    ("80m", "3.499999", CW, EXTRA, False, "§97.301"),
+    ("80m", "4.000", PHONE, EXTRA, True, "§97.305(c)(3)(ii)"),
+    ("80m", "4.000001", CW, EXTRA, False, "§97.301"),
+    ("80m", "3.524999", CW, GENERAL, False, "§97.301"),
+    ("80m", "3.799999", PHONE, GENERAL, False, "§97.301"),
+    ("80m", "3.800", PHONE, GENERAL, True, "§97.305(c)(3)(ii)"),
+    # Shared data/phone edge 3.600 (inclusive); Technician non-CW denied on it.
+    ("80m", "3.600", DATA, GENERAL, True, "§97.305(c)(3)(i)"),
+    ("80m", "3.600", PHONE, GENERAL, True, "§97.305(c)(3)(ii)"),
+    ("80m", "3.600", CW, TECH, True, "§97.305(a)"),
+    ("80m", "3.600", PHONE, TECH, False, "§97.307(f)(9)"),
+    ("80m", "3.600001", CW, TECH, False, "§97.301"),
+    # 40 m
+    ("40m", "7.010", CW, EXTRA, True, "§97.305(a)"),  # 7.000-7.025 is Extra only
+    ("40m", "7.110", DATA, EXTRA, True, "§97.305(c)(3)(vi)"),
+    ("40m", "7.200", DATA, EXTRA, False, "§97.305(c)"),  # phone/image only above 7.125
+    ("40m", "7.200", IMAGE, EXTRA, True, "§97.305(c)(3)(vii)"),
+    ("40m", "7.050", IMAGE, EXTRA, False, "§97.305(c)"),
+    ("40m", "7.050", CW, TECH, True, "§97.305(a)"),
+    ("40m", "7.074", DATA, TECH, False, "§97.307(f)(9)"),  # Technician CW only
+    ("40m", "7.000", CW, EXTRA, True, "§97.305(a)"),
+    ("40m", "7.300", PHONE, EXTRA, True, "§97.305(c)(3)(vii)"),
+    ("40m", "7.300001", CW, EXTRA, False, "§97.301"),
+    ("40m", "7.024999", CW, GENERAL, False, "§97.301"),
+    ("40m", "7.025", CW, GENERAL, True, "§97.305(a)"),
+    ("40m", "7.125001", DATA, GENERAL, False, "§97.301"),  # General gap 7.125-7.175
+    ("40m", "7.174999", PHONE, GENERAL, False, "§97.301"),
+    ("40m", "7.175", PHONE, GENERAL, True, "§97.305(c)(3)(vii)"),
+    # Shared edges: 7.100 data (iv)/(vi) cites the first; 7.125 data/phone.
+    ("40m", "7.100", DATA, GENERAL, True, "§97.305(c)(3)(iv)"),
+    ("40m", "7.125", DATA, GENERAL, True, "§97.305(c)(3)(vi)"),
+    ("40m", "7.125", PHONE, GENERAL, True, "§97.305(c)(3)(vii)"),
+    # Region-limited phone/image 7.075-7.100 (§97.307(f)(11)), both edges.
+    ("40m", "7.090", PHONE, EXTRA, False, "§97.307(f)(11)"),
+    ("40m", "7.075", PHONE, EXTRA, False, "§97.307(f)(11)"),
+    ("40m", "7.100", PHONE, EXTRA, False, "§97.307(f)(11)"),
+    ("40m", "7.090", IMAGE, EXTRA, False, "§97.307(f)(11)"),
+    ("40m", "7.074999", PHONE, EXTRA, False, "§97.305(c)"),
+    # Technician edges; 7.125 is also the start of (vii), and Tech is denied.
+    ("40m", "7.024999", CW, TECH, False, "§97.301"),
+    ("40m", "7.025", CW, TECH, True, "§97.305(a)"),
+    ("40m", "7.125", CW, TECH, True, "§97.305(a)"),
+    ("40m", "7.125001", CW, TECH, False, "§97.301"),
+    ("40m", "7.100", PHONE, TECH, False, "§97.307(f)(9)"),
+    ("40m", "7.125", PHONE, TECH, False, "§97.307(f)(9)"),
+    ("40m", "7.125", IMAGE, TECH, False, "§97.307(f)(9)"),
+    # 30 m: data and CW only, no phone/image anywhere
+    ("30m", "10.110", CW, EXTRA, True, "§97.305(a)"),
+    ("30m", "10.120", PHONE, EXTRA, False, "§97.305(c)"),
+    ("30m", "10.120", IMAGE, GENERAL, False, "§97.305(c)"),
+    ("30m", "10.136", DATA, TECH, False, "§97.301"),  # no Technician privileges
+    ("30m", "10.100", DATA, GENERAL, True, "§97.305(c)(3)(viii)"),
+    ("30m", "10.099999", CW, EXTRA, False, "§97.301"),
+    ("30m", "10.150", DATA, EXTRA, True, "§97.305(c)(3)(viii)"),
+    ("30m", "10.150001", CW, GENERAL, False, "§97.301"),
+    # 20 m
+    ("20m", "13.000", CW, EXTRA, False, "§97.301"),  # inside HF, not an amateur band
+    ("20m", "14.010", CW, EXTRA, True, "§97.305(a)"),  # 14.000-14.025 is Extra only
+    ("20m", "14.010", CW, GENERAL, False, "§97.301"),
+    ("20m", "14.200", PHONE, EXTRA, True, "§97.305(c)(3)(x)"),
+    ("20m", "14.200", PHONE, GENERAL, False, "§97.301"),  # General phone starts 14.225
+    ("20m", "14.250", PHONE, GENERAL, True, "§97.305(c)(3)(x)"),
+    ("20m", "14.074", PHONE, GENERAL, False, "§97.305(c)"),  # phone only above 14.15
+    ("20m", "14.250", DATA, GENERAL, False, "§97.305(c)"),  # data only below 14.15
+    ("20m", "14.074", DATA, TECH, False, "§97.301"),  # no Technician privileges
+    # 17 m
+    ("17m", "18.080", CW, EXTRA, True, "§97.305(a)"),
+    ("17m", "18.100", DATA, TECH, False, "§97.301"),  # no Technician privileges
+    ("17m", "18.130", DATA, EXTRA, False, "§97.305(c)"),  # phone/image only above 18.110
+    ("17m", "18.100", PHONE, GENERAL, False, "§97.305(c)"),  # data/CW only below 18.110
+    ("17m", "18.150", IMAGE, GENERAL, True, "§97.305(c)(3)(xii)"),
+    ("17m", "18.068", CW, GENERAL, True, "§97.305(a)"),
+    ("17m", "18.067999", CW, EXTRA, False, "§97.301"),
+    ("17m", "18.168", PHONE, EXTRA, True, "§97.305(c)(3)(xii)"),
+    ("17m", "18.168001", CW, GENERAL, False, "§97.301"),
+    ("17m", "18.110", DATA, GENERAL, True, "§97.305(c)(3)(xi)"),  # shared edge
+    ("17m", "18.110", PHONE, GENERAL, True, "§97.305(c)(3)(xii)"),
+    # 15 m
+    ("15m", "21.010", CW, EXTRA, True, "§97.305(a)"),  # 21.000-21.025 is Extra only
+    ("15m", "21.250", PHONE, GENERAL, False, "§97.301"),  # General gap 21.200-21.275
+    ("15m", "21.250", PHONE, EXTRA, True, "§97.305(c)(3)(xiv)"),
+    ("15m", "21.300", IMAGE, GENERAL, True, "§97.305(c)(3)(xiv)"),
+    ("15m", "21.100", IMAGE, EXTRA, False, "§97.305(c)"),  # data/CW only below 21.2
+    ("15m", "21.300", DATA, GENERAL, False, "§97.305(c)"),  # phone/image only above 21.2
+    ("15m", "21.050", CW, TECH, True, "§97.305(a)"),
+    ("15m", "21.074", DATA, TECH, False, "§97.307(f)(9)"),  # Technician CW only
+    ("15m", "21.000", CW, EXTRA, True, "§97.305(a)"),
+    ("15m", "20.999999", CW, EXTRA, False, "§97.301"),
+    ("15m", "21.450", PHONE, EXTRA, True, "§97.305(c)(3)(xiv)"),
+    ("15m", "21.450001", CW, EXTRA, False, "§97.301"),
+    ("15m", "21.024999", CW, GENERAL, False, "§97.301"),
+    ("15m", "21.274999", PHONE, GENERAL, False, "§97.301"),
+    ("15m", "21.275", PHONE, GENERAL, True, "§97.305(c)(3)(xiv)"),
+    # Shared data/phone edge 21.200 (inclusive); Technician non-CW denied on it.
+    ("15m", "21.200", DATA, GENERAL, True, "§97.305(c)(3)(xiii)"),
+    ("15m", "21.200", PHONE, GENERAL, True, "§97.305(c)(3)(xiv)"),
+    ("15m", "21.200", CW, TECH, True, "§97.305(a)"),
+    ("15m", "21.200", PHONE, TECH, False, "§97.307(f)(9)"),
+    ("15m", "21.200001", CW, TECH, False, "§97.301"),
+    # 12 m
+    ("12m", "24.900", CW, EXTRA, True, "§97.305(a)"),
+    ("12m", "24.915", DATA, TECH, False, "§97.301"),  # no Technician privileges
+    ("12m", "24.950", DATA, EXTRA, False, "§97.305(c)"),  # phone/image only above 24.93
+    ("12m", "24.915", PHONE, GENERAL, False, "§97.305(c)"),  # data/CW only below 24.93
+    ("12m", "24.970", IMAGE, GENERAL, True, "§97.305(c)(3)(xvi)"),
+    ("12m", "24.890", CW, GENERAL, True, "§97.305(a)"),
+    ("12m", "24.889999", CW, EXTRA, False, "§97.301"),
+    ("12m", "24.990", PHONE, EXTRA, True, "§97.305(c)(3)(xvi)"),
+    ("12m", "24.990001", CW, GENERAL, False, "§97.301"),
+    ("12m", "24.930", DATA, GENERAL, True, "§97.305(c)(3)(xv)"),  # shared edge
+    ("12m", "24.930", PHONE, GENERAL, True, "§97.305(c)(3)(xvi)"),
+    # 10 m
+    ("10m", "28.010", CW, EXTRA, True, "§97.305(a)"),
+    ("10m", "28.400", DATA, EXTRA, False, "§97.305(c)"),  # data only below 28.3
+    ("10m", "28.200", PHONE, GENERAL, False, "§97.305(c)"),  # phone only above 28.3
+    ("10m", "28.400", IMAGE, GENERAL, True, "§97.305(c)(3)(xviii)"),  # (f)(10) is Tech-only
+    ("10m", "28.000", CW, GENERAL, True, "§97.305(a)"),
+    ("10m", "27.999999", CW, EXTRA, False, "§97.301"),
+    ("10m", "29.700", PHONE, EXTRA, True, "§97.305(c)(3)(xx)"),
+    ("10m", "29.700001", CW, GENERAL, False, "§97.301"),
+    ("10m", "28.500", PHONE, GENERAL, True, "§97.305(c)(3)(xviii)"),  # shared: first cited
+    ("10m", "29.000", PHONE, GENERAL, True, "§97.305(c)(3)(xix)"),
+    # Technician: data on 28.0-28.3 (no §97.307(f)(9) there), CW or SSB phone
+    # on 28.3-28.5 (§97.307(f)(10)), nothing above 28.5.
+    ("10m", "28.000", DATA, TECH, True, "§97.305(c)(3)(xvii)"),
+    ("10m", "28.300", DATA, TECH, True, "§97.305(c)(3)(xvii)"),
+    ("10m", "28.299999", PHONE, TECH, False, "§97.305(c)"),
+    ("10m", "28.400", IMAGE, TECH, False, "§97.307(f)(10)"),
+    ("10m", "28.300", IMAGE, TECH, False, "§97.307(f)(10)"),
+    ("10m", "28.500", CW, TECH, True, "§97.305(a)"),
+    ("10m", "28.500001", CW, TECH, False, "§97.301"),
+    ("10m", "28.600", PHONE, TECH, False, "§97.301"),
+]
 
 
 @pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed"),
+    ("band", "freq", "mode", "license_class", "allowed", "cite"),
+    CASES,
+    ids=[f"{b}-{f}-{m.value}-{c.value}" for b, f, m, c, _, _ in CASES],
+)
+def test_privileges(band, freq, mode, license_class, allowed, cite):
+    result = check(mhz(freq), mode, license_class)
+    assert result.allowed is allowed
+    assert cite in result.citations
+
+
+# The full citation tuple, in order: the §97.301 privilege first, then what
+# authorized (or denied) the mode.
+EXACT_CITATIONS = [
+    ("1.840", DATA, EXTRA, ("§97.301(b)", "§97.305(c)(2)(iii)")),
+    ("1.900", PHONE, GENERAL, ("§97.301(d)", "§97.305(c)(2)(iv)")),
+    ("3.580", DATA, GENERAL, ("§97.301(d)", "§97.305(c)(3)(i)")),
+    ("3.900", PHONE, GENERAL, ("§97.301(d)", "§97.305(c)(3)(ii)")),
+    ("7.074", DATA, GENERAL, ("§97.301(d)", "§97.305(c)(3)(iv)")),
+    ("7.150", PHONE, GENERAL, ("§97.301",)),  # General gap: no privilege to cite
+    ("7.200", PHONE, GENERAL, ("§97.301(d)", "§97.305(c)(3)(vii)")),
+    ("10.136", DATA, GENERAL, ("§97.301(d)", "§97.305(c)(3)(viii)")),
+    ("14.074", DATA, GENERAL, ("§97.301(d)", "§97.305(c)(3)(ix)")),
+    ("18.100", DATA, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xi)")),
+    ("18.130", PHONE, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xii)")),
+    ("21.074", DATA, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xiii)")),
+    ("21.300", PHONE, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xiv)")),
+    ("24.915", DATA, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xv)")),
+    ("24.950", PHONE, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xvi)")),
+    ("28.074", DATA, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xvii)")),
+    ("28.400", PHONE, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xviii)")),
+    ("28.700", PHONE, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xix)")),
+    ("29.600", PHONE, GENERAL, ("§97.301(d)", "§97.305(c)(3)(xx)")),
+    # §97.305(c)(3)(xvii) doesn't reference §97.307(f)(9), so a Technician may
+    # use data/RTTY on 28.0-28.3 (the only HF band where that's true).
+    ("28.074", DATA, TECH, ("§97.301(e)", "§97.305(c)(3)(xvii)")),
+]
+
+
+@pytest.mark.parametrize(("freq", "mode", "license_class", "citations"), EXACT_CITATIONS)
+def test_exact_citations(freq, mode, license_class, citations):
+    assert check(mhz(freq), mode, license_class).citations == citations
+
+
+SSB_ONLY = ("SSB only (J3E/R3E), §97.307(f)(10)",)
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "license_class", "notes"),
     [
-        ("14.010", Mode.CW, EXTRA, True),  # 14.000-14.025 is Extra only
-        ("14.010", Mode.CW, GENERAL, False),
-        ("14.200", Mode.PHONE, EXTRA, True),
-        ("14.200", Mode.PHONE, GENERAL, False),  # General phone starts 14.225
-        ("14.250", Mode.PHONE, GENERAL, True),
-        ("14.074", Mode.PHONE, GENERAL, False),  # phone not allowed below 14.15
-        ("14.250", Mode.DATA, GENERAL, False),  # data not allowed above 14.15
-        ("14.074", Mode.DATA, TECH, False),  # no Technician privileges on 20 m
-        ("13.000", Mode.CW, EXTRA, False),  # not an amateur band
+        ("28.400", PHONE, TECH, SSB_ONLY),
+        ("28.300", PHONE, TECH, SSB_ONLY),  # edge
+        ("28.500", PHONE, TECH, SSB_ONLY),  # edge
+        ("28.400", PHONE, GENERAL, ()),  # the SSB-only rule is Technician-only
+        ("28.400", CW, TECH, ()),  # CW needs no note
+        ("28.074", DATA, TECH, ()),
     ],
 )
-def test_20m_privileges(freq, mode, license_class, allowed):
-    assert check(mhz(freq), mode, license_class).allowed is allowed
+def test_ssb_only_note_applies_only_to_technician_phone(freq, mode, license_class, notes):
+    result = check(mhz(freq), mode, license_class)
+    assert result.allowed
+    assert result.notes == notes
 
 
 def test_mhz_converts_without_float_rounding():
     assert mhz("14.150") == 14_150_000
 
 
-# 40 m: §97.301(b)/(d)/(e), §97.305(c)(3)(iv)-(vii), §97.307(f)(9)/(11)
-
-
-def test_40m_extra_only_cw_segment_is_allowed_for_extra():
-    assert check(mhz("7.010"), Mode.CW, EXTRA).allowed
-
-
-def test_40m_data_is_allowed_for_general_with_citations():
-    result = check(mhz("7.074"), Mode.DATA, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(iv)")
-
-
-def test_40m_general_has_no_privileges_in_the_7125_to_7175_gap():
-    result = check(mhz("7.150"), Mode.PHONE, GENERAL)
-    assert not result.allowed
-    assert result.citations == ("§97.301",)
-
-
-def test_40m_phone_above_7175_is_allowed_for_general_with_citations():
-    result = check(mhz("7.200"), Mode.PHONE, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(vii)")
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "allowed"),
-    [
-        ("7.110", Mode.DATA, True),  # §97.305(c)(3)(vi)
-        ("7.200", Mode.DATA, False),  # phone/image only above 7.125
-        ("7.200", Mode.IMAGE, True),  # §97.305(c)(3)(vii)
-        ("7.050", Mode.IMAGE, False),
-    ],
-)
-def test_40m_mode_segments_for_extra(freq, mode, allowed):
-    assert check(mhz(freq), mode, EXTRA).allowed is allowed
-
-
-def test_40m_phone_7075_to_7100_is_denied_for_continental_us_station():
-    result = check(mhz("7.090"), Mode.PHONE, EXTRA)
-    assert not result.allowed
-    assert "§97.307(f)(11)" in result.citations
-
-
-def test_40m_technician_may_use_cw():
-    assert check(mhz("7.050"), Mode.CW, TECH).allowed
-
-
-def test_40m_technician_data_is_denied_cw_only():
-    result = check(mhz("7.074"), Mode.DATA, TECH)
-    assert not result.allowed
-    assert "§97.307(f)(9)" in result.citations
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed"),
-    [
-        ("7.000", Mode.CW, EXTRA, True),  # lower band edge
-        ("7.300", Mode.PHONE, EXTRA, True),  # upper band edge
-        ("7.300001", Mode.CW, EXTRA, False),  # 1 Hz past the band
-        ("7.024999", Mode.CW, GENERAL, False),  # 1 Hz below General
-        ("7.025", Mode.CW, GENERAL, True),
-        # Shared edge 7.125: inside General's lower segment, and on both the
-        # data and phone mode segments (edges inclusive).
-        ("7.125", Mode.DATA, GENERAL, True),
-        ("7.125", Mode.PHONE, GENERAL, True),
-        ("7.125001", Mode.DATA, GENERAL, False),
-        ("7.175", Mode.PHONE, GENERAL, True),
-        ("7.174999", Mode.PHONE, GENERAL, False),
-    ],
-)
-def test_40m_edges(freq, mode, license_class, allowed):
-    assert check(mhz(freq), mode, license_class).allowed is allowed
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed", "cite"),
-    [
-        # Shared data edge (iv)/(vi): allowed, first segment cited.
-        ("7.100", Mode.DATA, GENERAL, True, "§97.305(c)(3)(iv)"),
-        # Region-limited phone/image segment 7.075-7.100, both edges.
-        ("7.075", Mode.PHONE, EXTRA, False, "§97.307(f)(11)"),
-        ("7.100", Mode.PHONE, EXTRA, False, "§97.307(f)(11)"),
-        ("7.090", Mode.IMAGE, EXTRA, False, "§97.307(f)(11)"),
-        ("7.074999", Mode.PHONE, EXTRA, False, "§97.305(c)"),
-        # Technician privilege edges and CW-only rule.
-        ("7.024999", Mode.CW, TECH, False, "§97.301"),
-        ("7.025", Mode.CW, TECH, True, "§97.305(a)"),
-        ("7.125", Mode.CW, TECH, True, "§97.305(a)"),
-        ("7.125001", Mode.CW, TECH, False, "§97.301"),
-        ("7.100", Mode.PHONE, TECH, False, "§97.307(f)(9)"),
-        # 7.125 is also the start of phone/image segment (vii); Tech is denied.
-        ("7.125", Mode.PHONE, TECH, False, "§97.307(f)(9)"),
-        ("7.125", Mode.IMAGE, TECH, False, "§97.307(f)(9)"),
-    ],
-)
-def test_40m_shared_and_restricted_edges(freq, mode, license_class, allowed, cite):
-    result = check(mhz(freq), mode, license_class)
-    assert result.allowed is allowed
-    assert cite in result.citations
-
-
-# 80/75 m: §97.301(b)/(d)/(e), §97.305(c)(3)(i)-(ii), §97.307(f)(9)
-
-
-def test_80m_extra_only_cw_segment_is_allowed_for_extra():
-    assert check(mhz("3.510"), Mode.CW, EXTRA).allowed
-
-
-def test_80m_data_is_allowed_for_general_with_citations():
-    result = check(mhz("3.580"), Mode.DATA, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(i)")
-
-
-def test_80m_phone_above_3800_is_allowed_for_general_with_citations():
-    result = check(mhz("3.900"), Mode.PHONE, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(ii)")
-
-
-def test_80m_technician_may_use_cw():
-    assert check(mhz("3.550"), Mode.CW, TECH).allowed
-
-
-def test_80m_technician_data_is_denied_cw_only():
-    result = check(mhz("3.580"), Mode.DATA, TECH)
-    assert not result.allowed
-    assert "§97.307(f)(9)" in result.citations
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed", "cite"),
-    [
-        ("3.700", Mode.PHONE, GENERAL, False, "§97.301"),  # General gap 3.600-3.800
-        ("3.700", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(ii)"),
-        ("3.900", Mode.IMAGE, GENERAL, True, "§97.305(c)(3)(ii)"),
-        ("3.550", Mode.IMAGE, EXTRA, False, "§97.305(c)"),  # data/CW only below 3.600
-        ("3.700", Mode.DATA, EXTRA, False, "§97.305(c)"),  # phone/image only above 3.600
-        # Band and class edges.
-        ("3.500", Mode.CW, EXTRA, True, "§97.305(a)"),
-        ("3.499999", Mode.CW, EXTRA, False, "§97.301"),
-        ("4.000", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(ii)"),
-        ("4.000001", Mode.CW, EXTRA, False, "§97.301"),
-        ("3.524999", Mode.CW, GENERAL, False, "§97.301"),
-        ("3.799999", Mode.PHONE, GENERAL, False, "§97.301"),
-        ("3.800", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(ii)"),
-        # Shared data/phone edge 3.600 (inclusive), and Tech denied on it.
-        ("3.600", Mode.DATA, GENERAL, True, "§97.305(c)(3)(i)"),
-        ("3.600", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(ii)"),
-        ("3.600", Mode.CW, TECH, True, "§97.305(a)"),
-        ("3.600", Mode.PHONE, TECH, False, "§97.307(f)(9)"),
-        ("3.600001", Mode.CW, TECH, False, "§97.301"),
-    ],
-)
-def test_80m_modes_and_edges(freq, mode, license_class, allowed, cite):
-    result = check(mhz(freq), mode, license_class)
-    assert result.allowed is allowed
-    assert cite in result.citations
-
-
-# 15 m: §97.301(b)/(d)/(e), §97.305(c)(3)(xiii)-(xiv), §97.307(f)(9)
-
-
-def test_15m_extra_only_cw_segment_is_allowed_for_extra():
-    assert check(mhz("21.010"), Mode.CW, EXTRA).allowed
-
-
-def test_15m_data_is_allowed_for_general_with_citations():
-    result = check(mhz("21.074"), Mode.DATA, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xiii)")
-
-
-def test_15m_phone_above_21275_is_allowed_for_general_with_citations():
-    result = check(mhz("21.300"), Mode.PHONE, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xiv)")
-
-
-def test_15m_technician_may_use_cw():
-    assert check(mhz("21.050"), Mode.CW, TECH).allowed
-
-
-def test_15m_technician_data_is_denied_cw_only():
-    result = check(mhz("21.074"), Mode.DATA, TECH)
-    assert not result.allowed
-    assert "§97.307(f)(9)" in result.citations
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed", "cite"),
-    [
-        ("21.250", Mode.PHONE, GENERAL, False, "§97.301"),  # General gap 21.200-21.275
-        ("21.250", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(xiv)"),
-        ("21.300", Mode.IMAGE, GENERAL, True, "§97.305(c)(3)(xiv)"),
-        ("21.100", Mode.IMAGE, EXTRA, False, "§97.305(c)"),  # data/CW only below 21.2
-        ("21.300", Mode.DATA, GENERAL, False, "§97.305(c)"),  # phone/image only above 21.2
-        # Band and class edges.
-        ("21.000", Mode.CW, EXTRA, True, "§97.305(a)"),
-        ("20.999999", Mode.CW, EXTRA, False, "§97.301"),
-        ("21.450", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(xiv)"),
-        ("21.450001", Mode.CW, EXTRA, False, "§97.301"),
-        ("21.024999", Mode.CW, GENERAL, False, "§97.301"),
-        ("21.274999", Mode.PHONE, GENERAL, False, "§97.301"),
-        ("21.275", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(xiv)"),
-        # Shared data/phone edge 21.200 (inclusive), and Tech denied on it.
-        ("21.200", Mode.DATA, GENERAL, True, "§97.305(c)(3)(xiii)"),
-        ("21.200", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(xiv)"),
-        ("21.200", Mode.CW, TECH, True, "§97.305(a)"),
-        ("21.200", Mode.PHONE, TECH, False, "§97.307(f)(9)"),
-        ("21.200001", Mode.CW, TECH, False, "§97.301"),
-    ],
-)
-def test_15m_modes_and_edges(freq, mode, license_class, allowed, cite):
-    result = check(mhz(freq), mode, license_class)
-    assert result.allowed is allowed
-    assert cite in result.citations
-
-
-# 160 m: §97.301(b)/(d), §97.305(c)(2)(iii)-(iv) (filed under MF, not HF)
-
-
-def test_160m_cw_is_allowed_for_general():
-    assert check(mhz("1.810"), Mode.CW, GENERAL).allowed
-
-
-def test_160m_data_is_allowed_for_extra_with_mf_citations():
-    result = check(mhz("1.840"), Mode.DATA, EXTRA)
-    assert result.allowed
-    assert result.citations == ("§97.301(b)", "§97.305(c)(2)(iii)")
-
-
-def test_160m_phone_is_allowed_for_general_with_mf_citations():
-    result = check(mhz("1.900"), Mode.PHONE, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(2)(iv)")
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed", "cite"),
-    [
-        ("1.810", Mode.CW, TECH, False, "§97.301"),  # no Technician privileges on 160 m
-        ("1.950", Mode.IMAGE, GENERAL, True, "§97.305(c)(2)(iv)"),
-        ("1.990", Mode.DATA, GENERAL, True, "§97.305(c)(2)(iii)"),  # data across the whole band
-        ("1.800", Mode.CW, GENERAL, True, "§97.305(a)"),
-        ("1.799999", Mode.CW, EXTRA, False, "§97.301"),
-        ("2.000", Mode.PHONE, GENERAL, True, "§97.305(c)(2)(iv)"),
-        ("2.000001", Mode.CW, EXTRA, False, "§97.301"),
-    ],
-)
-def test_160m_modes_and_edges(freq, mode, license_class, allowed, cite):
-    result = check(mhz(freq), mode, license_class)
-    assert result.allowed is allowed
-    assert cite in result.citations
-
-
-# 30 m: §97.301(b)/(d), §97.305(c)(3)(viii): data and CW only, no phone/image
-
-
-def test_30m_data_is_allowed_for_general_with_citations():
-    result = check(mhz("10.136"), Mode.DATA, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(viii)")
-
-
-def test_30m_cw_is_allowed_for_extra():
-    assert check(mhz("10.110"), Mode.CW, EXTRA).allowed
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed", "cite"),
-    [
-        ("10.120", Mode.PHONE, EXTRA, False, "§97.305(c)"),  # no phone anywhere on 30 m
-        ("10.120", Mode.IMAGE, GENERAL, False, "§97.305(c)"),
-        ("10.136", Mode.DATA, TECH, False, "§97.301"),  # no Technician privileges
-        ("10.100", Mode.DATA, GENERAL, True, "§97.305(c)(3)(viii)"),
-        ("10.099999", Mode.CW, EXTRA, False, "§97.301"),
-        ("10.150", Mode.DATA, EXTRA, True, "§97.305(c)(3)(viii)"),
-        ("10.150001", Mode.CW, GENERAL, False, "§97.301"),
-    ],
-)
-def test_30m_modes_and_edges(freq, mode, license_class, allowed, cite):
-    result = check(mhz(freq), mode, license_class)
-    assert result.allowed is allowed
-    assert cite in result.citations
-
-
-# 17 m: §97.301(b)/(d), §97.305(c)(3)(xi)-(xii)
-
-
-def test_17m_data_is_allowed_for_general_with_citations():
-    result = check(mhz("18.100"), Mode.DATA, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xi)")
-
-
-def test_17m_phone_is_allowed_for_general_with_citations():
-    result = check(mhz("18.130"), Mode.PHONE, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xii)")
-
-
-def test_17m_cw_is_allowed_for_extra():
-    assert check(mhz("18.080"), Mode.CW, EXTRA).allowed
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed", "cite"),
-    [
-        ("18.100", Mode.DATA, TECH, False, "§97.301"),  # no Technician privileges
-        ("18.130", Mode.DATA, EXTRA, False, "§97.305(c)"),  # phone/image only above 18.110
-        ("18.100", Mode.PHONE, GENERAL, False, "§97.305(c)"),  # data/CW only below 18.110
-        ("18.150", Mode.IMAGE, GENERAL, True, "§97.305(c)(3)(xii)"),
-        # Band edges.
-        ("18.068", Mode.CW, GENERAL, True, "§97.305(a)"),
-        ("18.067999", Mode.CW, EXTRA, False, "§97.301"),
-        ("18.168", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(xii)"),
-        ("18.168001", Mode.CW, GENERAL, False, "§97.301"),
-        # Shared data/phone edge 18.110 (inclusive).
-        ("18.110", Mode.DATA, GENERAL, True, "§97.305(c)(3)(xi)"),
-        ("18.110", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(xii)"),
-    ],
-)
-def test_17m_modes_and_edges(freq, mode, license_class, allowed, cite):
-    result = check(mhz(freq), mode, license_class)
-    assert result.allowed is allowed
-    assert cite in result.citations
-
-
-# 12 m: §97.301(b)/(d), §97.305(c)(3)(xv)-(xvi)
-
-
-def test_12m_data_is_allowed_for_general_with_citations():
-    result = check(mhz("24.915"), Mode.DATA, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xv)")
-
-
-def test_12m_phone_is_allowed_for_general_with_citations():
-    result = check(mhz("24.950"), Mode.PHONE, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xvi)")
-
-
-def test_12m_cw_is_allowed_for_extra():
-    assert check(mhz("24.900"), Mode.CW, EXTRA).allowed
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed", "cite"),
-    [
-        ("24.915", Mode.DATA, TECH, False, "§97.301"),  # no Technician privileges
-        ("24.950", Mode.DATA, EXTRA, False, "§97.305(c)"),  # phone/image only above 24.93
-        ("24.915", Mode.PHONE, GENERAL, False, "§97.305(c)"),  # data/CW only below 24.93
-        ("24.970", Mode.IMAGE, GENERAL, True, "§97.305(c)(3)(xvi)"),
-        # Band edges.
-        ("24.890", Mode.CW, GENERAL, True, "§97.305(a)"),
-        ("24.889999", Mode.CW, EXTRA, False, "§97.301"),
-        ("24.990", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(xvi)"),
-        ("24.990001", Mode.CW, GENERAL, False, "§97.301"),
-        # Shared data/phone edge 24.930 (inclusive).
-        ("24.930", Mode.DATA, GENERAL, True, "§97.305(c)(3)(xv)"),
-        ("24.930", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(xvi)"),
-    ],
-)
-def test_12m_modes_and_edges(freq, mode, license_class, allowed, cite):
-    result = check(mhz(freq), mode, license_class)
-    assert result.allowed is allowed
-    assert cite in result.citations
-
-
-# 10 m: §97.301(b)/(d)/(e), §97.305(c)(3)(xvii)-(xx), §97.307(f)(10)
-
-
-def test_10m_data_is_allowed_for_general_with_citations():
-    result = check(mhz("28.074"), Mode.DATA, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xvii)")
-
-
-@pytest.mark.parametrize(
-    ("freq", "cite"),
-    [
-        ("28.400", "§97.305(c)(3)(xviii)"),
-        ("28.700", "§97.305(c)(3)(xix)"),
-        ("29.600", "§97.305(c)(3)(xx)"),
-    ],
-)
-def test_10m_phone_segments_are_allowed_for_general(freq, cite):
-    result = check(mhz(freq), Mode.PHONE, GENERAL)
-    assert result.allowed
-    assert result.citations == ("§97.301(d)", cite)
-
-
-def test_10m_cw_is_allowed_for_extra():
-    assert check(mhz("28.010"), Mode.CW, EXTRA).allowed
-
-
-def test_10m_technician_data_is_allowed_no_cw_only_rule():
-    # §97.305(c)(3)(xvii) doesn't reference §97.307(f)(9), so a Technician
-    # may use data/RTTY on 28.0-28.3 (the only HF band where that's true).
-    result = check(mhz("28.074"), Mode.DATA, TECH)
-    assert result.allowed
-    assert result.citations == ("§97.301(e)", "§97.305(c)(3)(xvii)")
-
-
-def test_10m_technician_image_is_denied_cw_and_ssb_only():
-    result = check(mhz("28.400"), Mode.IMAGE, TECH)
-    assert not result.allowed
-    assert "§97.307(f)(10)" in result.citations
-
-
-def test_10m_technician_phone_is_allowed_with_ssb_only_note():
-    result = check(mhz("28.400"), Mode.PHONE, TECH)
-    assert result.allowed
-    assert result.notes == ("SSB only (J3E/R3E), §97.307(f)(10)",)
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "allowed", "cite"),
-    [
-        ("28.400", Mode.DATA, EXTRA, False, "§97.305(c)"),  # data only below 28.3
-        ("28.200", Mode.PHONE, GENERAL, False, "§97.305(c)"),  # phone only above 28.3
-        ("28.400", Mode.IMAGE, GENERAL, True, "§97.305(c)(3)(xviii)"),  # (f)(10) is Tech-only
-        # Band edges.
-        ("28.000", Mode.CW, GENERAL, True, "§97.305(a)"),
-        ("27.999999", Mode.CW, EXTRA, False, "§97.301"),
-        ("29.700", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(xx)"),
-        ("29.700001", Mode.CW, GENERAL, False, "§97.301"),
-        # Shared phone edges: first segment cited.
-        ("28.500", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(xviii)"),
-        ("29.000", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(xix)"),
-        # Technician edges and shared edge 28.300 (inclusive).
-        ("28.000", Mode.DATA, TECH, True, "§97.305(c)(3)(xvii)"),
-        ("28.300", Mode.DATA, TECH, True, "§97.305(c)(3)(xvii)"),
-        ("28.299999", Mode.PHONE, TECH, False, "§97.305(c)"),
-        ("28.300", Mode.IMAGE, TECH, False, "§97.307(f)(10)"),
-        ("28.500", Mode.CW, TECH, True, "§97.305(a)"),
-        ("28.500001", Mode.CW, TECH, False, "§97.301"),
-        ("28.600", Mode.PHONE, TECH, False, "§97.301"),
-    ],
-)
-def test_10m_modes_and_edges(freq, mode, license_class, allowed, cite):
-    result = check(mhz(freq), mode, license_class)
-    assert result.allowed is allowed
-    assert cite in result.citations
-
-
-@pytest.mark.parametrize(
-    ("freq", "mode", "license_class", "notes"),
-    [
-        ("28.300", Mode.PHONE, TECH, ("SSB only (J3E/R3E), §97.307(f)(10)",)),  # edge
-        ("28.500", Mode.PHONE, TECH, ("SSB only (J3E/R3E), §97.307(f)(10)",)),  # edge
-        ("28.400", Mode.PHONE, GENERAL, ()),  # the SSB-only rule is Technician-only
-        ("28.400", Mode.CW, TECH, ()),  # CW needs no note
-        ("28.074", Mode.DATA, TECH, ()),
-    ],
-)
-def test_10m_ssb_only_note_applies_only_to_technician_phone(freq, mode, license_class, notes):
-    result = check(mhz(freq), mode, license_class)
-    assert result.allowed
-    assert result.notes == notes
+def _all_segment_lists():
+    yield from rules.PRIVILEGES.values()
+    yield from rules.EMISSIONS.values()
+
+
+def test_tables_are_in_frequency_order():
+    # On a shared edge the first matching segment is cited, so order matters.
+    for segments in _all_segment_lists():
+        lows = [s.low_hz for s in segments]
+        assert lows == sorted(lows)
+
+
+def test_mode_and_restriction_segments_lie_inside_an_amateur_band():
+    # Catches a typo like 2.18 for 21.8: every segment must sit inside one of
+    # Extra's §97.301(b) bands, which cover every other class's privileges.
+    bands = rules.PRIVILEGES[EXTRA]
+    segments = [s for segs in _all_segment_lists() for s in segs]
+    segments += [r.segment for r in rules.RESTRICTIONS + rules.NOTES]
+    for s in segments:
+        assert any(b.low_hz <= s.low_hz and s.high_hz <= b.high_hz for b in bands), s
