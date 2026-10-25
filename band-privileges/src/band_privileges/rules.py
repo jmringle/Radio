@@ -9,7 +9,7 @@ Frequencies are integer Hz so band edges compare exactly (floats can't hold
 README's acceptance criteria.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from fractions import Fraction
@@ -71,6 +71,7 @@ class Result:
     reason: str
     citations: tuple[str, ...]
     notes: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
 
     @property
     def allowed(self) -> bool:
@@ -242,7 +243,7 @@ def _find(segments: list[Segment], freq_hz: int) -> Segment | None:
     return next((s for s in segments if s.contains(freq_hz)), None)
 
 
-def check(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
+def _decide(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
     # Order matters: privileges first, then CW (allowed anywhere with
     # privileges), then RESTRICTIONS before EMISSIONS, so a Technician on a
     # shared edge like 7.125 is denied (the safe reading). Scope comes before
@@ -288,3 +289,57 @@ def check(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
     return Result(
         Status.ALLOWED, f"{mode.value} is allowed here", (privilege.cite, emission.cite), notes
     )
+
+
+def check(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
+    result = _decide(freq_hz, mode, license_class)
+    if not result.allowed:
+        return result
+    return replace(result, warnings=_edge_warnings(freq_hz, mode, license_class))
+
+
+# Every segment edge in every table. The answer can only change at one of
+# these, so they're the only places a signal's width can cross into trouble.
+_EDGES = sorted(
+    {
+        edge
+        for segments in [
+            *PRIVILEGES.values(),
+            *EMISSIONS.values(),
+            [r.segment for r in RESTRICTIONS],
+            [HF_SCOPE, SIXTY_METERS],
+        ]
+        for segment in segments
+        for edge in (segment.low_hz, segment.high_hz)
+    }
+)
+
+
+def _edge_warnings(freq_hz: int, mode: Mode, license_class: LicenseClass) -> tuple[str, ...]:
+    # A signal has width, so warn when an edge is within the margin on either
+    # side, but only if the point 1 Hz beyond that edge isn't allowed for this
+    # class and mode (e.g. no warning at 7.100 for Extra data: (vi) continues).
+    margin_hz = 1_000 if mode is Mode.CW else 3_000
+    warnings = []
+    for edge in _EDGES:
+        if abs(edge - freq_hz) > margin_hz:
+            continue
+        if edge > freq_hz:
+            beyond = [edge + 1]
+        elif edge < freq_hz:
+            beyond = [edge - 1]
+        else:  # exactly on the edge: either side may be the problem
+            beyond = [edge - 1, edge + 1]
+        if any(not _decide(point, mode, license_class).allowed for point in beyond):
+            warnings.append(
+                f"within {margin_hz // 1000} kHz of {_format_mhz(edge)} MHz, where "
+                f"{mode.value} stops being allowed for {license_class.value}"
+            )
+    return tuple(warnings)
+
+
+def _format_mhz(freq_hz: int) -> str:
+    """14150000 -> "14.150": MHz with at least 3 decimal places."""
+    text = f"{Decimal(freq_hz).scaleb(-6):f}"
+    whole, _, decimals = text.partition(".")
+    return f"{whole}.{decimals.rstrip('0').ljust(3, '0')}"

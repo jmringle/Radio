@@ -2,7 +2,7 @@
 
 Answers "can I operate here?" for US amateur HF: given a frequency, a mode and a license class (Technician, General, Extra), it says whether that's allowed and cites the 47 CFR Part 97 section. It only reads rules; it never talks to a radio or transmits.
 
-Status: in progress. Every v1 HF band (160-10 m; 60 m is deferred) and the `bandcheck` command work; near-edge warnings come next. **Until they exist, don't rely on an "allowed" answer within a few kHz of a segment edge**: your signal has width (an LSB voice signal at 7.177 MHz reaches down to about 7.174, below General's 7.175 edge).
+Status: v1 complete. Every v1 HF band (160-10 m; 60 m is deferred), the `bandcheck` command and near-edge warnings work. A WARNING means your signal's width may cross an edge (an LSB voice signal at 7.177 MHz reaches down to about 7.174, below General's 7.175 edge); the tool doesn't model sidebands, so it warns on both sides.
 
 ## Setup
 
@@ -25,6 +25,9 @@ ALLOWED: data is allowed here (§97.301(d), §97.305(c)(3)(ix))
 $ bandcheck 28.4 phone technician
 ALLOWED: phone is allowed here (§97.301(e), §97.305(c)(3)(xviii))
 NOTE: SSB only (J3E/R3E), §97.307(f)(10)
+$ bandcheck 7.177 phone general
+ALLOWED: phone is allowed here (§97.301(d), §97.305(c)(3)(vii))
+WARNING: within 3 kHz of 7.175 MHz, where phone stops being allowed for general
 $ bandcheck 14074 data general
 usage: bandcheck [-h] freq mode class
 bandcheck: error: argument freq: 14074 MHz is 1 GHz or more; did you mean 14.074 MHz?
@@ -47,13 +50,13 @@ From Python: `check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)` returns a `
 - **Result:** allowed/denied, a plain reason, and the §97.301 / §97.305 / §97.307 sections that decided it. Plain text, for example:
   ```
   ALLOWED: data is allowed here (§97.301(d), §97.305(c)(3)(ix))
-  WARNING: within 3 kHz of the 14.150 MHz data/phone edge
+  WARNING: within 3 kHz of 14.150 MHz, where data stops being allowed for general
   ```
 - **Exit codes:** `0` allowed, `1` denied, `2` bad input, `3` not covered.
 - CW is allowed anywhere the class has privileges (§97.305(a)).
 - Technician HF limits follow §97.307(f)(9) (CW only on 80/40/15 m) and (f)(10). Tech phone on 28.3–28.5 MHz is allowed with a note: "SSB only (J3E/R3E), §97.307(f)(10)". On an edge shared with a CW-only segment (e.g. 7.125 MHz, also the start of phone segment (vii)), a Technician's non-CW mode is denied. That's the safe reading of inclusive edges. The 28.300 MHz edge isn't CW-only, so Technician data there stays allowed (row (xvii)), like every other shared edge; the near-edge warning covers the spill into 28.3–28.5.
 - **Shared edges:** edges are inclusive at both ends, so a frequency on a shared edge (e.g. 14.150) is inside both segments. Each shared edge gets a test.
-- **Near-edge warning:** an allowed result warns when the frequency is within 1 kHz (CW) or 3 kHz (phone, data, image), on either side, of an edge that limits this class and mode (band, class segment, or mode segment).
+- **Near-edge warning:** an allowed result warns when the frequency is within 1 kHz (CW) or 3 kHz (phone, data, image), on either side, of an edge that limits this class and mode (band, class segment, or mode segment). An edge limits only if the point 1 Hz beyond it isn't allowed, so 7.100 doesn't warn for Extra data (row (vi) continues). Warnings never change the answer or the exit code.
 - Frequencies inside HF but outside every amateur band are denied, not errors.
 - **Not covered (exit 3):** 60 m (5.3305–5.4065 MHz) and anything outside 1.8–29.7 MHz. Never "allowed" or "denied". The engine answers this itself (`Status.NOT_COVERED`), so every front end gets it.
 - **Bad input (exit 2), with a clear message:** non-numeric, `nan`/`inf`, zero or negative, more than 6 decimal places, unknown mode or class, missing arguments. The frequency checks live in `mhz()`, which raises only `ValueError`; mode, class and argument checks belong to the CLI. A number of 1000 or more gets the hint "did you mean <n/1000> MHz?" (people often type kHz). Never silently "allowed".
