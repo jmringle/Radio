@@ -1,8 +1,8 @@
 """Rule engine: is a frequency + mode allowed for a US amateur license class?
 
 Values come from 47 CFR Part 97 for ITU Region 2 (the continental US), checked
-against eCFR on 2026-10-25 (eCFR current as of 2026-10-22). 10 m is not
-entered yet; it's added test-first.
+against eCFR on 2026-10-25 (eCFR current as of 2026-10-22). Every v1 band
+(160-10 m, except 60 m) is entered.
 
 Frequencies are integer Hz so band edges compare exactly (floats can't hold
 14.150 exactly). Segment edges are inclusive at both ends, as decided in the
@@ -47,6 +47,7 @@ class Result:
     allowed: bool
     reason: str
     citations: tuple[str, ...]
+    notes: tuple[str, ...] = ()
 
 
 # §97.301: frequencies each class may use (Region 2 column).
@@ -59,6 +60,7 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
         Segment(mhz("14.000"), mhz("14.350"), "§97.301(b)"),
         Segment(mhz("18.068"), mhz("18.168"), "§97.301(b)"),
         Segment(mhz("24.890"), mhz("24.990"), "§97.301(b)"),
+        Segment(mhz("28.000"), mhz("29.700"), "§97.301(b)"),
         Segment(mhz("21.000"), mhz("21.450"), "§97.301(b)"),
     ],
     LicenseClass.GENERAL: [
@@ -72,6 +74,7 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
         Segment(mhz("14.225"), mhz("14.350"), "§97.301(d)"),
         Segment(mhz("18.068"), mhz("18.168"), "§97.301(d)"),
         Segment(mhz("24.890"), mhz("24.990"), "§97.301(d)"),
+        Segment(mhz("28.000"), mhz("29.700"), "§97.301(d)"),
         Segment(mhz("21.025"), mhz("21.200"), "§97.301(d)"),
         Segment(mhz("21.275"), mhz("21.450"), "§97.301(d)"),
     ],
@@ -79,6 +82,7 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
         Segment(mhz("3.525"), mhz("3.600"), "§97.301(e)"),
         Segment(mhz("7.025"), mhz("7.125"), "§97.301(e)"),
         Segment(mhz("21.025"), mhz("21.200"), "§97.301(e)"),
+        Segment(mhz("28.000"), mhz("28.500"), "§97.301(e)"),
     ],
 }
 
@@ -98,6 +102,9 @@ _PHONE_AND_IMAGE: list[Segment] = [
     Segment(mhz("18.110"), mhz("18.168"), "§97.305(c)(3)(xii)"),
     Segment(mhz("21.20"), mhz("21.45"), "§97.305(c)(3)(xiv)"),
     Segment(mhz("24.93"), mhz("24.99"), "§97.305(c)(3)(xvi)"),
+    Segment(mhz("28.3"), mhz("28.5"), "§97.305(c)(3)(xviii)"),
+    Segment(mhz("28.5"), mhz("29.0"), "§97.305(c)(3)(xix)"),
+    Segment(mhz("29.0"), mhz("29.7"), "§97.305(c)(3)(xx)"),
 ]
 
 EMISSIONS: dict[Mode, list[Segment]] = {
@@ -111,6 +118,7 @@ EMISSIONS: dict[Mode, list[Segment]] = {
         Segment(mhz("18.068"), mhz("18.110"), "§97.305(c)(3)(xi)"),
         Segment(mhz("21.0"), mhz("21.2"), "§97.305(c)(3)(xiii)"),
         Segment(mhz("24.89"), mhz("24.93"), "§97.305(c)(3)(xv)"),
+        Segment(mhz("28.0"), mhz("28.3"), "§97.305(c)(3)(xvii)"),
     ],
     Mode.PHONE: _PHONE_AND_IMAGE,
     Mode.IMAGE: _PHONE_AND_IMAGE,
@@ -159,6 +167,13 @@ RESTRICTIONS: list[Restriction] = [
         _NON_CW,
         "technicians may only use CW here",
     ),
+    # §97.307(f)(10): Technicians may only use CW or SSB phone on 28.3-28.5.
+    Restriction(
+        Segment(mhz("28.3"), mhz("28.5"), "§97.307(f)(10)"),
+        _TECH,
+        frozenset({Mode.IMAGE}),
+        "technicians may only use CW or SSB phone here",
+    ),
     # §97.305(c)(3)(v) authorizes phone/image on 7.075-7.100 MHz, but
     # §97.307(f)(11) limits it to Region 2 stations west of 130° W or south of
     # 20° N (e.g. Hawaii). v1 assumes a continental US station, so it's left
@@ -168,6 +183,19 @@ RESTRICTIONS: list[Restriction] = [
         _ALL_CLASSES,
         frozenset({Mode.PHONE, Mode.IMAGE}),
         "phone and image here are only for stations west of 130° W or south of 20° N",
+    ),
+]
+
+
+# Matches like RESTRICTIONS, but an allowed result gets "<reason>, <cite>" as a
+# note instead of being denied. §97.307(f)(10) allows Technician phone on
+# 28.3-28.5 only as SSB, which the phone mode group can't express.
+NOTES: list[Restriction] = [
+    Restriction(
+        Segment(mhz("28.3"), mhz("28.5"), "§97.307(f)(10)"),
+        _TECH,
+        frozenset({Mode.PHONE}),
+        "SSB only (J3E/R3E)",
     ),
 ]
 
@@ -207,4 +235,11 @@ def check(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
             f"{mode.value} is not authorized at this frequency",
             (privilege.cite, "§97.305(c)"),
         )
-    return Result(True, f"{mode.value} is allowed here", (privilege.cite, emission.cite))
+    notes = tuple(
+        f"{note.reason}, {note.segment.cite}"
+        for note in NOTES
+        if note.applies(freq_hz, mode, license_class)
+    )
+    return Result(
+        True, f"{mode.value} is allowed here", (privilege.cite, emission.cite), notes
+    )
