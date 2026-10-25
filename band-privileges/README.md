@@ -2,7 +2,7 @@
 
 Answers "can I operate here?" for US amateur HF: given a frequency, a mode and a license class (Technician, General, Extra), it says whether that's allowed and cites the 47 CFR Part 97 section. It only reads rules; it never talks to a radio or transmits.
 
-Status: scaffold. The rule engine covers 20 m only; the other HF bands and the command line come next.
+Status: in progress. The rule engine covers 40 m and 20 m; the other HF bands and the command line come next.
 
 ## Setup
 
@@ -42,7 +42,7 @@ check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)
   ```
 - **Exit codes:** `0` allowed, `1` denied, `2` bad input, `3` not covered.
 - CW is allowed anywhere the class has privileges (§97.305(a)).
-- Technician HF limits follow §97.307(f)(9) (CW only on 80/40/15 m) and (f)(10). Tech phone on 28.3–28.5 MHz is allowed with a note: "SSB only (J3E/R3E), §97.307(f)(10)".
+- Technician HF limits follow §97.307(f)(9) (CW only on 80/40/15 m) and (f)(10). Tech phone on 28.3–28.5 MHz is allowed with a note: "SSB only (J3E/R3E), §97.307(f)(10)". On an edge shared with a CW-only segment (e.g. 7.125 MHz, also the start of phone segment (vii)), a Technician's non-CW mode is denied. That's the safe reading of inclusive edges.
 - **Shared edges:** edges are inclusive at both ends, so a frequency on a shared edge (e.g. 14.150) is inside both segments. Each shared edge gets a test.
 - **Near-edge warning:** an allowed result warns when the frequency is within 1 kHz (CW) or 3 kHz (phone, data, image), on either side, of an edge that limits this class and mode (band, class segment, or mode segment).
 - Frequencies inside HF but outside every amateur band are denied, not errors.
