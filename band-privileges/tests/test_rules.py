@@ -365,3 +365,45 @@ def test_17m_modes_and_edges(freq, mode, license_class, allowed, cite):
     result = check(mhz(freq), mode, license_class)
     assert result.allowed is allowed
     assert cite in result.citations
+
+
+# 12 m: §97.301(b)/(d), §97.305(c)(3)(xv)-(xvi)
+
+
+def test_12m_data_is_allowed_for_general_with_citations():
+    result = check(mhz("24.915"), Mode.DATA, GENERAL)
+    assert result.allowed
+    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xv)")
+
+
+def test_12m_phone_is_allowed_for_general_with_citations():
+    result = check(mhz("24.950"), Mode.PHONE, GENERAL)
+    assert result.allowed
+    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(xvi)")
+
+
+def test_12m_cw_is_allowed_for_extra():
+    assert check(mhz("24.900"), Mode.CW, EXTRA).allowed
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "license_class", "allowed", "cite"),
+    [
+        ("24.915", Mode.DATA, TECH, False, "§97.301"),  # no Technician privileges
+        ("24.950", Mode.DATA, EXTRA, False, "§97.305(c)"),  # phone/image only above 24.93
+        ("24.915", Mode.PHONE, GENERAL, False, "§97.305(c)"),  # data/CW only below 24.93
+        ("24.970", Mode.IMAGE, GENERAL, True, "§97.305(c)(3)(xvi)"),
+        # Band edges.
+        ("24.890", Mode.CW, GENERAL, True, "§97.305(a)"),
+        ("24.889999", Mode.CW, EXTRA, False, "§97.301"),
+        ("24.990", Mode.PHONE, EXTRA, True, "§97.305(c)(3)(xvi)"),
+        ("24.990001", Mode.CW, GENERAL, False, "§97.301"),
+        # Shared data/phone edge 24.930 (inclusive).
+        ("24.930", Mode.DATA, GENERAL, True, "§97.305(c)(3)(xv)"),
+        ("24.930", Mode.PHONE, GENERAL, True, "§97.305(c)(3)(xvi)"),
+    ],
+)
+def test_12m_modes_and_edges(freq, mode, license_class, allowed, cite):
+    result = check(mhz(freq), mode, license_class)
+    assert result.allowed is allowed
+    assert cite in result.citations

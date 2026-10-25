@@ -1,8 +1,8 @@
 """Rule engine: is a frequency + mode allowed for a US amateur license class?
 
 Values come from 47 CFR Part 97 for ITU Region 2 (the continental US), checked
-against eCFR on 2026-10-25 (eCFR current as of 2026-10-22). 12 m and 10 m
-are not entered yet; they're added test-first.
+against eCFR on 2026-10-25 (eCFR current as of 2026-10-22). 10 m is not
+entered yet; it's added test-first.
 
 Frequencies are integer Hz so band edges compare exactly (floats can't hold
 14.150 exactly). Segment edges are inclusive at both ends, as decided in the
@@ -58,6 +58,7 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
         Segment(mhz("10.100"), mhz("10.150"), "§97.301(b)"),
         Segment(mhz("14.000"), mhz("14.350"), "§97.301(b)"),
         Segment(mhz("18.068"), mhz("18.168"), "§97.301(b)"),
+        Segment(mhz("24.890"), mhz("24.990"), "§97.301(b)"),
         Segment(mhz("21.000"), mhz("21.450"), "§97.301(b)"),
     ],
     LicenseClass.GENERAL: [
@@ -70,6 +71,7 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
         Segment(mhz("14.025"), mhz("14.150"), "§97.301(d)"),
         Segment(mhz("14.225"), mhz("14.350"), "§97.301(d)"),
         Segment(mhz("18.068"), mhz("18.168"), "§97.301(d)"),
+        Segment(mhz("24.890"), mhz("24.990"), "§97.301(d)"),
         Segment(mhz("21.025"), mhz("21.200"), "§97.301(d)"),
         Segment(mhz("21.275"), mhz("21.450"), "§97.301(d)"),
     ],
@@ -95,6 +97,7 @@ _PHONE_AND_IMAGE: list[Segment] = [
     Segment(mhz("14.15"), mhz("14.35"), "§97.305(c)(3)(x)"),
     Segment(mhz("18.110"), mhz("18.168"), "§97.305(c)(3)(xii)"),
     Segment(mhz("21.20"), mhz("21.45"), "§97.305(c)(3)(xiv)"),
+    Segment(mhz("24.93"), mhz("24.99"), "§97.305(c)(3)(xvi)"),
 ]
 
 EMISSIONS: dict[Mode, list[Segment]] = {
@@ -107,6 +110,7 @@ EMISSIONS: dict[Mode, list[Segment]] = {
         Segment(mhz("14.00"), mhz("14.15"), "§97.305(c)(3)(ix)"),
         Segment(mhz("18.068"), mhz("18.110"), "§97.305(c)(3)(xi)"),
         Segment(mhz("21.0"), mhz("21.2"), "§97.305(c)(3)(xiii)"),
+        Segment(mhz("24.89"), mhz("24.93"), "§97.305(c)(3)(xv)"),
     ],
     Mode.PHONE: _PHONE_AND_IMAGE,
     Mode.IMAGE: _PHONE_AND_IMAGE,
