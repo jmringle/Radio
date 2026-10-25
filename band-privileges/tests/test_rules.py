@@ -292,3 +292,34 @@ def test_160m_modes_and_edges(freq, mode, license_class, allowed, cite):
     result = check(mhz(freq), mode, license_class)
     assert result.allowed is allowed
     assert cite in result.citations
+
+
+# 30 m: §97.301(b)/(d), §97.305(c)(3)(viii): data and CW only, no phone/image
+
+
+def test_30m_data_is_allowed_for_general_with_citations():
+    result = check(mhz("10.136"), Mode.DATA, GENERAL)
+    assert result.allowed
+    assert result.citations == ("§97.301(d)", "§97.305(c)(3)(viii)")
+
+
+def test_30m_cw_is_allowed_for_extra():
+    assert check(mhz("10.110"), Mode.CW, EXTRA).allowed
+
+
+@pytest.mark.parametrize(
+    ("freq", "mode", "license_class", "allowed", "cite"),
+    [
+        ("10.120", Mode.PHONE, EXTRA, False, "§97.305(c)"),  # no phone anywhere on 30 m
+        ("10.120", Mode.IMAGE, GENERAL, False, "§97.305(c)"),
+        ("10.136", Mode.DATA, TECH, False, "§97.301"),  # no Technician privileges
+        ("10.100", Mode.DATA, GENERAL, True, "§97.305(c)(3)(viii)"),
+        ("10.099999", Mode.CW, EXTRA, False, "§97.301"),
+        ("10.150", Mode.DATA, EXTRA, True, "§97.305(c)(3)(viii)"),
+        ("10.150001", Mode.CW, GENERAL, False, "§97.301"),
+    ],
+)
+def test_30m_modes_and_edges(freq, mode, license_class, allowed, cite):
+    result = check(mhz(freq), mode, license_class)
+    assert result.allowed is allowed
+    assert cite in result.citations

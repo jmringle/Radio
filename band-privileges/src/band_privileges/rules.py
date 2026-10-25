@@ -1,7 +1,7 @@
 """Rule engine: is a frequency + mode allowed for a US amateur license class?
 
 Values come from 47 CFR Part 97 for ITU Region 2 (the continental US), checked
-against eCFR on 2026-10-25 (eCFR current as of 2026-10-22). Only 160, 80/75, 40, 20 and 15 m are
+against eCFR on 2026-10-25 (eCFR current as of 2026-10-22). Only 160, 80/75, 40, 30, 20 and 15 m are
 entered so far; the other HF bands are added test-first.
 
 Frequencies are integer Hz so band edges compare exactly (floats can't hold
@@ -55,6 +55,7 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
         Segment(mhz("1.800"), mhz("2.000"), "§97.301(b)"),
         Segment(mhz("3.500"), mhz("4.000"), "§97.301(b)"),  # 80 m + 75 m
         Segment(mhz("7.000"), mhz("7.300"), "§97.301(b)"),
+        Segment(mhz("10.100"), mhz("10.150"), "§97.301(b)"),
         Segment(mhz("14.000"), mhz("14.350"), "§97.301(b)"),
         Segment(mhz("21.000"), mhz("21.450"), "§97.301(b)"),
     ],
@@ -64,6 +65,7 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
         Segment(mhz("3.800"), mhz("4.000"), "§97.301(d)"),
         Segment(mhz("7.025"), mhz("7.125"), "§97.301(d)"),
         Segment(mhz("7.175"), mhz("7.300"), "§97.301(d)"),
+        Segment(mhz("10.100"), mhz("10.150"), "§97.301(d)"),
         Segment(mhz("14.025"), mhz("14.150"), "§97.301(d)"),
         Segment(mhz("14.225"), mhz("14.350"), "§97.301(d)"),
         Segment(mhz("21.025"), mhz("21.200"), "§97.301(d)"),
@@ -98,6 +100,7 @@ EMISSIONS: dict[Mode, list[Segment]] = {
         Segment(mhz("3.500"), mhz("3.600"), "§97.305(c)(3)(i)"),
         Segment(mhz("7.000"), mhz("7.100"), "§97.305(c)(3)(iv)"),
         Segment(mhz("7.100"), mhz("7.125"), "§97.305(c)(3)(vi)"),
+        Segment(mhz("10.100"), mhz("10.150"), "§97.305(c)(3)(viii)"),
         Segment(mhz("14.00"), mhz("14.15"), "§97.305(c)(3)(ix)"),
         Segment(mhz("21.0"), mhz("21.2"), "§97.305(c)(3)(xiii)"),
     ],
