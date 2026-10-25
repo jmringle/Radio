@@ -10,8 +10,9 @@ README's acceptance criteria.
 """
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
+from fractions import Fraction
 
 
 class LicenseClass(Enum):
@@ -28,8 +29,24 @@ class Mode(Enum):
 
 
 def mhz(value: str) -> int:
-    """Convert a MHz string like "14.074" to integer Hz without float rounding."""
-    return int(Decimal(value) * 1_000_000)
+    """Convert a MHz string like "14.074" to integer Hz without float rounding.
+
+    Raises ValueError (and only ValueError) unless the value is a finite number
+    above 0 with at most 1 Hz resolution (6 decimal places).
+    """
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        raise ValueError(f"frequency must be a number in MHz, got {value!r}") from None
+    if not number.is_finite():
+        raise ValueError(f"frequency must be finite, got {value!r}")
+    if number <= 0:
+        raise ValueError(f"frequency must be greater than 0 MHz, got {value!r}")
+    # Fraction is exact at any length; Decimal arithmetic rounds to 28 digits.
+    hz = Fraction(number) * 1_000_000
+    if hz.denominator != 1:
+        raise ValueError(f"frequency can't be finer than 1 Hz (6 decimal places), got {value!r}")
+    return int(hz)
 
 
 @dataclass(frozen=True)
@@ -42,12 +59,29 @@ class Segment:
         return self.low_hz <= freq_hz <= self.high_hz
 
 
+class Status(Enum):
+    ALLOWED = "allowed"
+    DENIED = "denied"
+    NOT_COVERED = "not covered"  # outside v1 scope: never a yes or no
+
+
 @dataclass(frozen=True)
 class Result:
-    allowed: bool
+    status: Status
     reason: str
     citations: tuple[str, ...]
     notes: tuple[str, ...] = ()
+
+    @property
+    def allowed(self) -> bool:
+        return self.status is Status.ALLOWED
+
+
+# v1 scope is HF 160-10 m. 60 m (channels and band, §97.303(h),
+# §97.305(c)(3)(iii)) is deferred. Both are answered "not covered" rather than
+# allowed or denied.
+HF_SCOPE = Segment(mhz("1.8"), mhz("29.7"), "§97.301")
+SIXTY_METERS = Segment(mhz("5.3305"), mhz("5.4065"), "§97.303(h)")
 
 
 # §97.301: frequencies each class may use (Region 2 column). Every table in this
@@ -211,31 +245,38 @@ def _find(segments: list[Segment], freq_hz: int) -> Segment | None:
 def check(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
     # Order matters: privileges first, then CW (allowed anywhere with
     # privileges), then RESTRICTIONS before EMISSIONS, so a Technician on a
-    # shared edge like 7.125 is denied (the safe reading).
+    # shared edge like 7.125 is denied (the safe reading). Scope comes before
+    # all of them, so out-of-scope input is never answered yes or no.
+    if not HF_SCOPE.contains(freq_hz):
+        return Result(
+            Status.NOT_COVERED, "only HF 1.8-29.7 MHz is covered by this tool", ()
+        )
+    if SIXTY_METERS.contains(freq_hz):
+        return Result(Status.NOT_COVERED, "60 m isn't covered by this tool yet", ())
     privilege = _find(PRIVILEGES[license_class], freq_hz)
     if privilege is None:
         return Result(
-            False,
+            Status.DENIED,
             f"{license_class.value} privileges do not include this frequency",
             ("§97.301",),
         )
     if mode is Mode.CW:
         return Result(
-            True,
+            Status.ALLOWED,
             "CW is allowed on any frequency the operator is authorized for",
             (privilege.cite, "§97.305(a)"),
         )
     for restriction in RESTRICTIONS:
         if restriction.applies(freq_hz, mode, license_class):
             return Result(
-                False,
+                Status.DENIED,
                 restriction.reason,
                 (privilege.cite, restriction.segment.cite),
             )
     emission = _find(EMISSIONS[mode], freq_hz)
     if emission is None:
         return Result(
-            False,
+            Status.DENIED,
             f"{mode.value} is not authorized at this frequency",
             (privilege.cite, "§97.305(c)"),
         )
@@ -245,5 +286,5 @@ def check(freq_hz: int, mode: Mode, license_class: LicenseClass) -> Result:
         if note.applies(freq_hz, mode, license_class)
     )
     return Result(
-        True, f"{mode.value} is allowed here", (privilege.cite, emission.cite), notes
+        Status.ALLOWED, f"{mode.value} is allowed here", (privilege.cite, emission.cite), notes
     )

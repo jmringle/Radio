@@ -2,7 +2,7 @@
 
 import pytest
 
-from band_privileges import LicenseClass, Mode, check, mhz
+from band_privileges import LicenseClass, Mode, Status, check, mhz
 from band_privileges import rules
 
 EXTRA = LicenseClass.EXTRA
@@ -20,7 +20,6 @@ CASES = [
     ("160m", "1.950", IMAGE, GENERAL, True, "§97.305(c)(2)(iv)"),
     ("160m", "1.990", DATA, GENERAL, True, "§97.305(c)(2)(iii)"),  # data across the band
     ("160m", "1.800", CW, GENERAL, True, "§97.305(a)"),
-    ("160m", "1.799999", CW, EXTRA, False, "§97.301"),
     ("160m", "2.000", PHONE, GENERAL, True, "§97.305(c)(2)(iv)"),
     ("160m", "2.000001", CW, EXTRA, False, "§97.301"),
     # 80/75 m
@@ -152,7 +151,6 @@ CASES = [
     ("10m", "28.000", CW, GENERAL, True, "§97.305(a)"),
     ("10m", "27.999999", CW, EXTRA, False, "§97.301"),
     ("10m", "29.700", PHONE, EXTRA, True, "§97.305(c)(3)(xx)"),
-    ("10m", "29.700001", CW, GENERAL, False, "§97.301"),
     ("10m", "28.500", PHONE, GENERAL, True, "§97.305(c)(3)(xviii)"),  # shared: first cited
     ("10m", "29.000", PHONE, GENERAL, True, "§97.305(c)(3)(xix)"),
     # Technician: data on 28.0-28.3 (no §97.307(f)(9) there), CW or SSB phone
@@ -256,3 +254,48 @@ def test_mode_and_restriction_segments_lie_inside_an_amateur_band():
     segments += [r.segment for r in rules.RESTRICTIONS + rules.NOTES]
     for s in segments:
         assert any(b.low_hz <= s.low_hz and s.high_hz <= b.high_hz for b in bands), s
+
+
+# Out of v1 scope: 60 m (5.3305-5.4065 MHz, inclusive) and anything outside
+# HF 1.8-29.7 MHz. Never answered allowed or denied, for any class or mode.
+@pytest.mark.parametrize(
+    "freq", ["5.3515", "5.3305", "5.4065", "5.332", "1.799999", "0.475", "29.700001", "146.52"]
+)
+@pytest.mark.parametrize("license_class", [TECH, GENERAL, EXTRA])
+def test_out_of_scope_is_not_covered(freq, license_class):
+    for mode in Mode:
+        result = check(mhz(freq), mode, license_class)
+        assert result.status is Status.NOT_COVERED
+        assert not result.allowed
+
+
+@pytest.mark.parametrize("freq", ["5.330499", "5.406501"])  # just outside 60 m: in HF
+def test_just_outside_60m_is_an_ordinary_denial(freq):
+    assert check(mhz(freq), Mode.DATA, EXTRA).status is Status.DENIED
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("", "must be a number"),
+        ("abc", "must be a number"),
+        ("14.074MHz", "must be a number"),
+        ("nan", "must be finite"),
+        ("NaN", "must be finite"),
+        ("inf", "must be finite"),
+        ("-inf", "must be finite"),
+        ("0", "greater than 0"),
+        ("-14.074", "greater than 0"),
+        ("14.0740001", "finer than 1 Hz"),  # 7 decimal places
+        ("1e-7", "finer than 1 Hz"),
+        # 31 significant digits: Decimal arithmetic would round this to a whole Hz.
+        ("14.0000000000000000000000000001", "finer than 1 Hz"),
+    ],
+)
+def test_mhz_rejects_bad_input_with_one_error_type(value, message):
+    with pytest.raises(ValueError, match=message):
+        mhz(value)
+
+
+def test_mhz_accepts_exactly_1_hz_resolution():
+    assert mhz("14.000001") == 14_000_001

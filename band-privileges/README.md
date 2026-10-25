@@ -22,7 +22,7 @@ The CLI isn't built yet, and the package isn't installable yet. From `band-privi
 from band_privileges import LicenseClass, Mode, check, mhz
 
 check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)
-# Result(allowed=True, reason='data is allowed here', citations=('§97.301(d)', '§97.305(c)(3)(ix)'), notes=())
+# Result(status=<Status.ALLOWED: 'allowed'>, reason='data is allowed here', citations=('§97.301(d)', '§97.305(c)(3)(ix)'), notes=())
 ```
 
 ## Running tests
@@ -42,12 +42,12 @@ check(mhz("14.074"), Mode.DATA, LicenseClass.GENERAL)
   ```
 - **Exit codes:** `0` allowed, `1` denied, `2` bad input, `3` not covered.
 - CW is allowed anywhere the class has privileges (§97.305(a)).
-- Technician HF limits follow §97.307(f)(9) (CW only on 80/40/15 m) and (f)(10). Tech phone on 28.3–28.5 MHz is allowed with a note: "SSB only (J3E/R3E), §97.307(f)(10)". On an edge shared with a CW-only segment (e.g. 7.125 MHz, also the start of phone segment (vii)), a Technician's non-CW mode is denied. That's the safe reading of inclusive edges.
+- Technician HF limits follow §97.307(f)(9) (CW only on 80/40/15 m) and (f)(10). Tech phone on 28.3–28.5 MHz is allowed with a note: "SSB only (J3E/R3E), §97.307(f)(10)". On an edge shared with a CW-only segment (e.g. 7.125 MHz, also the start of phone segment (vii)), a Technician's non-CW mode is denied. That's the safe reading of inclusive edges. The 28.300 MHz edge isn't CW-only, so Technician data there stays allowed (row (xvii)), like every other shared edge; the near-edge warning covers the spill into 28.3–28.5.
 - **Shared edges:** edges are inclusive at both ends, so a frequency on a shared edge (e.g. 14.150) is inside both segments. Each shared edge gets a test.
 - **Near-edge warning:** an allowed result warns when the frequency is within 1 kHz (CW) or 3 kHz (phone, data, image), on either side, of an edge that limits this class and mode (band, class segment, or mode segment).
 - Frequencies inside HF but outside every amateur band are denied, not errors.
-- **Not covered (exit 3):** 60 m (5.3305–5.4065 MHz) and anything outside 1.8–29.7 MHz. Never "allowed" or "denied".
-- **Bad input (exit 2), with a clear message:** non-numeric, `nan`/`inf`, zero or negative, more than 6 decimal places, unknown mode or class, missing arguments. A number of 1000 or more gets the hint "did you mean <n/1000> MHz?" (people often type kHz). Never silently "allowed".
+- **Not covered (exit 3):** 60 m (5.3305–5.4065 MHz) and anything outside 1.8–29.7 MHz. Never "allowed" or "denied". The engine answers this itself (`Status.NOT_COVERED`), so every front end gets it.
+- **Bad input (exit 2), with a clear message:** non-numeric, `nan`/`inf`, zero or negative, more than 6 decimal places, unknown mode or class, missing arguments. The frequency checks live in `mhz()`, which raises only `ValueError`; mode, class and argument checks belong to the CLI. A number of 1000 or more gets the hint "did you mean <n/1000> MHz?" (people often type kHz). Never silently "allowed".
 
 **Why Python:** your strongest language; pytest makes the table-heavy, boundary-heavy tests easy to write (parametrize); no runtime dependencies. The rule engine knows nothing about the CLI, so a TypeScript or Python web front end can reuse it later (possible phase 2).
 
