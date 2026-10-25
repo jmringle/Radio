@@ -50,7 +50,8 @@ class Result:
     notes: tuple[str, ...] = ()
 
 
-# §97.301: frequencies each class may use (Region 2 column).
+# §97.301: frequencies each class may use (Region 2 column). Every table in this
+# module is kept in frequency order (a test checks this).
 PRIVILEGES: dict[LicenseClass, list[Segment]] = {
     LicenseClass.EXTRA: [
         Segment(mhz("1.800"), mhz("2.000"), "§97.301(b)"),
@@ -59,9 +60,9 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
         Segment(mhz("10.100"), mhz("10.150"), "§97.301(b)"),
         Segment(mhz("14.000"), mhz("14.350"), "§97.301(b)"),
         Segment(mhz("18.068"), mhz("18.168"), "§97.301(b)"),
+        Segment(mhz("21.000"), mhz("21.450"), "§97.301(b)"),
         Segment(mhz("24.890"), mhz("24.990"), "§97.301(b)"),
         Segment(mhz("28.000"), mhz("29.700"), "§97.301(b)"),
-        Segment(mhz("21.000"), mhz("21.450"), "§97.301(b)"),
     ],
     LicenseClass.GENERAL: [
         Segment(mhz("1.800"), mhz("2.000"), "§97.301(d)"),
@@ -73,10 +74,10 @@ PRIVILEGES: dict[LicenseClass, list[Segment]] = {
         Segment(mhz("14.025"), mhz("14.150"), "§97.301(d)"),
         Segment(mhz("14.225"), mhz("14.350"), "§97.301(d)"),
         Segment(mhz("18.068"), mhz("18.168"), "§97.301(d)"),
-        Segment(mhz("24.890"), mhz("24.990"), "§97.301(d)"),
-        Segment(mhz("28.000"), mhz("29.700"), "§97.301(d)"),
         Segment(mhz("21.025"), mhz("21.200"), "§97.301(d)"),
         Segment(mhz("21.275"), mhz("21.450"), "§97.301(d)"),
+        Segment(mhz("24.890"), mhz("24.990"), "§97.301(d)"),
+        Segment(mhz("28.000"), mhz("29.700"), "§97.301(d)"),
     ],
     LicenseClass.TECHNICIAN: [  # no 20 m privileges
         Segment(mhz("3.525"), mhz("3.600"), "§97.301(e)"),
@@ -127,17 +128,20 @@ EMISSIONS: dict[Mode, list[Segment]] = {
 
 @dataclass(frozen=True)
 class Restriction:
-    """A §97.307 rule that denies some modes in a segment, for some classes."""
+    """A §97.307 rule matching some modes and classes in a segment.
+
+    In RESTRICTIONS a match denies; in NOTES it adds a note to an allowed result.
+    """
 
     segment: Segment
     classes: frozenset[LicenseClass]
-    denied_modes: frozenset[Mode]
+    modes: frozenset[Mode]
     reason: str
 
     def applies(self, freq_hz: int, mode: Mode, license_class: LicenseClass) -> bool:
         return (
             license_class in self.classes
-            and mode in self.denied_modes
+            and mode in self.modes
             and self.segment.contains(freq_hz)
         )
 
