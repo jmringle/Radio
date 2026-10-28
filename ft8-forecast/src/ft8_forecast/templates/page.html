@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FT8 forecast</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+  <h1>FT8 forecast</h1>
+  <p class="muted">From your own WSJT-X/JTDX logs. Nothing leaves this Mac.</p>
+</header>
+<main>
+{% if error %}
+  <p class="error" role="alert">{{ error }}</p>
+{% endif %}
+
+{% if imported %}
+  <section class="imported" aria-labelledby="imported-title">
+    {% set log = imported.log %}
+    <h2 id="imported-title">Imported</h2>
+    {% set total = log.records|length %}
+    <p>{{ imported.name }} (read as {{ log.kind }}): {{ "{:,}".format(total) }} FT8 {{ log.noun }}, {{ "{:,}".format(imported.new) }} new, {{ "{:,}".format(total - imported.new) }} already stored</p>
+    {% set skips = log.skipped|selectattr(0)|list %}
+    {% if skips %}
+      <p>Skipped: {% for count, why in skips %}{{ "{:,}".format(count) }} {{ why }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    {% endif %}
+    <p>Problems: {{ "{:,}".format(log.problems|length) }}</p>
+    {% if log.problems %}
+      <ul class="problems">
+      {% for problem in log.problems[:show_problems] %}
+        <li>line {{ problem.line }}: {{ problem.message }}</li>
+      {% endfor %}
+      {% if log.problems|length > show_problems %}
+        <li>... and {{ "{:,}".format(log.problems|length - show_problems) }} more</li>
+      {% endif %}
+      </ul>
+    {% endif %}
+  </section>
+{% endif %}
+
+<section aria-labelledby="forecast-title">
+  <form method="get" action="/" class="hour">
+    <label for="hour">UTC hour</label>
+    <select id="hour" name="hour">
+    {% for h in hours %}
+      <option value="{{ h }}"{% if h == hour %} selected{% endif %}>{{ "%02d:00" % h }}</option>
+    {% endfor %}
+    </select>
+    <button type="submit">Show</button>
+  </form>
+
+  {% if result %}
+    <h2 id="forecast-title">FT8 forecast for {{ "%02d:00-%02d:59" % (hour, hour) }} UTC</h2>
+    <p class="muted">Your data: {{ window_days }} days through {{ result.newest.strftime("%Y-%m-%d %H:%M") }} UTC</p>
+    {% if stale %}
+      <p class="note">Note: your newest data is {{ stale }} days old; import a fresh copy of ALL.TXT.</p>
+    {% endif %}
+    <table>
+      <thead>
+        <tr><th scope="col">Band</th><th scope="col">Stations/day</th><th scope="col">Stations</th>
+            <th scope="col">Median SNR</th><th scope="col">Farthest</th><th scope="col">Contacts</th></tr>
+      </thead>
+      <tbody>
+      {% for band in result.bands %}
+        {% if band.enough_data %}
+        <tr>
+          <th scope="row">{{ band.band }}</th>
+          <td>{{ "{:,.0f}".format(band.stations_per_day) }}</td>
+          <td>{{ "{:,}".format(band.stations) }}</td>
+          <td>{{ "-" if band.median_snr is none else "%.0f dB" % band.median_snr }}</td>
+          <td>{{ "-" if band.farthest_miles is none else "{:,} mi".format(band.farthest_miles) }}</td>
+          <td>{{ "{:,}".format(band.contacts) }}</td>
+        </tr>
+        {% else %}
+        <tr class="thin">
+          <th scope="row">{{ band.band }}</th>
+          <td colspan="5">not enough data ({{ band.listening_days }} day{{ "" if band.listening_days == 1 else "s" }} listening; need {{ min_days }})</td>
+        </tr>
+        {% endif %}
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if my_grid is none %}
+      <p class="note">Farthest needs your grid: set MY_GRID in {{ env_name }} (see .env.example).</p>
+    {% endif %}
+  {% elif message %}
+    <h2 id="forecast-title">Forecast</h2>
+    <p>{{ message }}</p>
+  {% endif %}
+</section>
+
+<section aria-labelledby="import-title">
+  <h2 id="import-title">Import a log</h2>
+  <form method="post" action="/import" enctype="multipart/form-data" class="upload">
+    <label for="log">ALL.TXT or ADIF (.adi) file</label>
+    <input id="log" name="log" type="file" accept=".txt,.TXT,.adi,.adif" required>
+    <button type="submit">Import</button>
+  </form>
+  <p class="muted">Re-importing is safe: lines already stored are skipped. The file itself isn't kept.</p>
+</section>
+</main>
+</body>
+</html>

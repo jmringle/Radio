@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from ft8_forecast import Decode, cli
+from ft8_forecast import Decode, cli, logs
 from ft8_forecast.cli import main
 from ft8_forecast.store import open_db, save_decodes
 
@@ -136,7 +136,7 @@ def test_db_that_isnt_ours_is_an_error_and_left_alone(tmp_path, capsys):
 
 
 def test_oversized_adif_is_refused(tmp_path, db, capsys, monkeypatch):
-    monkeypatch.setattr(cli, "MAX_ADIF_BYTES", len(ADIF) - 1)
+    monkeypatch.setattr(logs, "MAX_ADIF_BYTES", len(ADIF) - 1)
     code, _, err = run(capsys, write(tmp_path, "log.adi", ADIF), "--db", db)
     assert code == 2
     assert "not an ADIF log?" in err

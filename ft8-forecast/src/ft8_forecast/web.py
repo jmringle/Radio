@@ -1,0 +1,143 @@
+"""ft8cast serve: the forecast and file import as a local web page.
+
+Only this Mac can reach it: `ft8cast serve` binds to 127.0.0.1. Any site open in
+your browser can still send requests to localhost, so every request must name
+this server in its Host header (stops DNS rebinding) and every upload must come
+from this page's own Origin (stops cross-site request forgery). The page has no
+JavaScript and loads nothing from other sites, so it makes no web calls either.
+Jinja escapes everything inserted into the page, including text from your files.
+"""
+
+import argparse
+from pathlib import Path
+
+from flask import Flask, render_template, request
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
+
+from ft8_forecast import cli, forecast
+from ft8_forecast.logs import TooLarge, read_log, save_log
+from ft8_forecast.store import StoreError, open_db
+
+# Your ALL.TXT is about 27 MB for 48 days; 500 MB is years of listening.
+MAX_UPLOAD_BYTES = 500 * 1024 * 1024
+LOCAL_NAMES = {"127.0.0.1", "localhost"}
+MAX_NAME = 80  # characters of an uploaded file's name to show
+
+_HEADERS = {
+    # No scripts, no outside fonts or images; forms only post back here; no framing (clickjacking).
+    "Content-Security-Policy": "default-src 'none'; style-src 'self'; form-action 'self'; "
+                               "frame-ancestors 'none'; base-uri 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+}
+
+
+class PageError(Exception):
+    """A problem to show on the page, with its HTTP status."""
+
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+
+
+def create_app(db: Path) -> Flask:
+    app = Flask(__name__)
+    app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+    @app.before_request
+    def only_this_page():
+        name = request.host.lower()
+        if not name.startswith("["):  # an IPv6 literal; never ours, since we bind IPv4
+            name = name.split(":", 1)[0]
+        if name not in LOCAL_NAMES:
+            raise PageError(400, "This server only answers to 127.0.0.1 or localhost.")
+        if request.method == "POST" and request.headers.get("Origin", "").lower() != f"http://{request.host}".lower():
+            raise PageError(403, "This server only accepts uploads from its own page.")
+
+    @app.after_request
+    def security_headers(response):
+        response.headers.update(_HEADERS)
+        return response
+
+    @app.get("/")
+    def page():
+        text = request.args.get("hour")
+        try:
+            hour = None if text is None else cli._hour(text)
+        except argparse.ArgumentTypeError as error:
+            raise PageError(400, f"Hour {error}.") from None
+        return _render(db, hour)
+
+    @app.post("/import")
+    def upload():
+        file = request.files.get("log")
+        if file is None or not file.filename:
+            raise PageError(400, "Choose an ALL.TXT or .adi file to import.")
+        name = file.filename[:MAX_NAME]
+        try:
+            log = read_log(file.stream)
+        except TooLarge as error:
+            raise PageError(400, f"{name}: {error}") from None
+        if not log.records:
+            raise PageError(400, f"{name}: no FT8 records found (read as {log.kind})")
+        conn = _open(db)
+        try:
+            new = save_log(conn, log)
+        finally:
+            conn.close()
+        return _render(db, None, imported={"name": name, "log": log, "new": new})
+
+    @app.errorhandler(PageError)
+    def page_error(error):
+        return render_template("page.html", error=str(error), hours=range(24)), error.status
+
+    @app.errorhandler(HTTPException)
+    def http_error(error):
+        if isinstance(error, RequestEntityTooLarge):
+            message = f"That file is larger than {MAX_UPLOAD_BYTES // 1024 // 1024} MB."
+        else:
+            message = f"{error.code} {error.name}."
+        return render_template("page.html", error=message, hours=range(24)), error.code
+
+    @app.errorhandler(Exception)
+    def unexpected(error):
+        # Details go to the terminal running the server, never to the page.
+        app.logger.exception("unexpected error")
+        return render_template("page.html", error="Something went wrong; see the terminal.", hours=range(24)), 500
+
+    return app
+
+
+def _open(db: Path):
+    try:
+        return open_db(db)
+    except StoreError as error:
+        raise PageError(500, str(error)) from None
+
+
+def _render(db: Path, hour: int | None, imported: dict | None = None) -> str:
+    try:
+        my_grid = cli._my_grid()  # the same .env and clock as the CLI
+    except ValueError as error:
+        raise PageError(500, f"MY_GRID in {cli.ENV_FILE.name}: {error}") from None
+    now = cli._now()
+    hour = now.hour if hour is None else hour
+    result, age, message = None, None, None
+    if not db.is_file():
+        message = "No data yet: import your ALL.TXT below."
+    else:
+        conn = _open(db)
+        try:
+            result = forecast.compute(conn, hour, my_grid)
+        finally:
+            conn.close()
+        if result is None:
+            message = "No ALL.TXT data imported yet: import it below."
+        else:
+            age = (now.replace(tzinfo=None) - result.newest).days
+    return render_template(
+        "page.html", hour=hour, hours=range(24), result=result, message=message, imported=imported,
+        stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
+        env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS, min_days=forecast.MIN_DAYS,
+        show_problems=cli.SHOW_PROBLEMS,
+    )

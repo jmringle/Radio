@@ -1,0 +1,59 @@
+/* A logbook page: warm paper, dark ink, one amber accent (a lit radio dial).
+   Fonts that ship with macOS only, so nothing is fetched. Contrast checked
+   against WCAG AA (4.5:1 for body text) in both color schemes. */
+:root {
+  --paper: #f6f3ea;
+  --ink: #1d1f1c;
+  --muted: #5c5a52;
+  --accent: #9a4f00;
+  --rule: #d8d2c2;
+  --error: #a1261b;
+  --row: #ece7da;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #151714;
+    --ink: #e8e4d8;
+    --muted: #a8a496;
+    --accent: #f0a040;
+    --rule: #34372f;
+    --error: #ff8a7a;
+    --row: #1d201b;
+  }
+}
+
+body {
+  margin: 0 auto;
+  max-width: 46rem;
+  padding: 2rem 1rem 4rem;
+  background: var(--paper);
+  color: var(--ink);
+  font: 1rem/1.5 "Avenir Next", "Helvetica Neue", sans-serif;
+}
+h1, h2 { font-weight: 600; letter-spacing: 0.01em; }
+h1 { margin: 0; font-size: 1.6rem; border-bottom: 3px solid var(--accent); display: inline-block; }
+h2 { font-size: 1.15rem; margin: 1.5rem 0 0.25rem; }
+section { margin-top: 2rem; }
+.muted { color: var(--muted); margin-top: 0.25rem; }
+.note { border-left: 3px solid var(--accent); padding-left: 0.75rem; }
+.error { color: var(--error); border: 1px solid var(--error); padding: 0.5rem 0.75rem; }
+
+table { border-collapse: collapse; width: 100%; margin-top: 0.75rem; }
+th, td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--rule); }
+thead th { text-align: right; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+thead th:first-child, tbody th { text-align: left; }
+td { text-align: right; font: 0.95rem ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+tbody tr:nth-child(odd) { background: var(--row); }
+tr.thin td { text-align: left; color: var(--muted); font-family: inherit; font-size: 0.9rem; }
+
+form { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+label { font-weight: 600; }
+select, button, input { font: inherit; }
+button {
+  background: var(--accent);
+  color: var(--paper);
+  border: 0;
+  padding: 0.3rem 0.9rem;
+  cursor: pointer;
+}
+.problems { font: 0.9rem ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
