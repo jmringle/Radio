@@ -42,16 +42,16 @@ The file type is detected from its content, not its name. Import as often as you
 $ ft8cast forecast --hour 15
 FT8 forecast for 15:00-15:59 UTC (your data: 30 days through 2026-10-25 19:48 UTC)
 
-Band  Open           Stations  Median SNR    Farthest  Contacts
+Band  Stations/day  Stations  Median SNR    Farthest  Contacts
 160m  not enough data (0 days listening; need 5)
 80m   not enough data (0 days listening; need 5)
-40m   6 of 6 days         111       -9 dB           -         1
+40m             24       111       -9 dB           -         1
 30m   not enough data (2 days listening; need 5)
-20m   9 of 9 days         668      -13 dB           -         8
+20m             96       668      -13 dB           -         8
 17m   not enough data (4 days listening; need 5)
-15m   9 of 9 days         318      -14 dB           -         3
+15m             30       318      -14 dB           -         3
 12m   not enough data (1 day listening; need 5)
-10m   5 of 6 days         128      -14 dB           -         1
+10m             12       128      -14 dB           -         1
 
 Farthest needs your grid: set MY_GRID in .env (see .env.example).
 Solar: unavailable (the forecast above uses only your data)
@@ -73,7 +73,7 @@ Exit codes: `0` imported or forecast shown, `2` bad input (missing or unreadable
 - `ft8cast import <file>`: reads an `ALL.TXT` or ADIF file into a local SQLite database (`data/`, gitignored). Re-importing the same file doesn't duplicate. Never modifies the source file. Bad lines are skipped and reported with line numbers; a file with no valid lines is an error.
 - `ft8cast solar`: fetches the planetary K-index and F10.7 from [NOAA SWPC](https://services.swpc.noaa.gov/json/) once and saves them. Out-of-range values (K outside 0-9, flux 0 or less) are rejected.
 - `ft8cast forecast [--hour HH]`: per band, for the current UTC hour or the one given:
-  - "open on X of Y days you were listening". Open = at least 1 decode that hour. Y counts only days `ALL.TXT` shows you on that band at that hour, so a band you never use reads "unknown", not "dead". Window: the last 30 days.
+  - **stations per day** (changed 2026-10-28; replaced "open on X of Y days"): the median number of distinct stations decoded per listening day at that hour. A listening day is any day `ALL.TXT` shows you on that band at that hour (a decode or your own Tx); a day with only your Tx counts as 0. Window: the last 30 days.
   - distinct stations heard, median SNR, farthest station (CQ messages carry a grid);
   - confirmed contacts from ADIF, shown separately (proven two-way paths).
   - Fewer than 5 listening days on a band at that hour: "not enough data", never a score.
@@ -99,13 +99,12 @@ The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FR
 - Distances in **miles** (the author's choice), great-circle between the centers of 4-character squares. A square is about 140 x 70 miles in the US, so distances are good to roughly +/- 70 miles.
 - Bands: every v1 band from `band-privileges` (60 m is deferred there), each with General data privileges at its FT8 frequency (tested). A decode counts only if General may use data at its dial frequency (`check(dial, DATA, GENERAL)`); band edges here are cross-checked against `band-privileges` by a test.
 - Median SNR rather than the mean, so one loud local station doesn't skew it.
-- **Known limitation, "Open":** `ALL.TXT` only records something when a line is decoded or you transmit. A day on a dead band without transmitting leaves no trace, so it can't count as a closed day. In the author's data only 1 of 30 scored band-hours showed open < listening days, so this column says little; Stations, Median SNR, Farthest and Contacts carry the information.
+- **Why stations per day, not "open X of Y days":** `ALL.TXT` only records something when a line is decoded or you transmit, so a day on a dead band without transmitting leaves no trace and can't count as closed. In the author's data only 1 of 30 scored band-hours showed fewer open days than listening days, so that column nearly always read "X of X". The median day tells how busy the band typically is, and one unusually good day can't lift it. The same blind spot remains: silent, Rx-only days on a dead band are invisible, so the number leans optimistic.
 
 **Why Python:** your strongest language; it can import the `band-privileges` engine directly; pytest's parametrize suits the many malformed-input cases. TypeScript lost because it would mean reimplementing the privileges engine.
 
 **Next:**
 1. `ft8cast solar`.
-2. Decide whether to replace the "Open" column (see the known limitation under Forecast).
 
 ### Threat model
 

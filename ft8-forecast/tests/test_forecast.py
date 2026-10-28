@@ -131,10 +131,38 @@ def test_listening_days_count_dates_not_decodes(conn):
     assert band(conn).listening_days == 1
 
 
-def test_a_tx_only_day_is_listening_but_not_open(conn):
-    save_decodes(conn, [rx(), tx(days_back(1))])
+def test_a_tx_only_day_is_listening_with_zero_stations(conn):
+    # Days 0-2: 1, 2 and 0 (Tx only) stations, so the median day is 1.
+    save_decodes(conn, [rx(), rx(days_back(1)), rx(days_back(1), sender="N0CALL/P"), tx(days_back(2))])
     stats = band(conn)
-    assert (stats.listening_days, stats.open_days) == (2, 1)
+    assert (stats.listening_days, stats.stations_per_day) == (3, 1)
+
+
+def test_stations_per_day_is_the_median_day(conn):
+    # 1, 1 and 10 stations on three days: a single busy day doesn't lift the typical one.
+    busy = [rx(days_back(2), sender=f"N0CALL/{i}") for i in range(10)]
+    save_decodes(conn, [rx(), rx(days_back(1)), *busy])
+    assert band(conn).stations_per_day == 1
+
+
+def test_stations_per_day_counts_distinct_senders_within_a_day(conn):
+    save_decodes(conn, [rx(snr=s) for s in range(-20, -10)])  # one station, ten decodes
+    assert band(conn).stations_per_day == 1
+
+
+def test_stations_per_day_with_an_even_number_of_days_averages_the_middle_two(conn):
+    save_decodes(conn, [rx(), rx(days_back(1)), rx(days_back(1), sender="N0CALL/P")])
+    assert band(conn).stations_per_day == 1.5
+
+
+def test_band_with_no_days_has_no_stations_per_day(conn):
+    save_decodes(conn, [rx()])
+    assert band(conn, "40m").stations_per_day is None
+
+
+def test_stations_over_the_window_are_distinct_across_days(conn):
+    save_decodes(conn, [rx(), rx(days_back(1)), rx(days_back(1), sender="N0CALL/P")])
+    assert band(conn).stations == 2
 
 
 def test_your_tx_lines_arent_stations_or_snr(conn):
