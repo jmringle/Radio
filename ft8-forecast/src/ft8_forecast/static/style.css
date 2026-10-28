@@ -40,8 +40,9 @@ section { margin-top: 2rem; }
 
 table { border-collapse: collapse; width: 100%; margin-top: 0.75rem; }
 th, td { padding: 0.35rem 0.6rem; border-bottom: 1px solid var(--rule); }
-thead th { text-align: right; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
-thead th:first-child, tbody th { text-align: left; }
+thead th { text-align: right; vertical-align: bottom; font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+thead tr:first-child th:first-child, tbody th { text-align: left; }
+thead th[scope="colgroup"] { text-align: center; border-bottom: 2px solid var(--accent); padding-bottom: 0.15rem; }
 td { text-align: right; font: 0.95rem ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
 tbody tr:nth-child(odd) { background: var(--row); }
 tr.thin td { text-align: left; color: var(--muted); font-family: inherit; font-size: 0.9rem; }

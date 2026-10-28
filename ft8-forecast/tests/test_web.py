@@ -84,6 +84,14 @@ def test_page_shows_the_forecast_for_the_current_utc_hour(client, five_days, env
     assert "needs your grid" not in page
 
 
+def test_station_columns_are_grouped_and_explained(client, five_days):
+    _, page = get(client)
+    assert '<th scope="colgroup" colspan="2">Stations heard</th>' in page
+    assert '<th scope="col">Typical day</th><th scope="col">30-day total</th>' in page
+    assert "Typical day: stations heard on the median day you listened at this hour." in page
+    assert "30-day total: different stations heard over the whole 30 days." in page
+
+
 def test_hour_option(client, five_days):
     _, page = get(client, query_string={"hour": "9"})
     assert "FT8 forecast for 09:00-09:59 UTC" in page

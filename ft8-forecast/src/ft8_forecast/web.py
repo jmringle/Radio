@@ -140,5 +140,5 @@ def _render(db: Path, hour: int | None, imported: dict | None = None) -> str:
         "page.html", hour=hour, hours=range(24), result=result, message=message, imported=imported,
         stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
         env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS, min_days=forecast.MIN_DAYS,
-        show_problems=cli.SHOW_PROBLEMS,
+        show_problems=cli.SHOW_PROBLEMS, station_notes=cli.STATION_NOTES,
     )

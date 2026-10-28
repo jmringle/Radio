@@ -42,16 +42,20 @@ The file type is detected from its content, not its name. Import as often as you
 $ ft8cast forecast --hour 15
 FT8 forecast for 15:00-15:59 UTC (your data: 30 days through 2026-10-25 19:48 UTC)
 
-Band  Stations/day  Stations  Median SNR    Farthest  Contacts
+      ----- Stations heard -----
+Band   Typical day  30-day total  Median SNR    Farthest  Contacts
 160m  not enough data (0 days listening; need 5)
 80m   not enough data (0 days listening; need 5)
-40m             24       111       -9 dB           -         1
+40m             24           111       -9 dB           -         1
 30m   not enough data (2 days listening; need 5)
-20m             96       668      -13 dB           -         8
+20m             96           668      -13 dB           -         8
 17m   not enough data (4 days listening; need 5)
-15m             30       318      -14 dB           -         3
+15m             30           318      -14 dB           -         3
 12m   not enough data (1 day listening; need 5)
-10m             12       128      -14 dB           -         1
+10m             12           128      -14 dB           -         1
+
+Typical day: stations heard on the median day you listened at this hour.
+30-day total: different stations heard over the whole 30 days.
 
 Farthest needs your grid: set MY_GRID in .env (see .env.example).
 ```
@@ -84,7 +88,7 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
 **Acceptance criteria** (settled 2026-10-28). Every command is manual; nothing runs on a schedule.
 - `ft8cast import <file>`: reads an `ALL.TXT` or ADIF file into a local SQLite database (`data/`, gitignored). Re-importing the same file doesn't duplicate. Never modifies the source file. Bad lines are skipped and reported with line numbers; a file with no valid lines is an error.
 - `ft8cast forecast [--hour HH]`: per band, for the current UTC hour or the one given:
-  - **stations per day** (changed 2026-10-28; replaced "open on X of Y days"): the median number of distinct stations decoded per listening day at that hour. A listening day is any day `ALL.TXT` shows you on that band at that hour (a decode or your own Tx); a day with only your Tx counts as 0. Window: the last 30 days.
+  - **stations per day**, shown as "Typical day" under "Stations heard" (renamed 2026-10-28, with "30-day total" for distinct stations, so the two read differently; changed 2026-10-28; replaced "open on X of Y days"): the median number of distinct stations decoded per listening day at that hour. A listening day is any day `ALL.TXT` shows you on that band at that hour (a decode or your own Tx); a day with only your Tx counts as 0. Window: the last 30 days.
   - distinct stations heard, median SNR, farthest station (CQ messages carry a grid);
   - confirmed contacts from ADIF, shown separately (proven two-way paths).
   - Fewer than 5 listening days on a band at that hour: "not enough data", never a score.

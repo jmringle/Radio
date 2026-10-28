@@ -59,8 +59,10 @@
     {% endif %}
     <table>
       <thead>
-        <tr><th scope="col">Band</th><th scope="col">Stations/day</th><th scope="col">Stations</th>
-            <th scope="col">Median SNR</th><th scope="col">Farthest</th><th scope="col">Contacts</th></tr>
+        <tr><th scope="col" rowspan="2">Band</th><th scope="colgroup" colspan="2">Stations heard</th>
+            <th scope="col" rowspan="2">Median SNR</th><th scope="col" rowspan="2">Farthest</th>
+            <th scope="col" rowspan="2">Contacts</th></tr>
+        <tr><th scope="col">Typical day</th><th scope="col">30-day total</th></tr>
       </thead>
       <tbody>
       {% for band in result.bands %}
@@ -82,6 +84,7 @@
       {% endfor %}
       </tbody>
     </table>
+    <p class="muted">{% for note in station_notes %}{{ note }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
     {% if my_grid is none %}
       <p class="note">Farthest needs your grid: set MY_GRID in {{ env_name }} (see .env.example).</p>
     {% endif %}
