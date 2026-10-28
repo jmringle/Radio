@@ -17,6 +17,9 @@ ENV_FILE = PROJECT / ".env"  # gitignored; holds MY_GRID
 DEFAULT_PORT = 8074  # 14.074 MHz, the 20 m FT8 frequency
 STALE_DAYS = 7  # newer data than this needs no reminder to copy ALL.TXT over
 SHOW_PROBLEMS = 10
+# Under the forecast table, here and on the web page: the two station columns are easy to mix up.
+STATION_NOTES = ("Typical day: stations heard on the median day you listened at this hour.",
+                 f"30-day total: different stations heard over the whole {forecast.WINDOW_DAYS} days.")
 
 # Exit codes (README): 0 imported, 2 bad input (argparse uses 2 for usage errors too).
 OK, BAD_INPUT = 0, 2
@@ -129,7 +132,8 @@ def _forecast(hour: int | None, db: Path) -> int:
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
     print()
-    print(f"{'Band':<5} {'Stations/day':>12} {'Stations':>9} {'Median SNR':>11} {'Farthest':>11} {'Contacts':>9}")
+    print(f"{'':6}{' Stations heard ':-^26}")  # spans the two station columns below
+    print(f"{'Band':<5} {'Typical day':>12} {'30-day total':>13} {'Median SNR':>11} {'Farthest':>11} {'Contacts':>9}")
     for band in result.bands:
         if not band.enough_data:
             days = band.listening_days
@@ -139,7 +143,8 @@ def _forecast(hour: int | None, db: Path) -> int:
         snr = "-" if band.median_snr is None else f"{band.median_snr:.0f} dB"
         far = "-" if band.farthest_miles is None else f"{band.farthest_miles:,} mi"
         per_day = f"{band.stations_per_day:,.0f}"
-        print(f"{band.band:<5} {per_day:>12} {band.stations:>9,} {snr:>11} {far:>11} {band.contacts:>9,}")
+        print(f"{band.band:<5} {per_day:>12} {band.stations:>13,} {snr:>11} {far:>11} {band.contacts:>9,}")
+    print("", *STATION_NOTES, sep="\n")
     if my_grid is None:
         print(f"\nFarthest needs your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
     return OK
