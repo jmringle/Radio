@@ -41,8 +41,8 @@ EARTH_RADIUS_MILES = 3958.8
 class BandStats:
     band: str
     listening_days: int  # days with any line (Rx or your Tx) on this band at this hour
-    open_days: int  # of those, days with at least 1 decode
-    stations: int  # distinct senders decoded
+    stations_per_day: float | None  # median distinct senders per listening day (Tx-only days count 0)
+    stations: int  # distinct senders decoded over the whole window
     median_snr: float | None
     farthest_miles: int | None  # None without MY_GRID or without any grid heard
     contacts: int  # completed contacts from the ADIF log
@@ -102,9 +102,8 @@ def compute(conn: sqlite3.Connection, hour: int, my_grid: str | None) -> Forecas
     window = ((newest - timedelta(days=WINDOW_DAYS)).strftime(_TIME), newest_text, f"{hour:02d}")
     where = "time > ? AND time <= ? AND substr(time, 12, 2) = ?"
 
-    listening: dict[str, set[str]] = {}
-    open_days: dict[str, set[str]] = {}
-    senders: dict[str, set[str]] = {}
+    # band -> day -> senders decoded that day; a day with only your Tx has an empty set.
+    listening: dict[str, dict[str, set[str]]] = {}
     snrs: dict[str, list[int]] = {}
     farthest: dict[str, int] = {}
     for time, dial_hz, transmit, snr, sender, grid in conn.execute(
@@ -114,13 +113,12 @@ def compute(conn: sqlite3.Connection, hour: int, my_grid: str | None) -> Forecas
         if band is None:
             continue
         day = time[:10]
-        listening.setdefault(band, set()).add(day)
+        heard = listening.setdefault(band, {}).setdefault(day, set())
         if transmit:
             continue  # your own Tx: proves you were there, isn't a station heard
-        open_days.setdefault(band, set()).add(day)
         snrs.setdefault(band, []).append(snr)
         if sender:
-            senders.setdefault(band, set()).add(sender)
+            heard.add(sender)
         if grid and my_grid:
             farthest[band] = max(farthest.get(band, 0), miles_between(my_grid, grid))
 
@@ -129,16 +127,16 @@ def compute(conn: sqlite3.Connection, hour: int, my_grid: str | None) -> Forecas
         if band := band_for(freq_hz):
             contacts[band] = contacts.get(band, 0) + 1
 
-    bands = [
-        BandStats(
+    bands = []
+    for name, _, _ in BANDS:
+        days = listening.get(name, {})
+        bands.append(BandStats(
             band=name,
-            listening_days=len(listening.get(name, ())),
-            open_days=len(open_days.get(name, ())),
-            stations=len(senders.get(name, ())),
+            listening_days=len(days),
+            stations_per_day=statistics.median(len(heard) for heard in days.values()) if days else None,
+            stations=len(set().union(*days.values())),
             median_snr=statistics.median(snrs[name]) if name in snrs else None,
             farthest_miles=farthest.get(name),
             contacts=contacts.get(name, 0),
-        )
-        for name, _, _ in BANDS
-    ]
+        ))
     return Forecast(hour, newest, bands)

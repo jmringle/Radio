@@ -129,7 +129,7 @@ def _forecast(hour: int | None, db: Path) -> int:
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
     print()
-    print(f"{'Band':<5} {'Open':<14} {'Stations':>8} {'Median SNR':>11} {'Farthest':>11} {'Contacts':>9}")
+    print(f"{'Band':<5} {'Stations/day':>12} {'Stations':>9} {'Median SNR':>11} {'Farthest':>11} {'Contacts':>9}")
     for band in result.bands:
         if not band.enough_data:
             days = band.listening_days
@@ -138,8 +138,8 @@ def _forecast(hour: int | None, db: Path) -> int:
             continue
         snr = "-" if band.median_snr is None else f"{band.median_snr:.0f} dB"
         far = "-" if band.farthest_miles is None else f"{band.farthest_miles:,} mi"
-        opened = f"{band.open_days} of {band.listening_days} days"
-        print(f"{band.band:<5} {opened:<14} {band.stations:>8,} {snr:>11} {far:>11} {band.contacts:>9,}")
+        per_day = f"{band.stations_per_day:,.0f}"
+        print(f"{band.band:<5} {per_day:>12} {band.stations:>9,} {snr:>11} {far:>11} {band.contacts:>9,}")
     print()
     if my_grid is None:
         print(f"Farthest needs your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")

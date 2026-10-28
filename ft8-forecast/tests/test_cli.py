@@ -194,8 +194,8 @@ def test_forecast_prints_the_table(setup, db, capsys):
     assert (code, err) == (0, "")
     lines = out.splitlines()
     assert lines[0] == "FT8 forecast for 15:00-15:59 UTC (your data: 30 days through 2026-10-25 15:30 UTC)"
-    assert lines[2] == "Band  Open           Stations  Median SNR    Farthest  Contacts"
-    assert "20m   5 of 5 days           5      -12 dB       69 mi         0" in lines
+    assert lines[2] == "Band  Stations/day  Stations  Median SNR    Farthest  Contacts"
+    assert "20m              1         5      -12 dB       69 mi         0" in lines
     assert "40m   not enough data (0 days listening; need 5)" in lines
     assert lines[-1] == "Solar: unavailable (the forecast above uses only your data)"
     assert "Note:" not in out and "MY_GRID" not in out
@@ -225,7 +225,7 @@ def test_one_day_is_singular(setup, db, capsys):
 
 def test_without_my_grid_farthest_is_blank_and_explained(setup, db, capsys):
     out = forecast_run(capsys, db)[1]
-    assert "20m   5 of 5 days           5      -12 dB           -         0" in out
+    assert "20m              1         5      -12 dB           -         0" in out
     assert "Farthest needs your grid: set MY_GRID in .env (see .env.example)." in out
 
 
