@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=84"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ft8-forecast"
+version = "0.1.0"
+description = "Forecast which HF bands will work for FT8, from your own WSJT-X/JTDX logs"
+requires-python = ">=3.12"
+# band-privileges is a runtime dependency, but it's installed from ../band-privileges
+# by requirements-dev.txt and deliberately not listed here: it isn't on PyPI, so
+# listing it would make pip look there, and anyone could publish a package under
+# that name (dependency confusion, OWASP A03:2025 Software Supply Chain Failures).
+dependencies = []
+
+[tool.pytest.ini_options]
+# Lets tests import the src/ package without installing it.
+pythonpath = ["src"]
+testpaths = ["tests"]
