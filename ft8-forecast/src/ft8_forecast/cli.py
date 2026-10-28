@@ -1,4 +1,4 @@
-"""ft8cast: command-line front end. Every command is manual; nothing runs on a schedule."""
+"""ft8cast: command-line front end. Every command is manual and offline: no schedule, no network."""
 
 import argparse
 import sys
@@ -140,10 +140,8 @@ def _forecast(hour: int | None, db: Path) -> int:
         far = "-" if band.farthest_miles is None else f"{band.farthest_miles:,} mi"
         per_day = f"{band.stations_per_day:,.0f}"
         print(f"{band.band:<5} {per_day:>12} {band.stations:>9,} {snr:>11} {far:>11} {band.contacts:>9,}")
-    print()
     if my_grid is None:
-        print(f"Farthest needs your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
-    print("Solar: unavailable (the forecast above uses only your data)")
+        print(f"\nFarthest needs your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
     return OK
 
 
