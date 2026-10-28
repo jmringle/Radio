@@ -178,6 +178,8 @@ def setup(tmp_path, db, monkeypatch):
     newest = datetime(2026, 10, 25, 15, 30, tzinfo=UTC)
     save_decodes(conn, [Decode(newest - timedelta(days=n), 14_074_000, False, -10 - n, f"N{n}CALL",
                                "JJ01", f"CQ N{n}CALL JJ01") for n in range(5)])
+    # N0CALL again the next day back: a second day, so its grid can set Farthest.
+    save_decodes(conn, [Decode(newest - timedelta(days=1), 14_074_000, False, -12, "N0CALL", "JJ01", "CQ N0CALL JJ01")])
     conn.close()
     return tmp_path / ".env"
 
@@ -195,13 +197,15 @@ def test_forecast_prints_the_table(setup, db, capsys):
     lines = out.splitlines()
     assert lines[0] == "FT8 forecast for 15:00-15:59 UTC (your data: 30 days through 2026-10-25 15:30 UTC)"
     assert lines[2] == "      ----- Stations heard -----"
-    assert lines[3] == "Band   Typical day  30-day total  Median SNR    Farthest  Contacts"
-    assert "20m              1             5      -12 dB       69 mi         0" in lines
+    assert lines[3] == "Band   Typical day  30-day total  Median SNR          Farthest  30-day contacts"
+    assert "20m              1             5      -12 dB      69 mi (JJ01)                0" in lines
     assert "40m   not enough data (0 days listening; need 5)" in lines
     # The table, then the note on the two station columns, last.
-    assert lines[-4:] == ["10m   not enough data (0 days listening; need 5)", "",
+    assert lines[-5:] == ["10m   not enough data (0 days listening; need 5)", "",
                           "Typical day: stations heard on the median day you listened at this hour.",
-                          "30-day total: different stations heard over the whole 30 days."]
+                          "30-day total: different stations heard over the whole 30 days.",
+                          "Farthest: a station heard with the same grid square on 2+ days at this hour; "
+                          "the square is theirs."]
     assert "Note:" not in out and "MY_GRID" not in out
 
 
@@ -217,6 +221,20 @@ def test_forecast_hour_option(setup, db, capsys, monkeypatch):
     assert forecast_run(capsys, db, "--hour", "15")[1].startswith("FT8 forecast for 15:00-15:59 UTC")
 
 
+def test_forecast_all_hours(setup, db, capsys):
+    conn = open_db(db)  # 03 UTC, outside the fixture's 15 UTC hour: counts only for all hours
+    save_decodes(conn, [Decode(datetime(2026, 10, 25, 3, 0, tzinfo=UTC), 14_074_000, False, -5, "N0CALL/P",
+                               None, "CQ N0CALL/P")])
+    conn.close()
+    code, out, _ = forecast_run(capsys, db, "--hour", "all")
+    lines = out.splitlines()
+    assert code == 0
+    assert lines[0] == "FT8 forecast for all hours (00:00-23:59 UTC) (your data: 30 days through 2026-10-25 15:30 UTC)"
+    assert any(line.startswith("20m ") and line.split()[2] == "6" for line in lines)  # 30-day total
+    assert "Typical day: stations heard on the median day you listened, at any hour." in lines
+    assert "Farthest: a station heard with the same grid square on 2+ days, at any hour; the square is theirs." in lines
+
+
 def test_one_day_is_singular(setup, db, capsys):
     conn = open_db(db)
     save_decodes(conn, [Decode(datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 7_074_000, False, -5,
@@ -229,7 +247,7 @@ def test_one_day_is_singular(setup, db, capsys):
 
 def test_without_my_grid_farthest_is_blank_and_explained(setup, db, capsys):
     out = forecast_run(capsys, db)[1]
-    assert "20m              1             5      -12 dB           -         0" in out
+    assert "20m              1             5      -12 dB                 -                0" in out
     assert "Farthest needs your grid: set MY_GRID in .env (see .env.example)." in out
 
 
@@ -243,7 +261,7 @@ def test_empty_or_commented_my_grid_counts_as_unset(setup, db, capsys, env):
 @pytest.mark.parametrize("env", ['MY_GRID="JJ00"\n', "MY_GRID = jj00  # home\n", "MY_GRID=JJ00ab\n"])
 def test_my_grid_formats_people_write(setup, db, capsys, env):
     setup.write_text(env)
-    assert "69 mi" in forecast_run(capsys, db)[1]
+    assert "69 mi (JJ01)" in forecast_run(capsys, db)[1]
 
 
 @pytest.mark.parametrize("bad", ["ZZ99", "FN3", "my house"])
@@ -280,13 +298,13 @@ def test_forecast_with_only_adif_imported_is_an_error(tmp_path, db, capsys, monk
     assert code == 2 and "no ALL.TXT data imported yet" in err
 
 
-@pytest.mark.parametrize("hour", ["24", "-1", "x", "1.5", "007", "１"])
+@pytest.mark.parametrize("hour", ["24", "-1", "x", "1.5", "007", "１", "ALL", "al"])
 def test_bad_hour_is_a_usage_error(setup, db, capsys, hour):
     code, _, err = forecast_run(capsys, db, "--hour", hour)
     assert code == 2 and "must be a UTC hour from 0 to 23" in err
 
 
-@pytest.mark.parametrize("hour", ["0", "00", "23", "9"])
+@pytest.mark.parametrize("hour", ["0", "00", "23", "9", "all"])
 def test_good_hours(setup, db, capsys, hour):
     assert forecast_run(capsys, db, "--hour", hour)[0] == 0
 

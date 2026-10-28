@@ -17,9 +17,21 @@ ENV_FILE = PROJECT / ".env"  # gitignored; holds MY_GRID
 DEFAULT_PORT = 8074  # 14.074 MHz, the 20 m FT8 frequency
 STALE_DAYS = 7  # newer data than this needs no reminder to copy ALL.TXT over
 SHOW_PROBLEMS = 10
-# Under the forecast table, here and on the web page: the two station columns are easy to mix up.
-STATION_NOTES = ("Typical day: stations heard on the median day you listened at this hour.",
-                 f"30-day total: different stations heard over the whole {forecast.WINDOW_DAYS} days.")
+ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
+
+
+def station_notes(hour: int | None) -> tuple[str, ...]:
+    """Under the forecast table, here and on the web page: the two station columns are easy
+    to mix up, and Farthest leaves stations out on purpose. hour None: all hours."""
+    when = "at this hour" if hour is not None else "at any hour"
+    return (f"Typical day: stations heard on the median day you listened{'' if hour is not None else ','} {when}.",
+            f"30-day total: different stations heard over the whole {forecast.WINDOW_DAYS} days.",
+            f"Farthest: a station heard with the same grid square on {forecast.FARTHEST_MIN_DAYS}+ days"
+            f"{' ' if hour is not None else ', '}{when}; the square is theirs.")
+
+
+def hour_title(hour: int | None) -> str:
+    return "all hours (00:00-23:59 UTC)" if hour is None else f"{hour:02d}:00-{hour:02d}:59 UTC"
 
 # Exit codes (README): 0 imported, 2 bad input (argparse uses 2 for usage errors too).
 OK, BAD_INPUT = 0, 2
@@ -32,7 +44,7 @@ def _parser() -> argparse.ArgumentParser:
     imp.add_argument("file", type=Path, help="ALL.TXT or .adi file; it's only read, never changed")
     imp.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
     fc = commands.add_parser("forecast", help="how each band has done for you at this UTC hour")
-    fc.add_argument("--hour", type=_hour, help="UTC hour 0-23 (default: now)")
+    fc.add_argument("--hour", type=_hour, help=f"UTC hour 0-23, or {ALL_HOURS!r} for the whole day (default: now)")
     fc.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
     sv = commands.add_parser("serve", help="the forecast and import as a web page, on this Mac only")
     sv.add_argument("--port", type=_port, default=DEFAULT_PORT, help=f"port (default: {DEFAULT_PORT})")
@@ -47,9 +59,11 @@ def _port(text: str) -> int:
     return int(text)
 
 
-def _hour(text: str) -> int:
+def _hour(text: str) -> int | str:
+    if text == ALL_HOURS:
+        return ALL_HOURS
     if not (text.isascii() and text.isdigit() and len(text) <= 2 and int(text) <= 23):
-        raise argparse.ArgumentTypeError(f"must be a UTC hour from 0 to 23, got {text!r}")
+        raise argparse.ArgumentTypeError(f"must be a UTC hour from 0 to 23 or {ALL_HOURS!r}, got {text!r}")
     return int(text)
 
 
@@ -105,7 +119,7 @@ def _import(source: Path, db: Path) -> int:
     return OK
 
 
-def _forecast(hour: int | None, db: Path) -> int:
+def _forecast(hour: int | str | None, db: Path) -> int:
     try:
         my_grid = _my_grid()
     except ValueError as error:
@@ -117,7 +131,7 @@ def _forecast(hour: int | None, db: Path) -> int:
     except StoreError as error:
         return _error(str(error))
     now = _now()
-    hour = now.hour if hour is None else hour
+    hour = now.hour if hour is None else None if hour == ALL_HOURS else hour
     try:
         result = forecast.compute(conn, hour, my_grid)
     finally:
@@ -126,14 +140,13 @@ def _forecast(hour: int | None, db: Path) -> int:
         return _error("no ALL.TXT data imported yet; run `ft8cast import <ALL.TXT>` first")
 
     newest = result.newest.strftime("%Y-%m-%d %H:%M")
-    print(f"FT8 forecast for {hour:02d}:00-{hour:02d}:59 UTC "
-          f"(your data: {forecast.WINDOW_DAYS} days through {newest} UTC)")
+    print(f"FT8 forecast for {hour_title(hour)} (your data: {forecast.WINDOW_DAYS} days through {newest} UTC)")
     age = (now.replace(tzinfo=None) - result.newest).days
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
     print()
     print(f"{'':6}{' Stations heard ':-^26}")  # spans the two station columns below
-    print(f"{'Band':<5} {'Typical day':>12} {'30-day total':>13} {'Median SNR':>11} {'Farthest':>11} {'Contacts':>9}")
+    print(f"{'Band':<5} {'Typical day':>12} {'30-day total':>13} {'Median SNR':>11} {'Farthest':>17} {'30-day contacts':>16}")
     for band in result.bands:
         if not band.enough_data:
             days = band.listening_days
@@ -141,10 +154,10 @@ def _forecast(hour: int | None, db: Path) -> int:
                   f"listening; need {forecast.MIN_DAYS})")
             continue
         snr = "-" if band.median_snr is None else f"{band.median_snr:.0f} dB"
-        far = "-" if band.farthest_miles is None else f"{band.farthest_miles:,} mi"
+        far = "-" if band.farthest_miles is None else f"{band.farthest_miles:,} mi ({band.farthest_grid})"
         per_day = f"{band.stations_per_day:,.0f}"
-        print(f"{band.band:<5} {per_day:>12} {band.stations:>13,} {snr:>11} {far:>11} {band.contacts:>9,}")
-    print("", *STATION_NOTES, sep="\n")
+        print(f"{band.band:<5} {per_day:>12} {band.stations:>13,} {snr:>11} {far:>17} {band.contacts:>16,}")
+    print("", *station_notes(hour), sep="\n")
     if my_grid is None:
         print(f"\nFarthest needs your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
     return OK

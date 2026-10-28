@@ -67,7 +67,7 @@ def create_app(db: Path) -> Flask:
             hour = None if text is None else cli._hour(text)
         except argparse.ArgumentTypeError as error:
             raise PageError(400, f"Hour {error}.") from None
-        return _render(db, hour)
+        return _render(db, hour)  # None: now; cli.ALL_HOURS: the whole day
 
     @app.post("/import")
     def upload():
@@ -116,13 +116,13 @@ def _open(db: Path):
         raise PageError(500, str(error)) from None
 
 
-def _render(db: Path, hour: int | None, imported: dict | None = None) -> str:
+def _render(db: Path, hour: int | str | None, imported: dict | None = None) -> str:
     try:
         my_grid = cli._my_grid()  # the same .env and clock as the CLI
     except ValueError as error:
         raise PageError(500, f"MY_GRID in {cli.ENV_FILE.name}: {error}") from None
     now = cli._now()
-    hour = now.hour if hour is None else hour
+    hour = now.hour if hour is None else None if hour == cli.ALL_HOURS else hour
     result, age, message = None, None, None
     if not db.is_file():
         message = "No data yet: import your ALL.TXT below."
@@ -140,5 +140,6 @@ def _render(db: Path, hour: int | None, imported: dict | None = None) -> str:
         "page.html", hour=hour, hours=range(24), result=result, message=message, imported=imported,
         stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
         env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS, min_days=forecast.MIN_DAYS,
-        show_problems=cli.SHOW_PROBLEMS, station_notes=cli.STATION_NOTES,
+        show_problems=cli.SHOW_PROBLEMS, station_notes=cli.station_notes(hour), title=cli.hour_title(hour),
+        all_hours=cli.ALL_HOURS,
     )

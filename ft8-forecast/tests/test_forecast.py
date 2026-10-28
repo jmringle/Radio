@@ -124,6 +124,39 @@ def test_only_the_requested_hour_counts(conn):
     assert band(conn, hour=14).stations == 1  # 14:59:59
 
 
+# --- all hours (hour=None) ---
+
+def test_all_hours_counts_every_hour_and_a_day_once(conn):
+    save_decodes(conn, [rx(NEWEST.replace(hour=3)), rx(sender="N0CALL/P"), rx(NEWEST.replace(hour=23), sender="N0CALL/M")])
+    stats = band(conn, hour=None)
+    assert (stats.listening_days, stats.stations, stats.stations_per_day) == (1, 3, 3)
+    assert forecast.compute(conn, None, None).hour is None
+
+
+def test_all_hours_counts_a_station_once_per_day(conn):
+    save_decodes(conn, [rx(NEWEST.replace(hour=3)), rx()])  # the same station at 03 and 15
+    assert band(conn, hour=None).stations_per_day == 1
+
+
+def test_all_hours_keeps_the_30_day_window(conn):
+    edge = NEWEST - timedelta(days=30)
+    save_decodes(conn, [rx(), rx(edge, sender="N0CALL/P"), rx(edge + timedelta(seconds=1), sender="N0CALL/M")])
+    assert band(conn, hour=None).stations == 2
+
+
+def test_all_hours_farthest_days_can_be_at_different_hours(conn):
+    save_decodes(conn, [rx(grid="JJ10"), rx(days_back(1, hour=3), grid="JJ10")])
+    assert band(conn, hour=None, my_grid="JJ00").farthest_miles == 138
+    assert band(conn, hour=15, my_grid="JJ00").farthest_miles is None
+
+
+def test_all_hours_counts_contacts_at_every_hour(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [Contact("N0CALL", NEWEST.replace(hour=3), TWENTY, None), Contact("N0CALL/P", NEWEST, TWENTY, None),
+                         Contact("N0CALL/M", NEWEST - timedelta(days=31), TWENTY, None)])
+    assert band(conn, hour=None).contacts == 2
+
+
 # --- what each column counts ---
 
 def test_listening_days_count_dates_not_decodes(conn):
@@ -181,15 +214,46 @@ def test_median_snr(conn):
     assert band(conn).median_snr == -11
 
 
+def two_days(sender="N0CALL", grid="JJ01", **kwargs):
+    """The same station and grid decoded today and yesterday: enough to set Farthest."""
+    return [rx(sender=sender, grid=grid, **kwargs), rx(days_back(1), sender=sender, grid=grid, **kwargs)]
+
+
 def test_farthest_needs_my_grid(conn):
-    save_decodes(conn, [rx(grid="JJ01")])
+    save_decodes(conn, two_days())
     assert band(conn).farthest_miles is None
     assert band(conn, my_grid="JJ00").farthest_miles == 69
 
 
-def test_farthest_is_the_maximum(conn):
-    save_decodes(conn, [rx(grid="JJ01", snr=-1), rx(grid="JJ10", snr=-2), rx(grid=None, snr=-3)])
-    assert band(conn, my_grid="JJ00").farthest_miles == 138
+def test_farthest_is_the_maximum_and_names_its_grid(conn):
+    save_decodes(conn, [*two_days("N0CALL", "JJ01"), *two_days("N0CALL/P", "JJ10"), rx(grid=None, snr=-3)])
+    stats = band(conn, my_grid="JJ00")
+    assert (stats.farthest_miles, stats.farthest_grid) == (138, "JJ10")
+
+
+def test_farthest_ignores_a_station_heard_on_one_day_only(conn):
+    # One day, however many decodes: could be a false decode or a passing fluke.
+    one_day = [rx(sender="N0CALL/P", grid="JJ10", snr=s) for s in range(-20, -10)]
+    save_decodes(conn, [*two_days("N0CALL", "JJ01"), *one_day])
+    stats = band(conn, my_grid="JJ00")
+    assert (stats.farthest_miles, stats.farthest_grid) == (69, "JJ01")
+
+
+def test_farthest_needs_the_same_grid_on_both_days(conn):
+    # One station, a different grid each day (a garbled decode, or moving): neither grid counts.
+    save_decodes(conn, [rx(grid="JJ01"), rx(days_back(1), grid="JJ10")])
+    assert band(conn, my_grid="JJ00").farthest_miles is None
+
+
+def test_farthest_needs_the_same_station_on_both_days(conn):
+    save_decodes(conn, [rx(sender="N0CALL", grid="JJ10"), rx(days_back(1), sender="N0CALL/P", grid="JJ10")])
+    assert band(conn, my_grid="JJ00").farthest_grid is None
+
+
+def test_farthest_days_must_be_at_this_hour_on_this_band(conn):
+    save_decodes(conn, [rx(grid="JJ10"), rx(days_back(1, hour=14), grid="JJ10"),
+                        rx(days_back(2), dial=7_074_000, grid="JJ10")])
+    assert band(conn, my_grid="JJ00").farthest_miles is None
 
 
 def test_bands_are_kept_apart(conn):

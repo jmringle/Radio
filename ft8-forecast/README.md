@@ -43,24 +43,25 @@ $ ft8cast forecast --hour 15
 FT8 forecast for 15:00-15:59 UTC (your data: 30 days through 2026-10-25 19:48 UTC)
 
       ----- Stations heard -----
-Band   Typical day  30-day total  Median SNR    Farthest  Contacts
+Band   Typical day  30-day total  Median SNR          Farthest  30-day contacts
 160m  not enough data (0 days listening; need 5)
 80m   not enough data (0 days listening; need 5)
-40m             24           111       -9 dB           -         1
+40m             24           111       -9 dB                 -                1
 30m   not enough data (2 days listening; need 5)
-20m             96           668      -13 dB           -         8
+20m             96           668      -13 dB                 -                8
 17m   not enough data (4 days listening; need 5)
-15m             30           318      -14 dB           -         3
+15m             30           318      -14 dB                 -                3
 12m   not enough data (1 day listening; need 5)
-10m             12           128      -14 dB           -         1
+10m             12           128      -14 dB                 -                1
 
 Typical day: stations heard on the median day you listened at this hour.
 30-day total: different stations heard over the whole 30 days.
+Farthest: a station heard with the same grid square on 2+ days at this hour; the square is theirs.
 
 Farthest needs your grid: set MY_GRID in .env (see .env.example).
 ```
 
-Without `--hour` it uses the current UTC hour. The 30 days end at your newest imported decode, not today, so an older copy of `ALL.TXT` still gives a full window; if that's more than 7 days ago, a note says to copy a fresh one over.
+Without `--hour` it uses the current UTC hour; `--hour all` counts the whole day instead of one hour (on the page: "All hours" in the hour list). The 30 days end at your newest imported decode, not today, so an older copy of `ALL.TXT` still gives a full window; if that's more than 7 days ago, a note says to copy a fresh one over.
 
 ### The web page
 
@@ -87,14 +88,14 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
 
 **Acceptance criteria** (settled 2026-10-28). Every command is manual; nothing runs on a schedule.
 - `ft8cast import <file>`: reads an `ALL.TXT` or ADIF file into a local SQLite database (`data/`, gitignored). Re-importing the same file doesn't duplicate. Never modifies the source file. Bad lines are skipped and reported with line numbers; a file with no valid lines is an error.
-- `ft8cast forecast [--hour HH]`: per band, for the current UTC hour or the one given:
+- `ft8cast forecast [--hour HH|all]`: per band, for the current UTC hour, the one given, or all hours (added 2026-10-28: the same rules with no hour limit, so a listening day is a day with any line on that band, and Farthest's 2 days can be at different hours):
   - **stations per day**, shown as "Typical day" under "Stations heard" (renamed 2026-10-28, with "30-day total" for distinct stations, so the two read differently; changed 2026-10-28; replaced "open on X of Y days"): the median number of distinct stations decoded per listening day at that hour. A listening day is any day `ALL.TXT` shows you on that band at that hour (a decode or your own Tx); a day with only your Tx counts as 0. Window: the last 30 days.
-  - distinct stations heard, median SNR, farthest station (CQ messages carry a grid);
+  - distinct stations heard, median SNR, farthest station with its grid square (messages often carry the sender's grid). Farthest counts a station only if it was decoded with the same grid on 2+ days at that hour on that band (decided 2026-10-28);
   - confirmed contacts from ADIF, shown separately (proven two-way paths).
   - Fewer than 5 listening days on a band at that hour: "not enough data", never a score.
   - Only bands where General may operate data, via `band-privileges`.
 - `ft8cast serve [--port N]` (added 2026-10-28): a web page on `127.0.0.1` only, default port 8074.
-  - Shows the forecast for the current UTC hour or one picked from a list; a bad hour is a 400 with the reason.
+  - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason.
   - Uploading `ALL.TXT` or ADIF imports it exactly like `ft8cast import` (same detection, de-duplication and problem reporting) and shows the summary; the file isn't kept. No file, a file with no FT8 records, or an ADIF over 100 MB is a 400 that stores nothing; an upload over 500 MB is a 413.
   - No database yet: the page says to upload, and creates nothing until you do. A database that isn't ft8cast's, or an invalid `MY_GRID`, shows the reason (500) and changes nothing.
   - Unexpected errors show "Something went wrong; see the terminal" and never a traceback; debug mode can't be switched on (not even by `FLASK_DEBUG`).
@@ -119,13 +120,14 @@ The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FR
 - Distances in **miles** (the author's choice), great-circle between the centers of 4-character squares. A square is about 140 x 70 miles in the US, so distances are good to roughly +/- 70 miles.
 - Bands: every v1 band from `band-privileges` (60 m is deferred there), each with General data privileges at its FT8 frequency (tested). A decode counts only if General may use data at its dial frequency (`check(dial, DATA, GENERAL)`); band edges here are cross-checked against `band-privileges` by a test.
 - Median SNR rather than the mean, so one loud local station doesn't skew it.
+- **Why Farthest needs 2 days:** it's a single maximum, so one bad grid sets it. In the author's data (checked 2026-10-28) the old rule's 18 UTC 20 m farthest was an Antarctic square from 2 decodes on one day, one of them an a-priori decode, and 15 UTC 40 m was a square near the North Pole from a station that likely has its grid set wrong. Requiring the same station *and* grid on 2+ days drops one-day flukes and garbled grids; showing the square lets you spot a wrong one that repeats.
 - **Why stations per day, not "open X of Y days":** `ALL.TXT` only records something when a line is decoded or you transmit, so a day on a dead band without transmitting leaves no trace and can't count as closed. In the author's data only 1 of 30 scored band-hours showed fewer open days than listening days, so that column nearly always read "X of X". The median day tells how busy the band typically is, and one unusually good day can't lift it. The same blind spot remains: silent, Rx-only days on a dead band are invisible, so the number leans optimistic.
 
 **Why Python:** your strongest language; it can import the `band-privileges` engine directly; pytest's parametrize suits the many malformed-input cases. TypeScript lost because it would mean reimplementing the privileges engine.
 
 **Next:**
 - Phase 2, if wanted: a standalone app (a native window around the same page).
-- Possible later: a 24-hour overview on the page; solar values typed in by hand (`--k`, `--flux`; no network).
+- Possible later: a 24-hour overview (band by hour) on the page; solar values typed in by hand (`--k`, `--flux`; no network).
 
 ### Threat model
 
