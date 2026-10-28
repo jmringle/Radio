@@ -1,0 +1,24 @@
+name: ft8-forecast tests
+on:
+  push:
+    # band-privileges too: ft8-forecast imports it, so a change there can break this.
+    paths: ["ft8-forecast/**", "band-privileges/**", ".github/workflows/ft8-forecast-tests.yml"]
+  pull_request:
+    paths: ["ft8-forecast/**", "band-privileges/**", ".github/workflows/ft8-forecast-tests.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ft8-forecast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest
+      # Audits the installed environment; -r can't resolve the local -e ../band-privileges line.
+      - run: pip-audit

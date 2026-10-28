@@ -1,0 +1,6 @@
+# Your logs and the database hold other operators' callsigns and grids: never commit
+data/
+*.sqlite
+*.adi
+*.adif
+ALL.TXT
