@@ -44,6 +44,7 @@
   <form method="get" action="/" class="hour">
     <label for="hour">UTC hour</label>
     <select id="hour" name="hour">
+      <option value="{{ all_hours }}"{% if hour is none %} selected{% endif %}>All hours</option>
     {% for h in hours %}
       <option value="{{ h }}"{% if h == hour %} selected{% endif %}>{{ "%02d:00" % h }}</option>
     {% endfor %}
@@ -52,7 +53,7 @@
   </form>
 
   {% if result %}
-    <h2 id="forecast-title">FT8 forecast for {{ "%02d:00-%02d:59" % (hour, hour) }} UTC</h2>
+    <h2 id="forecast-title">FT8 forecast for {{ title }}</h2>
     <p class="muted">Your data: {{ window_days }} days through {{ result.newest.strftime("%Y-%m-%d %H:%M") }} UTC</p>
     {% if stale %}
       <p class="note">Note: your newest data is {{ stale }} days old; import a fresh copy of ALL.TXT.</p>
@@ -61,7 +62,7 @@
       <thead>
         <tr><th scope="col" rowspan="2">Band</th><th scope="colgroup" colspan="2">Stations heard</th>
             <th scope="col" rowspan="2">Median SNR</th><th scope="col" rowspan="2">Farthest</th>
-            <th scope="col" rowspan="2">Contacts</th></tr>
+            <th scope="col" rowspan="2">30-day contacts</th></tr>
         <tr><th scope="col">Typical day</th><th scope="col">30-day total</th></tr>
       </thead>
       <tbody>
@@ -72,7 +73,7 @@
           <td>{{ "{:,.0f}".format(band.stations_per_day) }}</td>
           <td>{{ "{:,}".format(band.stations) }}</td>
           <td>{{ "-" if band.median_snr is none else "%.0f dB" % band.median_snr }}</td>
-          <td>{{ "-" if band.farthest_miles is none else "{:,} mi".format(band.farthest_miles) }}</td>
+          <td>{{ "-" if band.farthest_miles is none else "{:,} mi ({})".format(band.farthest_miles, band.farthest_grid) }}</td>
           <td>{{ "{:,}".format(band.contacts) }}</td>
         </tr>
         {% else %}

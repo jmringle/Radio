@@ -1,4 +1,4 @@
-"""The forecast: how each band has done for you at one UTC hour, from your own data.
+"""The forecast: how each band has done for you at one UTC hour (or all hours), from your own data.
 
 Window: the 30 days up to your newest imported decode (not up to today), so an
 older copy of ALL.TXT still gives a full window; the CLI says how old it is.
@@ -16,6 +16,9 @@ from band_privileges import LicenseClass, Mode, check
 
 WINDOW_DAYS = 30
 MIN_DAYS = 5  # fewer listening days than this at an hour: "not enough data", no score
+# Farthest counts a station only if it was decoded with the same grid on this many days
+# (at the hour, on the band): one day can be a false decode or a station's wrong grid.
+FARTHEST_MIN_DAYS = 2
 
 # Band edges from §97.301 (the Extra column, i.e. the whole band), in Hz. 60 m is
 # left out, as in band-privileges v1. tests/test_forecast.py checks these edges
@@ -44,7 +47,8 @@ class BandStats:
     stations_per_day: float | None  # median distinct senders per listening day (Tx-only days count 0)
     stations: int  # distinct senders decoded over the whole window
     median_snr: float | None
-    farthest_miles: int | None  # None without MY_GRID or without any grid heard
+    farthest_miles: int | None  # None without MY_GRID or without a station heard on FARTHEST_MIN_DAYS days
+    farthest_grid: str | None  # the 4-character square farthest_miles is measured to
     contacts: int  # completed contacts from the ADIF log
 
     @property
@@ -54,7 +58,7 @@ class BandStats:
 
 @dataclass(frozen=True)
 class Forecast:
-    hour: int
+    hour: int | None  # None: all hours
     newest: datetime  # newest imported decode: the window ends here
     bands: list[BandStats]  # every band in BANDS, low to high
 
@@ -93,19 +97,22 @@ def band_for(freq_hz: int) -> str | None:
     return next((name for name, low, high in BANDS if low <= freq_hz <= high), None)
 
 
-def compute(conn: sqlite3.Connection, hour: int, my_grid: str | None) -> Forecast | None:
-    """The forecast for `hour` (0-23 UTC), or None if no decodes are imported."""
+def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None) -> Forecast | None:
+    """The forecast for `hour` (0-23 UTC; None for all hours), or None if no decodes are imported."""
     newest_text = conn.execute("SELECT max(time) FROM decodes").fetchone()[0]
     if newest_text is None:
         return None
     newest = datetime.strptime(newest_text, _TIME)
-    window = ((newest - timedelta(days=WINDOW_DAYS)).strftime(_TIME), newest_text, f"{hour:02d}")
-    where = "time > ? AND time <= ? AND substr(time, 12, 2) = ?"
+    window: tuple = ((newest - timedelta(days=WINDOW_DAYS)).strftime(_TIME), newest_text)
+    where = "time > ? AND time <= ?"
+    if hour is not None:
+        window += (f"{hour:02d}",)
+        where += " AND substr(time, 12, 2) = ?"
 
     # band -> day -> senders decoded that day; a day with only your Tx has an empty set.
     listening: dict[str, dict[str, set[str]]] = {}
     snrs: dict[str, list[int]] = {}
-    farthest: dict[str, int] = {}
+    grid_days: dict[str, dict[tuple[str, str], set[str]]] = {}  # band -> (sender, grid) -> days heard
     for time, dial_hz, transmit, snr, sender, grid in conn.execute(
         f"SELECT time, dial_hz, transmit, snr_db, sender, grid FROM decodes WHERE {where}", window
     ):
@@ -119,8 +126,15 @@ def compute(conn: sqlite3.Connection, hour: int, my_grid: str | None) -> Forecas
         snrs.setdefault(band, []).append(snr)
         if sender:
             heard.add(sender)
-        if grid and my_grid:
-            farthest[band] = max(farthest.get(band, 0), miles_between(my_grid, grid))
+        if grid and sender and my_grid:
+            grid_days.setdefault(band, {}).setdefault((sender, grid), set()).add(day)
+
+    farthest: dict[str, tuple[int, str]] = {}
+    for band, pairs in grid_days.items():
+        qualified = [(miles_between(my_grid, grid), grid) for (_, grid), days in pairs.items()
+                     if len(days) >= FARTHEST_MIN_DAYS]
+        if qualified:
+            farthest[band] = max(qualified)
 
     contacts: dict[str, int] = {}
     for (freq_hz,) in conn.execute(f"SELECT freq_hz FROM contacts WHERE {where}", window):
@@ -136,7 +150,8 @@ def compute(conn: sqlite3.Connection, hour: int, my_grid: str | None) -> Forecas
             stations_per_day=statistics.median(len(heard) for heard in days.values()) if days else None,
             stations=len(set().union(*days.values())),
             median_snr=statistics.median(snrs[name]) if name in snrs else None,
-            farthest_miles=farthest.get(name),
+            farthest_miles=farthest[name][0] if name in farthest else None,
+            farthest_grid=farthest[name][1] if name in farthest else None,
             contacts=contacts.get(name, 0),
         ))
     return Forecast(hour, newest, bands)

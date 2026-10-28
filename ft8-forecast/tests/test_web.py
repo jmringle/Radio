@@ -72,14 +72,18 @@ def stored(db, table="decodes"):
 
 # --- the forecast page ---
 
-def test_page_shows_the_forecast_for_the_current_utc_hour(client, five_days, env):
+def test_page_shows_the_forecast_for_the_current_utc_hour(client, db, five_days, env):
     env.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)  # N0CALL on a second day, so its grid can set Farthest
+    save_decodes(conn, [Decode(datetime(2026, 10, 24, 15, 30, tzinfo=UTC), 14_074_000, False, -12, "N0CALL",
+                               "JJ01", "CQ N0CALL JJ01")])
+    conn.close()
     response, page = get(client)
     assert response.status_code == 200
     assert "FT8 forecast for 15:00-15:59 UTC" in page
     assert "30 days through 2026-10-25 15:30 UTC" in page
     row = re.search(r"<tr>\s*<th[^>]*>20m</th>(.*?)</tr>", page, re.S).group(1)
-    assert re.findall(r"<td[^>]*>(.*?)</td>", row) == ["1", "5", "-12 dB", "69 mi", "0"]
+    assert re.findall(r"<td[^>]*>(.*?)</td>", row) == ["1", "5", "-12 dB", "69 mi (JJ01)", "0"]
     assert "not enough data (0 days listening; need 5)" in page
     assert "needs your grid" not in page
 
@@ -88,8 +92,10 @@ def test_station_columns_are_grouped_and_explained(client, five_days):
     _, page = get(client)
     assert '<th scope="colgroup" colspan="2">Stations heard</th>' in page
     assert '<th scope="col">Typical day</th><th scope="col">30-day total</th>' in page
+    assert '<th scope="col" rowspan="2">30-day contacts</th>' in page  # a total, not per day
     assert "Typical day: stations heard on the median day you listened at this hour." in page
     assert "30-day total: different stations heard over the whole 30 days." in page
+    assert "Farthest: a station heard with the same grid square on 2+ days at this hour" in page
 
 
 def test_hour_option(client, five_days):
@@ -99,7 +105,20 @@ def test_hour_option(client, five_days):
     assert "not enough data (0 days listening; need 5)" in page
 
 
-@pytest.mark.parametrize("hour", ["24", "-1", "abc", "", " 1", "1.0", "٣", "999"])
+def test_all_hours_option(client, five_days):
+    _, page = get(client, query_string={"hour": "all"})
+    assert "FT8 forecast for all hours (00:00-23:59 UTC)" in page
+    assert '<option value="all" selected>All hours</option>' in page
+    assert "at any hour" in page and "at this hour" not in page
+
+
+def test_current_hour_is_selected_by_default_not_all(client, five_days):
+    _, page = get(client)
+    assert '<option value="15" selected>' in page
+    assert '<option value="all">All hours</option>' in page
+
+
+@pytest.mark.parametrize("hour", ["24", "-1", "abc", "", " 1", "1.0", "٣", "999", "ALL", "all "])
 def test_bad_hour_is_a_400(client, five_days, hour):
     response, page = get(client, query_string={"hour": hour})
     assert response.status_code == 400
