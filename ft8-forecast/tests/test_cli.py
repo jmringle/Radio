@@ -197,7 +197,7 @@ def test_forecast_prints_the_table(setup, db, capsys):
     assert lines[2] == "Band  Stations/day  Stations  Median SNR    Farthest  Contacts"
     assert "20m              1         5      -12 dB       69 mi         0" in lines
     assert "40m   not enough data (0 days listening; need 5)" in lines
-    assert lines[-1] == "Solar: unavailable (the forecast above uses only your data)"
+    assert lines[-1] == "10m   not enough data (0 days listening; need 5)"  # the table is the last thing
     assert "Note:" not in out and "MY_GRID" not in out
 
 
@@ -285,3 +285,18 @@ def test_bad_hour_is_a_usage_error(setup, db, capsys, hour):
 @pytest.mark.parametrize("hour", ["0", "00", "23", "9"])
 def test_good_hours(setup, db, capsys, hour):
     assert forecast_run(capsys, db, "--hour", hour)[0] == 0
+
+
+def test_commands_never_use_the_network(setup, db, tmp_path, capsys, monkeypatch):
+    # Decided 2026-10-28: no web calls. Any attempt to connect fails this test.
+    import socket
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("ft8cast tried to use the network")
+    monkeypatch.setattr(socket.socket, "connect", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    setup.write_text("MY_GRID=JJ00\n")
+    assert run(capsys, write(tmp_path, "ALL.TXT", RX), "--db", db)[0] == 0
+    assert run(capsys, write(tmp_path, "log.adi", ADIF), "--db", db)[0] == 0
+    assert forecast_run(capsys, db)[0] == 0
