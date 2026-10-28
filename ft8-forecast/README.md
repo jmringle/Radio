@@ -2,7 +2,7 @@
 
 Answers "which band should I try for FT8 right now?" from your own WSJT-X/JTDX data: what you've decoded (`ALL.TXT`) and who you've worked (ADIF log), hour by hour. It only reads files; it never talks to a radio or transmits.
 
-Status: both file parsers (ADIF and `ALL.TXT`) work, are tested, and read the author's real files with no problems (2026-10-28). The `ft8cast` command (import, solar, forecast) isn't built yet; see "Next" in Design notes.
+Status: `ft8cast import` works (both file types, into a local SQLite database) and has imported the author's real files with no problems (2026-10-28). `ft8cast forecast` and `ft8cast solar` aren't built yet; see "Next" in Design notes.
 
 ## Setup
 
@@ -11,6 +11,7 @@ Requires Python 3.12 or newer (CI uses 3.15). Lives next to `band-privileges` in
 1. `cd ft8-forecast`
 2. `python3 -m venv .venv && source .venv/bin/activate`
 3. `pip install -r requirements-dev.txt` (also installs `../band-privileges` in editable mode)
+4. `pip install -e .` (installs the `ft8cast` command into the venv)
 
 ## Configuration
 
@@ -21,6 +22,23 @@ Requires Python 3.12 or newer (CI uses 3.15). Lives next to `band-privileges` in
 Copy files from the radio computer into `data/` (gitignored, along with any `*.adi`, `*.adif`, `ALL.TXT` and `*.sqlite` anywhere in this folder: they hold other operators' callsigns and locations):
 - the ADIF log (WSJT-X: File > Open log directory, `wsjtx_log.adi`);
 - `ALL.TXT` from the same folder.
+
+## Usage
+
+```
+$ ft8cast import data/ALL.TXT
+ALL.TXT (ALL.TXT): 422,114 FT8 lines, 422,033 new, 81 already stored
+Skipped: 514 other modes, 2,348 unknown dial frequency
+Problems: 0
+$ ft8cast import data/wsjtx_log.adi
+wsjtx_log.adi (ADIF): 827 FT8 contacts, 827 new, 0 already stored
+Skipped: 3 other modes
+Problems: 0
+```
+
+The file type is detected from its content, not its name. Import as often as you like: copying a newer `ALL.TXT` over and importing again adds only the new lines. Problems are listed on stderr with line numbers (the first 10, then a count); the rest of the file still imports. The database is `data/ft8cast.sqlite`; `--db PATH` uses another one.
+
+Exit codes: `0` imported, `2` bad input (missing or unreadable file, no FT8 records in it, a database that isn't ft8cast's, usage errors).
 
 ## Running tests
 
@@ -53,11 +71,13 @@ Copy files from the radio computer into `data/` (gitignored, along with any `*.a
 
 The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FROM [GRID|report]`; anything else (free text, unresolved `<...>` hashes) gives no sender rather than a guess, and the decode still counts.
 
+**Storage** (`src/ft8_forecast/store.py`): one SQLite file, schema version in `PRAGMA user_version`; a file that isn't an ft8cast database (or has another version) is refused and left untouched. A decode's identity is time + dial + Rx/Tx + SNR + message, so the same line imported twice is stored once. The author's file had 81 repeats: 79 identical lines and 2 that differ only in timing/audio offset (the same signal decoded twice). A contact's identity is time + frequency + call. Each import is one transaction: an error part-way stores nothing. All queries are parameterized, so free text from other stations can't act as SQL.
+
 **Why Python:** your strongest language; it can import the `band-privileges` engine directly; pytest's parametrize suits the many malformed-input cases. TypeScript lost because it would mean reimplementing the privileges engine.
 
 **Next:**
-1. SQLite storage with de-duplication, and `ft8cast import`.
-2. `ft8cast forecast`, then `ft8cast solar`.
+1. `ft8cast forecast`.
+2. `ft8cast solar`.
 
 ### Threat model
 
@@ -69,8 +89,9 @@ Personal tool, local files, one optional fetch.
 | T2 | Other operators' callsigns and grids get committed | none (privacy mistake, not a code flaw) | `data/`, logs and `*.sqlite` gitignored | `git check-ignore` |
 | T3 | A package published on PyPI as `band-privileges` gets installed instead of the local one (dependency confusion) | A03 Software Supply Chain Failures | Installed from `../band-privileges` only; not listed in `pyproject.toml` | — |
 | T4 | NOAA response is bad or spoofed | A08 Software or Data Integrity Failures | HTTPS only; values range-checked; only a warning flag, never the score | with `ft8cast solar` |
+| T5 | Text in a log (free-text messages come from anyone on the air) runs as SQL | A05 Injection | Parameterized queries only | `test_store.py` |
 
-**Accepted risks:** none yet.
+**Accepted risks:** a huge garbage file passed to `import` would collect one problem per line in memory. It's a personal tool reading your own files, so there's no cap beyond ADIF's 100 MB.
 
 ## Security notes
 

@@ -27,7 +27,7 @@ def only(data: bytes) -> Decode:
 # --- happy path ---
 
 def test_reads_a_decode_line():
-    assert only(line("N0CALL/M N0CALL FN31")) == Decode(WHEN, 14_074_000, False, -9, "N0CALL", "FN31")
+    assert only(line("N0CALL/M N0CALL FN31")) == Decode(WHEN, 14_074_000, False, -9, "N0CALL", "FN31", "N0CALL/M N0CALL FN31")
 
 
 def test_reads_your_own_transmission():
