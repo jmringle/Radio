@@ -83,8 +83,9 @@ def test_grid_is_kept_to_four_characters(grid, expected):
     assert parse_adi(ft8(GRIDSQUARE=grid)).contacts[0].grid == expected
 
 
-def test_missing_grid_is_fine():
-    result = parse_adi(ft8(GRIDSQUARE=None))
+@pytest.mark.parametrize("grid", [None, "", " "])  # WSJT-X writes <gridsquare:0> when unknown
+def test_missing_or_empty_grid_is_fine(grid):
+    result = parse_adi(ft8(GRIDSQUARE=grid))
     assert result.contacts[0].grid is None
     assert result.problems == []
 

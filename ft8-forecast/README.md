@@ -2,7 +2,7 @@
 
 Answers "which band should I try for FT8 right now?" from your own WSJT-X/JTDX data: what you've decoded (`ALL.TXT`) and who you've worked (ADIF log), hour by hour. It only reads files; it never talks to a radio or transmits.
 
-Status: scaffold. The ADIF parser works and is tested. The `ft8cast` command (import, solar, forecast) isn't built yet; see "Next" in Design notes.
+Status: both file parsers (ADIF and `ALL.TXT`) work, are tested, and read the author's real files with no problems (2026-10-28). The `ft8cast` command (import, solar, forecast) isn't built yet; see "Next" in Design notes.
 
 ## Setup
 
@@ -24,7 +24,7 @@ Copy files from the radio computer into `data/` (gitignored, along with any `*.a
 
 ## Running tests
 
-`pytest` from `ft8-forecast/` runs everything. No network, no radio, no real logs: tests build made-up ADIF records with `N0CALL`. CI runs the same command on every push that touches this folder or `band-privileges`, then `pip-audit`.
+`pytest` from `ft8-forecast/` runs everything. No network, no radio, no real logs: tests build made-up ADIF records and `ALL.TXT` lines (in the real file's exact layout) with `N0CALL`. CI runs the same command on every push that touches this folder or `band-privileges`, then `pip-audit`.
 
 ## Design notes
 
@@ -41,14 +41,23 @@ Copy files from the radio computer into `data/` (gitignored, along with any `*.a
   - Only bands where General may operate data, via `band-privileges`.
   - Solar line shows its age; older than 6 hours (the K-index updates every 3) says to run `ft8cast solar`; none saved: "solar data unavailable", and the forecast still shows.
 
-**ADIF parser** (`src/ft8_forecast/adif.py`): follows ADIF 3.1.6 section IV.A ([adif.org](https://adif.org/316/ADIF_316.htm), checked 2026-10-28). Each field's length decides where its data ends, so a comment containing `<EOR>` can't break a record. Only FT8 contacts are kept; other modes are counted, not reported as errors. A bad grid costs the distance, not the contact. Frequencies parse with `band-privileges`' `mhz()`, so both projects accept exactly the same numbers.
+**ADIF parser** (`src/ft8_forecast/adif.py`): follows ADIF 3.1.6 section IV.A ([adif.org](https://adif.org/316/ADIF_316.htm), checked 2026-10-28). Each field's length decides where its data ends, so a comment containing `<EOR>` can't break a record. Only FT8 contacts are kept; other modes are counted, not reported as errors. A bad grid costs the distance, not the contact. Frequencies parse with `band-privileges`' `mhz()`, so both projects accept exactly the same numbers. An empty `<gridsquare:0>` (WSJT-X's "unknown") is the same as no grid.
+
+**`ALL.TXT` parser** (`src/ft8_forecast/alltxt.py`): the format isn't formally documented, so the rules come from surveying the author's real file (424,976 lines, 2025-12 to 2026-10). Every line is `YYMMDD_HHMMSS  dial-MHz  Rx|Tx  mode  SNR  DT  audio-Hz  message`. What the survey found and how it's handled:
+- dial `0.000` (WSJT-X didn't know the frequency; 19 days): band unknown, so counted and skipped, never guessed;
+- `Tx` lines are your own transmissions: kept, marked `transmit`, as proof you were on the band, never counted as stations heard;
+- FT4 and other modes: counted and skipped;
+- trailing `a1`-`a9` tags (WSJT-X "a priori" decodes): dropped before reading the message;
+- `RR73` has a grid's shape but is the sign-off: never a grid;
+- lines aren't strictly in time order (late decode passes, up to 60 s back): nothing assumes order.
+
+The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FROM [GRID|report]`; anything else (free text, unresolved `<...>` hashes) gives no sender rather than a guess, and the decode still counts.
 
 **Why Python:** your strongest language; it can import the `band-privileges` engine directly; pytest's parametrize suits the many malformed-input cases. TypeScript lost because it would mean reimplementing the privileges engine.
 
 **Next:**
-1. `ALL.TXT` parser, built from a real sample in `data/` (its format isn't formally documented, so it isn't guessed).
-2. SQLite storage with de-duplication, and `ft8cast import`.
-3. `ft8cast forecast`, then `ft8cast solar`.
+1. SQLite storage with de-duplication, and `ft8cast import`.
+2. `ft8cast forecast`, then `ft8cast solar`.
 
 ### Threat model
 
@@ -56,7 +65,7 @@ Personal tool, local files, one optional fetch.
 
 | ID | Threat | OWASP 2025 | Mitigation | Test |
 |---|---|---|---|---|
-| T1 | A damaged or crafted log crashes the import or corrupts data (huge lengths, truncation, odd bytes) | A10 Mishandling of Exceptional Conditions | Strict parser; problems reported, bad records skipped; nothing raises | `test_adif.py` |
+| T1 | A damaged or crafted log crashes the import or corrupts data (huge lengths, truncation, odd bytes) | A10 Mishandling of Exceptional Conditions | Strict parsers; problems reported, bad records skipped; nothing raises | `test_adif.py`, `test_alltxt.py` |
 | T2 | Other operators' callsigns and grids get committed | none (privacy mistake, not a code flaw) | `data/`, logs and `*.sqlite` gitignored | `git check-ignore` |
 | T3 | A package published on PyPI as `band-privileges` gets installed instead of the local one (dependency confusion) | A03 Software Supply Chain Failures | Installed from `../band-privileges` only; not listed in `pyproject.toml` | — |
 | T4 | NOAA response is bad or spoofed | A08 Software or Data Integrity Failures | HTTPS only; values range-checked; only a warning flag, never the score | with `ft8cast solar` |

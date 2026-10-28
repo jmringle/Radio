@@ -142,7 +142,7 @@ def _add_record(fields: dict[str, bytes], line: int, result: ImportResult) -> No
 
     # The grid is optional: a bad one costs the distance, not the contact.
     raw_grid = fields.get("GRIDSQUARE")
-    if raw_grid is not None:
+    if raw_grid is not None and raw_grid.strip():  # WSJT-X writes <gridsquare:0> when unknown
         grid = raw_grid.decode("ascii", "replace").strip().upper()[:4]
         if _GRID4.fullmatch(grid):
             contact = replace(contact, grid=grid)
