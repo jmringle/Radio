@@ -2,7 +2,7 @@
 
 Answers "which band should I try for FT8 right now?" from your own WSJT-X/JTDX data: what you've decoded (`ALL.TXT`) and who you've worked (ADIF log), hour by hour. It only reads files; it never talks to a radio or transmits.
 
-Status: `ft8cast import` works (both file types, into a local SQLite database) and has imported the author's real files with no problems (2026-10-28). `ft8cast forecast` and `ft8cast solar` aren't built yet; see "Next" in Design notes.
+Status: `ft8cast import` and `ft8cast forecast` work and run on the author's real data (2026-10-28). `ft8cast solar` isn't built yet; see "Next" in Design notes.
 
 ## Setup
 
@@ -15,7 +15,7 @@ Requires Python 3.12 or newer (CI uses 3.15). Lives next to `band-privileges` in
 
 ## Configuration
 
-`cp .env.example .env` and set `MY_GRID` to your 4-character grid square. `.env` is gitignored. Not used until the forecast step exists.
+`cp .env.example .env` and set `MY_GRID` to your grid square (4, 6 or 8 characters; only the first 4 are used). `.env` is gitignored. Without it the forecast works but can't show distances; an invalid value is an error.
 
 ## Your data
 
@@ -38,7 +38,28 @@ Problems: 0
 
 The file type is detected from its content, not its name. Import as often as you like: copying a newer `ALL.TXT` over and importing again adds only the new lines. Problems are listed on stderr with line numbers (the first 10, then a count); the rest of the file still imports. The database is `data/ft8cast.sqlite`; `--db PATH` uses another one.
 
-Exit codes: `0` imported, `2` bad input (missing or unreadable file, no FT8 records in it, a database that isn't ft8cast's, usage errors).
+```
+$ ft8cast forecast --hour 15
+FT8 forecast for 15:00-15:59 UTC (your data: 30 days through 2026-10-25 19:48 UTC)
+
+Band  Open           Stations  Median SNR    Farthest  Contacts
+160m  not enough data (0 days listening; need 5)
+80m   not enough data (0 days listening; need 5)
+40m   6 of 6 days         111       -9 dB           -         1
+30m   not enough data (2 days listening; need 5)
+20m   9 of 9 days         668      -13 dB           -         8
+17m   not enough data (4 days listening; need 5)
+15m   9 of 9 days         318      -14 dB           -         3
+12m   not enough data (1 day listening; need 5)
+10m   5 of 6 days         128      -14 dB           -         1
+
+Farthest needs your grid: set MY_GRID in .env (see .env.example).
+Solar: unavailable (the forecast above uses only your data)
+```
+
+Without `--hour` it uses the current UTC hour. The 30 days end at your newest imported decode, not today, so an older copy of `ALL.TXT` still gives a full window; if that's more than 7 days ago, a note says to copy a fresh one over.
+
+Exit codes: `0` imported or forecast shown, `2` bad input (missing or unreadable file, no FT8 records in it, a database that isn't ft8cast's, no database or no `ALL.TXT` data yet for a forecast, an invalid `MY_GRID`, usage errors such as `--hour 24`).
 
 ## Running tests
 
@@ -73,11 +94,18 @@ The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FR
 
 **Storage** (`src/ft8_forecast/store.py`): one SQLite file, schema version in `PRAGMA user_version`; a file that isn't an ft8cast database (or has another version) is refused and left untouched. A decode's identity is time + dial + Rx/Tx + SNR + message, so the same line imported twice is stored once. The author's file had 81 repeats: 79 identical lines and 2 that differ only in timing/audio offset (the same signal decoded twice). A contact's identity is time + frequency + call. Each import is one transaction: an error part-way stores nothing. All queries are parameterized, so free text from other stations can't act as SQL.
 
+**Forecast** (`src/ft8_forecast/forecast.py`), decided 2026-10-28:
+- Window: the 30 days up to the newest imported decode (option b), exclusive at the far end.
+- Distances in **miles** (the author's choice), great-circle between the centers of 4-character squares. A square is about 140 x 70 miles in the US, so distances are good to roughly +/- 70 miles.
+- Bands: every v1 band from `band-privileges` (60 m is deferred there), each with General data privileges at its FT8 frequency (tested). A decode counts only if General may use data at its dial frequency (`check(dial, DATA, GENERAL)`); band edges here are cross-checked against `band-privileges` by a test.
+- Median SNR rather than the mean, so one loud local station doesn't skew it.
+- **Known limitation, "Open":** `ALL.TXT` only records something when a line is decoded or you transmit. A day on a dead band without transmitting leaves no trace, so it can't count as a closed day. In the author's data only 1 of 30 scored band-hours showed open < listening days, so this column says little; Stations, Median SNR, Farthest and Contacts carry the information.
+
 **Why Python:** your strongest language; it can import the `band-privileges` engine directly; pytest's parametrize suits the many malformed-input cases. TypeScript lost because it would mean reimplementing the privileges engine.
 
 **Next:**
-1. `ft8cast forecast`.
-2. `ft8cast solar`.
+1. `ft8cast solar`.
+2. Decide whether to replace the "Open" column (see the known limitation under Forecast).
 
 ### Threat model
 

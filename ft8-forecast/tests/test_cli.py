@@ -1,11 +1,13 @@
-"""ft8cast import: output, exit codes and file handling (README acceptance criteria)."""
+"""ft8cast import and forecast: output, exit codes and file handling (README acceptance criteria)."""
 
 import os
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from ft8_forecast import cli
+from ft8_forecast import Decode, cli
 from ft8_forecast.cli import main
+from ft8_forecast.store import open_db, save_decodes
 
 RX = b"261027_143015    14.074 Rx FT8     -9  0.2  627 CQ N0CALL FN31\r\n"
 RX2 = b"261027_143015    14.074 Rx FT8    -12  0.1 1200 N0CALL/M N0CALL -07\r\n"
@@ -160,3 +162,126 @@ def test_usage_errors_exit_2(argv, capsys):
 def test_help_exits_0(capsys):
     assert main(["import", "--help"]) == 0
     assert "never changed" in capsys.readouterr().out
+
+
+# --- ft8cast forecast ---
+
+NOW = datetime(2026, 10, 27, 15, 5, tzinfo=UTC)
+
+
+@pytest.fixture
+def setup(tmp_path, db, monkeypatch):
+    """A database with 5 days of 20 m at 15 UTC, a fixed clock and an empty .env."""
+    monkeypatch.setattr(cli, "_now", lambda: NOW)
+    monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
+    conn = open_db(db)
+    newest = datetime(2026, 10, 25, 15, 30, tzinfo=UTC)
+    save_decodes(conn, [Decode(newest - timedelta(days=n), 14_074_000, False, -10 - n, f"N{n}CALL",
+                               "JJ01", f"CQ N{n}CALL JJ01") for n in range(5)])
+    conn.close()
+    return tmp_path / ".env"
+
+
+def forecast_run(capsys, db, *args):
+    code = main(["forecast", "--db", str(db), *args])
+    out, err = capsys.readouterr()
+    return code, out, err
+
+
+def test_forecast_prints_the_table(setup, db, capsys):
+    setup.write_text("MY_GRID=JJ00\n")
+    code, out, err = forecast_run(capsys, db)
+    assert (code, err) == (0, "")
+    lines = out.splitlines()
+    assert lines[0] == "FT8 forecast for 15:00-15:59 UTC (your data: 30 days through 2026-10-25 15:30 UTC)"
+    assert lines[2] == "Band  Open           Stations  Median SNR    Farthest  Contacts"
+    assert "20m   5 of 5 days           5      -12 dB       69 mi         0" in lines
+    assert "40m   not enough data (0 days listening; need 5)" in lines
+    assert lines[-1] == "Solar: unavailable (the forecast above uses only your data)"
+    assert "Note:" not in out and "MY_GRID" not in out
+
+
+def test_forecast_uses_the_current_utc_hour_by_default(setup, db, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_now", lambda: NOW.replace(hour=3))
+    out = forecast_run(capsys, db)[1]
+    assert out.startswith("FT8 forecast for 03:00-03:59 UTC")
+    assert "20m   not enough data (0 days listening; need 5)" in out
+
+
+def test_forecast_hour_option(setup, db, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_now", lambda: NOW.replace(hour=3))
+    assert forecast_run(capsys, db, "--hour", "15")[1].startswith("FT8 forecast for 15:00-15:59 UTC")
+
+
+def test_one_day_is_singular(setup, db, capsys):
+    conn = open_db(db)
+    save_decodes(conn, [Decode(datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 7_074_000, False, -5,
+                               "N0CALL", None, "CQ N0CALL")])
+    conn.close()
+    out = forecast_run(capsys, db)[1]
+    assert "40m   not enough data (1 day listening; need 5)" in out
+    assert "30m   not enough data (0 days listening; need 5)" in out
+
+
+def test_without_my_grid_farthest_is_blank_and_explained(setup, db, capsys):
+    out = forecast_run(capsys, db)[1]
+    assert "20m   5 of 5 days           5      -12 dB           -         0" in out
+    assert "Farthest needs your grid: set MY_GRID in .env (see .env.example)." in out
+
+
+@pytest.mark.parametrize("env", ["MY_GRID=\n", "# MY_GRID=JJ00\n", "OTHER=1\n"])
+def test_empty_or_commented_my_grid_counts_as_unset(setup, db, capsys, env):
+    setup.write_text(env)
+    code, out, _ = forecast_run(capsys, db)
+    assert code == 0 and "Farthest needs your grid" in out
+
+
+@pytest.mark.parametrize("env", ['MY_GRID="JJ00"\n', "MY_GRID = jj00  # home\n", "MY_GRID=JJ00ab\n"])
+def test_my_grid_formats_people_write(setup, db, capsys, env):
+    setup.write_text(env)
+    assert "69 mi" in forecast_run(capsys, db)[1]
+
+
+@pytest.mark.parametrize("bad", ["ZZ99", "FN3", "my house"])
+def test_invalid_my_grid_is_an_error(setup, db, capsys, bad):
+    setup.write_text(f"MY_GRID={bad}\n")
+    code, out, err = forecast_run(capsys, db)
+    assert (code, out) == (2, "")
+    assert "MY_GRID in .env:" in err and "isn't a grid square" in err
+
+
+def test_stale_data_gets_a_note(setup, db, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_now", lambda: datetime(2026, 11, 2, 15, 31, tzinfo=UTC))  # 8 days on
+    assert "Note: your newest data is 8 days old; copy a fresh ALL.TXT over and import it." \
+        in forecast_run(capsys, db)[1]
+
+
+def test_seven_day_old_data_gets_no_note(setup, db, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_now", lambda: datetime(2026, 11, 1, 15, 31, tzinfo=UTC))
+    assert "Note:" not in forecast_run(capsys, db)[1]
+
+
+def test_forecast_without_a_database_is_an_error_and_creates_none(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
+    missing = tmp_path / "none.sqlite"
+    code, _, err = forecast_run(capsys, missing)
+    assert code == 2 and "run `ft8cast import` first" in err
+    assert not missing.exists()
+
+
+def test_forecast_with_only_adif_imported_is_an_error(tmp_path, db, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
+    run(capsys, write(tmp_path, "log.adi", ADIF), "--db", db)
+    code, _, err = forecast_run(capsys, db)
+    assert code == 2 and "no ALL.TXT data imported yet" in err
+
+
+@pytest.mark.parametrize("hour", ["24", "-1", "x", "1.5", "007", "１"])
+def test_bad_hour_is_a_usage_error(setup, db, capsys, hour):
+    code, _, err = forecast_run(capsys, db, "--hour", hour)
+    assert code == 2 and "must be a UTC hour from 0 to 23" in err
+
+
+@pytest.mark.parametrize("hour", ["0", "00", "23", "9"])
+def test_good_hours(setup, db, capsys, hour):
+    assert forecast_run(capsys, db, "--hour", hour)[0] == 0
