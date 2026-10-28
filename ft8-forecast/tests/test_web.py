@@ -271,7 +271,9 @@ def test_security_headers_on_every_response(client, path):
     assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp and "form-action 'self'" in csp
     assert "script-src" not in csp  # no JavaScript at all
     assert headers["X-Content-Type-Options"] == "nosniff"
-    assert headers["Referrer-Policy"] == "no-referrer"
+    # Not "no-referrer": under it, browsers send "Origin: null" on form posts (Fetch standard,
+    # "serializing a request origin"), and the Origin check then refuses this page's own uploads.
+    assert headers["Referrer-Policy"] == "same-origin"
 
 
 def test_errors_show_no_traceback(client, five_days, monkeypatch):

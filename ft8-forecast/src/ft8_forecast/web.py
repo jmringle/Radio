@@ -28,7 +28,8 @@ _HEADERS = {
     "Content-Security-Policy": "default-src 'none'; style-src 'self'; form-action 'self'; "
                                "frame-ancestors 'none'; base-uri 'none'",
     "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "no-referrer",
+    # Not "no-referrer": browsers then send "Origin: null" on form posts, which the Origin check refuses.
+    "Referrer-Policy": "same-origin",
 }
 
 
