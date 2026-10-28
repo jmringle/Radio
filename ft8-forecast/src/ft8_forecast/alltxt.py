@@ -43,6 +43,7 @@ class Decode:
     snr_db: int
     sender: str | None  # station that sent the message, when its shape says
     grid: str | None  # sender's 4-character grid, when the message carries one
+    message: str  # as logged; with time, dial, Tx/Rx and SNR it identifies a line for de-duplication
 
 
 @dataclass
@@ -80,8 +81,9 @@ def parse_all_txt(lines: Iterable[bytes]) -> AllTxtResult:
         except ValueError as error:
             result.problems.append(Problem(number, f"{error}; line skipped"))
             continue
-        sender, grid = _sender_and_grid(match["msg"])
-        result.decodes.append(Decode(when, dial, match["dir"] == "Tx", int(match["snr"]), sender, grid))
+        message = match["msg"].strip()
+        sender, grid = _sender_and_grid(message)
+        result.decodes.append(Decode(when, dial, match["dir"] == "Tx", int(match["snr"]), sender, grid, message))
     return result
 
 
