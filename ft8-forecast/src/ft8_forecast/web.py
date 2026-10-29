@@ -14,7 +14,7 @@ from pathlib import Path
 from flask import Flask, render_template, request
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
-from ft8_forecast import cli, forecast
+from ft8_forecast import cli, folder, forecast
 from ft8_forecast.logs import TooLarge, read_log, save_log
 from ft8_forecast.store import StoreError, open_db
 
@@ -90,7 +90,30 @@ def create_app(db: Path) -> Flask:
             new = save_log(conn, log)
         finally:
             conn.close()
-        return _render(db, None, "busiest", imported={"name": name, "log": log, "new": new})
+        return _render(db, None, "busiest", imported=[{"name": name, "log": log, "new": new, "error": None}])
+
+    @app.post("/import-folder")
+    def import_from_folder():
+        # The folder comes only from LOG_DIR in .env, never from the request.
+        try:
+            logs = cli._log_dir()
+        except ValueError as error:
+            raise PageError(500, f"LOG_DIR in {cli.ENV_FILE.name}: {error}") from None
+        if logs is None:
+            raise PageError(400, f"Set LOG_DIR in {cli.ENV_FILE.name} to import from a folder.")
+        try:
+            folder.find_logs(logs)  # check before creating a database
+            conn = _open(db)
+        except folder.FolderError as error:
+            raise PageError(400, str(error)) from None
+        try:
+            results = folder.import_folder(conn, logs)
+        except folder.FolderError as error:
+            raise PageError(400, str(error)) from None
+        finally:
+            conn.close()
+        return _render(db, None, "busiest", imported=[
+            {"name": r.path.name[:MAX_NAME], "log": r.log, "new": r.new, "error": r.error} for r in results])
 
     @app.errorhandler(PageError)
     def page_error(error):
@@ -120,7 +143,7 @@ def _open(db: Path):
         raise PageError(500, str(error)) from None
 
 
-def _render(db: Path, hour: int | str | None, by: str, imported: dict | None = None) -> str:
+def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | None = None) -> str:
     try:
         my_grid = cli._my_grid()  # the same .env and clock as the CLI
     except ValueError as error:
@@ -147,7 +170,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: dict | None = N
         stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
         env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS,
         show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour),
-        all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by,
+        all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by, log_dir=cli._log_dir(),
         best_bet=result and cli.best_bet_line(result, by), ranked=result and forecast.rank(result.bands, by),
         thin=result and cli.thin_line(result), overview=overview, overview_key=cli.overview_key(by),
         overview_empty=cli.OVERVIEW_EMPTY,

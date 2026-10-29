@@ -2,13 +2,14 @@
 
 import argparse
 import sys
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from ft8_forecast import forecast
+from ft8_forecast import folder, forecast
 from ft8_forecast.adif import Problem
-from ft8_forecast.logs import TooLarge, read_log, save_log
+from ft8_forecast.logs import Log, TooLarge, read_log, save_log
 from ft8_forecast.store import StoreError, open_db
 
 # This project's folder. Assumes the editable install from the README.
@@ -16,6 +17,7 @@ PROJECT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = PROJECT / "data" / "ft8cast.sqlite"  # gitignored
 ENV_FILE = PROJECT / ".env"  # gitignored; holds MY_GRID
 DEFAULT_PORT = 8074  # 14.074 MHz, the 20 m FT8 frequency
+DEFAULT_EVERY = 60  # seconds between `watch` checks; WSJT-X adds lines every 15 s
 STALE_DAYS = 7  # newer data than this needs no reminder to copy ALL.TXT over
 SHOW_PROBLEMS = 10
 ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
@@ -138,9 +140,16 @@ OK, BAD_INPUT = 0, 2
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ft8cast", description="FT8 band forecast from your own logs.")
     commands = parser.add_subparsers(dest="command", required=True)
-    imp = commands.add_parser("import", help="add a WSJT-X/JTDX ALL.TXT or ADIF file to the database")
-    imp.add_argument("file", type=Path, help="ALL.TXT or .adi file; it's only read, never changed")
+    imp = commands.add_parser("import", help="add a WSJT-X/JTDX ALL.TXT or ADIF file, or a folder of them, to the database")
+    imp.add_argument("file", type=Path, nargs="?",
+                     help="ALL.TXT or .adi file; it's only read, never changed (default: the LOG_DIR folder)")
+    imp.add_argument("--dir", type=Path, help="import ALL.TXT and .adi files from this folder instead")
     imp.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
+    wt = commands.add_parser("watch", help="import from a folder now, then again whenever its logs change, until Ctrl+C")
+    wt.add_argument("--dir", type=Path, help="folder to watch (default: LOG_DIR in .env)")
+    wt.add_argument("--every", type=_every, default=DEFAULT_EVERY,
+                    help=f"seconds between checks, 10 to 3600 (default: {DEFAULT_EVERY})")
+    wt.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
     fc = commands.add_parser("forecast", help="how each band has done for you at this UTC hour")
     fc.add_argument("--hour", type=_hour, help=f"UTC hour 0-23, or {ALL_HOURS!r} for the whole day (default: now)")
     fc.add_argument("--rank", type=_rank, default="busiest",
@@ -177,8 +186,17 @@ def _rank(text: str) -> str:
     return text
 
 
+def _every(text: str) -> int:
+    if not (text.isascii() and text.isdigit() and 10 <= int(text) <= 3600):
+        raise argparse.ArgumentTypeError(f"must be 10 to 3600 seconds, got {text!r}")
+    return int(text)
+
+
 def _now() -> datetime:
     return datetime.now(UTC)  # one place, so tests can fix the clock
+
+
+_sleep = time.sleep  # likewise, so tests can run `watch` without waiting
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -193,7 +211,13 @@ def main(argv: list[str] | None = None) -> int:
         return _overview(args.rank, args.db)
     if args.command == "serve":
         return _serve(args.port, args.db)
-    return _import(args.file, args.db)
+    if args.command == "watch":
+        return _watch(args.dir, args.every, args.db)
+    if args.file is not None and args.dir is not None:
+        return _error("give a file or --dir, not both")
+    if args.file is not None:
+        return _import(args.file, args.db)
+    return _import_folder(args.dir, args.db)
 
 
 def _import(source: Path, db: Path) -> int:
@@ -222,13 +246,72 @@ def _import(source: Path, db: Path) -> int:
     finally:
         conn.close()
 
-    print(f"{source.name} ({log.kind}): {len(log.records):,} FT8 {log.noun}, {new:,} new, "
+    _print_summary(source.name, log, new)
+    return OK
+
+
+def _print_summary(name: str, log: Log, new: int) -> None:
+    print(f"{name} ({log.kind}): {len(log.records):,} FT8 {log.noun}, {new:,} new, "
           f"{len(log.records) - new:,} already stored")
     skips = ", ".join(f"{count:,} {why}" for count, why in log.skipped if count)
     if skips:
         print(f"Skipped: {skips}")
     print(f"Problems: {len(log.problems):,}" + (" (listed above)" if log.problems else ""))
-    return OK
+
+
+def _import_folder(given: Path | None, db: Path) -> int:
+    try:
+        logs = given or _log_dir()
+    except ValueError as error:
+        return _error(str(error))
+    if logs is None:
+        return _error(f"nothing to import: give a file or --dir, or set LOG_DIR in {ENV_FILE.name}")
+    try:
+        folder.find_logs(logs)  # check before creating a database
+        conn = open_db(db)
+    except (folder.FolderError, StoreError) as error:
+        return _error(str(error))
+    try:
+        results = folder.import_folder(conn, logs)
+    except folder.FolderError as error:
+        return _error(str(error))
+    finally:
+        conn.close()
+    code = OK
+    for result in results:
+        if result.log is not None:
+            _print_problems(result.log.problems)
+        if result.error:
+            code = _error(f"{result.path.name}: {result.error}")
+        else:
+            _print_summary(result.path.name, result.log, result.new)
+    return code
+
+
+def _watch(given: Path | None, every: int, db: Path) -> int:
+    try:
+        logs = given or _log_dir()
+    except ValueError as error:
+        return _error(str(error))
+    if logs is None:
+        return _error(f"nothing to watch: give --dir or set LOG_DIR in {ENV_FILE.name}")
+    try:
+        folder.find_logs(logs)  # a missing folder at the start is more likely a typo than an unmounted share
+        conn = open_db(db)
+    except (folder.FolderError, StoreError) as error:
+        return _error(str(error))
+    watcher = folder.Watcher(logs)
+    print(f"Watching {logs} every {every} s; Ctrl+C stops.", flush=True)
+    try:
+        while True:
+            for message in watcher.check(conn):
+                print(f"{_now():%H:%M} UTC  {message}", flush=True)
+            _sleep(every)
+    except KeyboardInterrupt:
+        print("Stopped.")
+        return OK
+    finally:
+        conn.close()
 
 
 def _forecast(hour: int | str | None, by: str, db: Path) -> int:
@@ -334,18 +417,29 @@ def _serve(port: int, db: Path) -> int:
     return OK
 
 
-def _my_grid() -> str | None:
-    """MY_GRID from .env as a 4-character square; None if not set. ValueError if invalid."""
+def _env(name: str) -> str | None:
+    """A value from .env, without quotes or a trailing # comment; None if not set or empty."""
     try:
         lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:
         return None
     for line in lines:
         key, sep, value = line.partition("=")
-        if sep and key.strip() == "MY_GRID":
-            value = value.split("#", 1)[0].strip().strip("\"'")
-            return forecast.parse_grid(value) if value else None
+        if sep and key.strip() == name:
+            return value.split("#", 1)[0].strip().strip("\"'") or None
     return None
+
+
+def _my_grid() -> str | None:
+    """MY_GRID from .env as a 4-character square; None if not set. ValueError if invalid."""
+    value = _env("MY_GRID")
+    return forecast.parse_grid(value) if value else None
+
+
+def _log_dir() -> Path | None:
+    """LOG_DIR from .env; ~ is expanded and a relative path is next to .env. None if not set."""
+    value = _env("LOG_DIR")
+    return None if value is None else (ENV_FILE.parent / Path(value).expanduser())
 
 
 def _print_problems(problems: list[Problem]) -> None:

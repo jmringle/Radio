@@ -397,6 +397,76 @@ def test_oversized_adif_is_a_400(client, db, monkeypatch):
     assert not db.exists()
 
 
+# --- import from the LOG_DIR folder ---
+
+@pytest.fixture
+def logdir(tmp_path, env):
+    folder = tmp_path / "wsjt x"
+    folder.mkdir()
+    (folder / "ALL.TXT").write_bytes(RX + RX2)
+    (folder / "wsjtx_log.adi").write_bytes(ADIF)
+    env.write_text(f"LOG_DIR={folder}\n")
+    return folder
+
+
+def import_folder(client, headers=None):
+    response = client.post("/import-folder", base_url=BASE, headers={"Origin": BASE} if headers is None else headers)
+    return response, response.get_data(as_text=True)
+
+
+def test_folder_button_shows_only_with_log_dir(client, db, logdir, env):
+    _, page = get(client)
+    assert '<form method="post" action="/import-folder"' in page
+    assert f"From {logdir}" in page
+    env.write_text("")
+    _, page = get(client)
+    assert "/import-folder" not in page
+
+
+def test_page_never_takes_a_folder_path(client, db, logdir, tmp_path):
+    # Only LOG_DIR from .env: nothing open in the browser can make the page read another folder.
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "ALL.TXT").write_bytes(RX + RX2 + FT4.replace(b"FT4", b"FT8"))
+    _, page = get(client)
+    assert 'name="dir"' not in page
+    client.post("/import-folder", base_url=BASE, headers={"Origin": BASE}, data={"dir": str(other)})
+    assert stored(db) == 2  # LOG_DIR's two lines, not the other folder's three
+
+
+def test_import_folder_imports_every_log(client, db, logdir):
+    response, page = import_folder(client)
+    assert response.status_code == 200
+    assert "ALL.TXT (read as ALL.TXT): 2 FT8 lines, 2 new, 0 already stored" in page
+    assert "wsjtx_log.adi (read as ADIF): 1 FT8 contacts, 1 new, 0 already stored" in page
+    assert (stored(db), stored(db, "contacts")) == (2, 1)
+
+
+def test_import_folder_reports_a_bad_file_and_imports_the_rest(client, db, logdir):
+    (logdir / "broken.adi").write_bytes(b"<call:6>N0CALL <mode:3>FT4 <eor>")
+    response, page = import_folder(client)
+    assert response.status_code == 200
+    assert "broken.adi: no FT8 records found (read as ADIF)" in page
+    assert stored(db) == 2
+
+
+def test_import_folder_without_log_dir_is_a_400(client, db, env):
+    response, page = import_folder(client)
+    assert response.status_code == 400 and "Set LOG_DIR in .env" in page and not db.exists()
+
+
+def test_import_folder_that_isnt_there_is_a_400_and_stores_nothing(client, db, logdir, tmp_path):
+    logdir.rename(tmp_path / "away")
+    response, page = import_folder(client)
+    assert response.status_code == 400 and "isn&#39;t a folder" in page and not db.exists()
+
+
+@pytest.mark.parametrize("origin", ["http://evil.example", "null", ""])
+def test_import_folder_from_any_other_origin_is_refused(client, db, logdir, origin):
+    response, _ = import_folder(client, headers={"Origin": origin} if origin else {})
+    assert response.status_code == 403 and not db.exists()
+
+
 def test_no_copy_of_the_upload_is_kept(client, db, tmp_path):
     upload(client, RX, "kept.txt")
     assert sorted(p.name for p in db.parent.iterdir()) == ["ft8cast.sqlite"]
