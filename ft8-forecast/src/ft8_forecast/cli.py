@@ -20,22 +20,53 @@ SHOW_PROBLEMS = 10
 ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
 
 
-def station_notes(hour: int | None) -> tuple[str, ...]:
-    """Under the forecast table, here and on the web page: the two station columns are easy
-    to mix up, Farthest heard leaves stations out on purpose, and Farthest contact is
-    worked, not heard. hour None: all hours."""
-    when = "at this hour" if hour is not None else "at any hour"
-    return (f"Typical day: stations heard on the median day you listened{'' if hour is not None else ','} {when}.",
-            f"30-day total: different stations heard over the whole {forecast.WINDOW_DAYS} days.",
-            f"Farthest heard: a station heard with the same grid square on {forecast.FARTHEST_MIN_DAYS}+ days"
-            f"{' ' if hour is not None else ', '}{when}; the square is theirs.",
-            f"Farthest contact: your farthest logged contact with a grid square"
-            f"{' ' if hour is not None else ', '}{when}; the square is theirs.")
+# Under the table, here and on the web page: what the less obvious columns mean.
+LEGEND = (f"Typical day: median stations per day you listened. Total heard: over {forecast.WINDOW_DAYS} days.",
+          f"Signal: median SNR. Heard out to: same station and grid on {forecast.FARTHEST_MIN_DAYS}+ days.")
+RANK_LABELS = {"busiest": "busiest", "contacts": "most contacts"}
 
 
-def distance(miles: int | None, grid: str | None) -> str:
-    """A farthest contact as '1,234 mi (FN31)', or '-' for none; the page uses it too."""
-    return "-" if miles is None else f"{miles:,} mi ({grid})"
+def distance(miles: int | None, grid: str | None = None) -> str:
+    """'1,234 mi', or '1,234 mi (FN31)' with a grid (the web page); '-' for none."""
+    if miles is None:
+        return "-"
+    return f"{miles:,} mi" + (f" ({grid})" if grid else "")
+
+
+def best_bet_line(result: forecast.Forecast, by: str) -> str:
+    """The answer at the top, here and on the web page."""
+    label = f"Best bet ({RANK_LABELS[by]})"
+    when = " at this hour" if result.hour is not None else ""
+    best = forecast.best_bet(result.bands, by)
+    if best is None:
+        if not any(band.listening_days for band in result.bands):
+            return f"{label}: none - no listening{when} in these {forecast.WINDOW_DAYS} days"
+        if not forecast.rank(result.bands, by):
+            return f"{label}: none yet - no band has {forecast.MIN_DAYS} days of listening{when}"
+        if by == "busiest":
+            return f"{label}: none - no stations heard{when}"
+        return f"{label}: none - no contacts{when} in these {forecast.WINDOW_DAYS} days"
+    if by == "busiest":
+        busy = f"{best.stations_per_day:,.0f}"
+        why = f"about {busy} station{'' if busy == '1' else 's'} on a typical day"
+    else:
+        why = f"{best.contacts:,} contact{'' if best.contacts == 1 else 's'} in {forecast.WINDOW_DAYS} days"
+    worked = f"; worked out to {distance(best.contact_miles)}" if best.contact_miles is not None else ""
+    return f"{label}: {best.band} - {why}{worked}"
+
+
+def thin_line(result: forecast.Forecast) -> str | None:
+    """One line for the bands without enough data, grouped by days listened; None if there are
+    none, or if there's no listening at all (the best bet line says so)."""
+    groups: dict[int, list[str]] = {}
+    for band in result.bands:
+        if not band.enough_data:
+            groups.setdefault(band.listening_days, []).append(band.band)
+    if not groups or not any(band.listening_days for band in result.bands):
+        return None
+    when = " at this hour" if result.hour is not None else ""
+    parts = [f"{' '.join(names)} ({days} day{'' if days == 1 else 's'})" for days, names in sorted(groups.items())]
+    return f"Too little data{when} (need {forecast.MIN_DAYS} days): {', '.join(parts)}"
 
 
 def hour_title(hour: int | None) -> str:
@@ -53,6 +84,8 @@ def _parser() -> argparse.ArgumentParser:
     imp.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
     fc = commands.add_parser("forecast", help="how each band has done for you at this UTC hour")
     fc.add_argument("--hour", type=_hour, help=f"UTC hour 0-23, or {ALL_HOURS!r} for the whole day (default: now)")
+    fc.add_argument("--rank", type=_rank, default="busiest",
+                    help="pick the best bet and order bands by 'busiest' typical day or most 'contacts' (default: busiest)")
     fc.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
     sv = commands.add_parser("serve", help="the forecast and import as a web page, on this machine only")
     sv.add_argument("--port", type=_port, default=DEFAULT_PORT, help=f"port (default: {DEFAULT_PORT})")
@@ -75,6 +108,12 @@ def _hour(text: str) -> int | str:
     return int(text)
 
 
+def _rank(text: str) -> str:
+    if text not in forecast.RANKINGS:
+        raise argparse.ArgumentTypeError(f"must be 'busiest' or 'contacts', got {text!r}")
+    return text
+
+
 def _now() -> datetime:
     return datetime.now(UTC)  # one place, so tests can fix the clock
 
@@ -86,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         # argparse has printed usage and the error (code 2), or help (code 0).
         return int(exit_.code or 0)
     if args.command == "forecast":
-        return _forecast(args.hour, args.db)
+        return _forecast(args.hour, args.rank, args.db)
     if args.command == "serve":
         return _serve(args.port, args.db)
     return _import(args.file, args.db)
@@ -127,7 +166,7 @@ def _import(source: Path, db: Path) -> int:
     return OK
 
 
-def _forecast(hour: int | str | None, db: Path) -> int:
+def _forecast(hour: int | str | None, by: str, db: Path) -> int:
     try:
         my_grid = _my_grid()
     except ValueError as error:
@@ -148,36 +187,35 @@ def _forecast(hour: int | str | None, db: Path) -> int:
         return _error("no ALL.TXT data imported yet; run `ft8cast import <ALL.TXT>` first")
 
     newest = result.newest.strftime("%Y-%m-%d %H:%M")
-    print(f"FT8 forecast for {hour_title(hour)} (your data: {forecast.WINDOW_DAYS} days through {newest} UTC)")
+    print(f"FT8 forecast for {hour_title(hour)} (your last {forecast.WINDOW_DAYS} days, through {newest} UTC)")
     age = (now.replace(tzinfo=None) - result.newest).days
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
-    print()
-    print(f"{'':6}{' Stations heard ':-^26}")  # spans the two station columns below
-    print(f"{'Band':<5} {'Typical day':>12} {'30-day total':>13} {'Median SNR':>11} {'Farthest heard':>17} "
-          f"{'Farthest contact':>17} {'30-day contacts':>16}")
-    for band in result.bands:
-        if not band.enough_data:
-            days = band.listening_days
-            print(f"{band.band:<5} not enough data ({days} day{'' if days == 1 else 's'} "
-                  f"listening; need {forecast.MIN_DAYS})")
-            continue
-        snr = "-" if band.median_snr is None else f"{band.median_snr:.0f} dB"
-        far = "-" if band.farthest_miles is None else f"{band.farthest_miles:,} mi ({band.farthest_grid})"
-        worked = distance(band.contact_miles, band.contact_grid)
-        per_day = f"{band.stations_per_day:,.0f}"
-        print(f"{band.band:<5} {per_day:>12} {band.stations:>13,} {snr:>11} {far:>17} {worked:>17} {band.contacts:>16,}")
-    print("", *station_notes(hour), sep="\n")
+    print("", best_bet_line(result, by), sep="\n")
+    ranked = forecast.rank(result.bands, by)
+    if ranked:
+        print()
+        print(f"{'Band':<4} {'Typical day':>12} {'Total heard':>12} {'Signal':>7} {'Heard out to':>13} "
+              f"{'Worked out to':>14} {'Contacts':>9}")
+        for band in ranked:
+            snr = "-" if band.median_snr is None else f"{band.median_snr:.0f} dB"
+            per_day = f"{band.stations_per_day:,.0f}"
+            print(f"{band.band:<4} {per_day:>12} {band.stations:>12,} {snr:>7} {distance(band.farthest_miles):>13} "
+                  f"{distance(band.contact_miles):>14} {band.contacts:>9,}")
+    if thin := thin_line(result):
+        print("", thin, sep="\n")
+    if ranked:
+        print("", *LEGEND, sep="\n")
     if result.best_ever:
         best = result.best_ever
-        print(f"\nFarthest contact ever: {distance(best.miles, best.grid)} on {best.band}, {best.day}")
+        print(f"\nFarthest contact ever: {distance(best.miles)} on {best.band}, {best.day}")
     if result.daily:
         print(f"\nFarthest contact by day ({forecast.WINDOW_DAYS} days, any hour):")
-        print(f"{'Date':<10}  {'Band':<5} {'Farthest':>17}")
+        print(f"{'Date':<10}  {'Band':<4} {'Farthest':>9}")
         for far in result.daily:
-            print(f"{far.day:<10}  {far.band or '-':<5} {distance(far.miles, far.grid):>17}")
+            print(f"{far.day:<10}  {far.band or '-':<4} {distance(far.miles):>9}")
     if my_grid is None:
-        print(f"\nFarthest heard and contacts need your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
+        print(f"\nHeard out to and Worked out to need your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
     return OK
 
 

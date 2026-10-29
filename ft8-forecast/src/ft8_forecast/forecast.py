@@ -40,6 +40,10 @@ _GRID = re.compile(r"([A-R]{2}[0-9]{2})([A-X]{2}([0-9]{2})?)?")
 EARTH_RADIUS_MILES = 3958.8
 
 
+# How to pick the best bet and order the table: --rank / the page's "Best bet by".
+RANKINGS = ("busiest", "contacts")
+
+
 @dataclass(frozen=True)
 class BandStats:
     band: str
@@ -194,3 +198,21 @@ def _farther(best: Farthest | None, new: Farthest | None) -> Farthest | None:
     if new is None or (best is not None and best.miles is not None and new.miles <= best.miles):
         return best
     return new
+
+
+def rank(bands: list[BandStats], by: str) -> list[BandStats]:
+    """Bands with enough data, best first by `by` (one of RANKINGS); the other measure breaks
+    a tie, then the lower band (the sort is stable and `bands` runs low to high)."""
+    def score(band: BandStats) -> tuple:
+        busy = band.stations_per_day or 0
+        return (busy, band.contacts) if by == "busiest" else (band.contacts, busy)
+    return sorted((b for b in bands if b.enough_data), key=score, reverse=True)
+
+
+def best_bet(bands: list[BandStats], by: str) -> BandStats | None:
+    """The top band by `by`, or None when no band with enough data scores above 0."""
+    ranked = rank(bands, by)
+    if not ranked:
+        return None
+    top = ranked[0]
+    return top if (top.stations_per_day if by == "busiest" else top.contacts) else None
