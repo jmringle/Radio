@@ -334,7 +334,7 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
     now = _now()
     hour = now.hour if hour is None else None if hour == ALL_HOURS else hour
     try:
-        result = forecast.compute(conn, hour, my_grid)
+        result = forecast.compute(conn, hour, my_grid, now)
     finally:
         conn.close()
     if result is None:
@@ -387,14 +387,14 @@ def _overview(by: str, db: Path) -> int:
     except StoreError as error:
         return _error(str(error))
     try:
-        results = [forecast.compute(conn, hour, my_grid) for hour in range(24)]
+        now = _now()
+        results = [forecast.compute(conn, hour, my_grid, now) for hour in range(24)]
     finally:
         conn.close()
     if results[0] is None:
         return _error("no ALL.TXT data imported yet; run `ft8cast import <ALL.TXT>` first")
 
     newest = results[0].newest
-    now = _now()
     print(f"24-hour overview (your last {forecast.WINDOW_DAYS} days, "
           f"through {newest:%Y-%m-%d %H:%M} UTC, {data_age(newest, now)})")
     age = (now.replace(tzinfo=None) - newest).days

@@ -158,9 +158,9 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
     else:
         conn = _open(db)
         try:
-            result = forecast.compute(conn, hour, my_grid)
+            result = forecast.compute(conn, hour, my_grid, now)
             if result is not None:  # about 0.3 s for a year of listening
-                overview = cli.overview([forecast.compute(conn, h, my_grid) for h in range(24)], by)
+                overview = cli.overview([forecast.compute(conn, h, my_grid, now) for h in range(24)], by)
         finally:
             conn.close()
         if result is None:

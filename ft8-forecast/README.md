@@ -112,7 +112,7 @@ Date        Band  Farthest
 
 The daily list has a row for each day with contacts in the 30 days, newest first; `-` means none of that day's contacts logged a grid. It ignores `--hour`, since each row is a whole day. The all-time line counts every imported contact. Without `MY_GRID` in `.env`, the distances are `-` and these two parts are left out.
 
-Without `--hour` it uses the current UTC hour; `--hour all` counts the whole day instead of one hour (on the page: "All hours" in the hour list). The 30 days end at your newest imported decode, not today, so an older copy of `ALL.TXT` still gives a full window; if that's more than 7 days ago, a note says to copy a fresh one over.
+Without `--hour` it uses the current UTC hour; `--hour all` counts the whole day instead of one hour (on the page: "All hours" in the hour list). The 30 days end at your newest imported decode or contact, whichever is later, not today: an older copy of `ALL.TXT` still gives a full window, and a fresher `wsjtx_log.adi` still counts (a contact dated in the future, from a wrong clock on the radio computer, is ignored for this); if that's more than 7 days ago, a note says to copy a fresh one over.
 
 ```
 $ ft8cast overview
@@ -171,7 +171,7 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
   - Fewer than 5 listening days on a band at that hour: "not enough data", never a score; these bands share one line ("Too little data"), grouped by days listened.
   - **Best bet** (added 2026-10-29): one line above the table naming the top band by `--rank`: `busiest` (default; stations per day, then contacts) or `contacts` (contacts, then stations per day); a full tie goes to the lower band. The table lists only bands with enough data, in that order. No band with enough data, or none scoring above 0: the line says "none" and why. No listening at all at that hour: one sentence, no table, no legend.
   - Ends with a pointer to `ft8cast overview` (2026-10-29), so the overview is easy to find.
-  - The header says how old the newest decode is in calendar days ("today", "yesterday", "4 days ago"; 2026-10-29), here, in `overview` and on the page; the >7-day note stays.
+  - The header says how old the newest data is in calendar days ("today", "yesterday", "4 days ago"; 2026-10-29), here, in `overview` and on the page; the >7-day note stays.
   - Column names (2026-10-29): Typical day, Total heard, Signal (median SNR), Heard out to, Worked out to, Contacts. The terminal shows miles only (fits 80 columns); the page adds grid squares.
   - Only bands where General may operate data, via `band-privileges`.
 - `ft8cast overview [--rank busiest|contacts]` (added 2026-10-29): one row per UTC hour with any listening, one column per band; a cell is the typical-day stations (as `forecast --hour HH` computes them) or `.` below 5 listening days; `*` marks the hour's best bet by the same rule (no star when there's none). Hours with no listening are listed as ranges (`00-09, 22-23`). Changed 2026-10-29: hours with too little data on every band, and bands with too little data at every hour, get no row or column, only a line each under the grid; with no band ready at any hour, one sentence instead of a grid. Same header, stale note and errors as `forecast`.
@@ -199,7 +199,7 @@ The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FR
 **Storage** (`src/ft8_forecast/store.py`): one SQLite file, schema version in `PRAGMA user_version`; a file that isn't an ft8cast database (or has another version) is refused and left untouched. A decode's identity is time + dial + Rx/Tx + SNR + message, so the same line imported twice is stored once. The author's file had 81 repeats: 79 identical lines and 2 that differ only in timing/audio offset (the same signal decoded twice). A contact's identity is time + frequency + call. Each import is one transaction: an error part-way stores nothing. All queries are parameterized, so free text from other stations can't act as SQL.
 
 **Forecast** (`src/ft8_forecast/forecast.py`), decided 2026-10-28:
-- Window: the 30 days up to the newest imported decode (option b), exclusive at the far end.
+- Window: the 30 days up to the newest imported decode (option b), exclusive at the far end. Changed 2026-10-29: up to the newest decode or contact, whichever is later, so contacts logged after the newest ALL.TXT line count; contacts dated after now don't move it.
 - Distances in **miles** (the author's choice), great-circle between the centers of 4-character squares. A square is about 140 x 70 miles in the US, so distances are good to roughly +/- 70 miles.
 - Bands: every v1 band from `band-privileges` (60 m is deferred there), each with General data privileges at its FT8 frequency (tested). A decode counts only if General may use data at its dial frequency (`check(dial, DATA, GENERAL)`); band edges here are cross-checked against `band-privileges` by a test.
 - Median SNR rather than the mean, so one loud local station doesn't skew it.
