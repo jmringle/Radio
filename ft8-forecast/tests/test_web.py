@@ -300,14 +300,42 @@ def test_stale_data_gets_a_note(client, five_days, monkeypatch):
 def test_no_database_invites_an_upload_and_creates_none(client, db):
     response, page = get(client)
     assert response.status_code == 200
-    assert "No data yet" in page
+    assert ("No data yet. Import your WSJT-X ALL.TXT below; add wsjtx_log.adi too for your contacts. "
+            "To import from a folder instead, set LOG_DIR in .env.") in page
     assert 'name="log"' in page
+    assert 'name="hour"' not in page and 'name="rank"' not in page  # nothing to pick until there's data
     assert not db.exists()
+
+
+def test_no_data_with_log_dir_points_at_the_folder_button(client, db, env, tmp_path):
+    env.write_text(f"LOG_DIR={tmp_path}\n")
+    _, page = get(client)
+    assert "No data yet. Import your WSJT-X ALL.TXT below, or press Import from folder." in page
 
 
 def test_only_adif_imported_asks_for_all_txt(client, db):
     upload(client, ADIF, "log.adi")
-    assert "No ALL.TXT data imported yet" in get(client)[1]
+    page = get(client)[1]
+    assert "No ALL.TXT data imported yet: the forecast is built from it. Import it below." in page
+    assert 'name="hour"' not in page
+
+
+def test_tab_title_shows_the_hour_and_best_bet(client, db, five_days):
+    _, page = get(client)
+    assert "<title>FT8 forecast · 15:00 UTC · best bet 20m</title>" in page
+    _, page = get(client, query_string={"hour": "all"})
+    assert "<title>FT8 forecast · all hours · best bet 20m</title>" in page
+    _, page = get(client, query_string={"hour": "3"})
+    assert "<title>FT8 forecast · 03:00 UTC</title>" in page  # no best bet at that hour
+
+
+def test_tab_title_without_data(client, db):
+    assert "<title>FT8 forecast</title>" in get(client)[1]
+
+
+def test_native_controls_follow_dark_mode(client):
+    css = client.get("/static/style.css", base_url=BASE).get_data(as_text=True)
+    assert "color-scheme: light dark;" in css
 
 
 def test_database_that_isnt_ours_is_explained_and_left_alone(tmp_path, env):
