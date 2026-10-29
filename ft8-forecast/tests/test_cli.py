@@ -322,6 +322,75 @@ def test_without_my_grid_distances_are_blank_and_explained(setup, db, capsys):
     assert not any("Farthest contact" in line for line in lines)
 
 
+# --- ft8cast overview ---
+
+def overview_run(capsys, db, *args):
+    code = main(["overview", "--db", str(db), *args])
+    out, err = capsys.readouterr()
+    return code, out, err
+
+
+@pytest.fixture
+def overview_db(setup, db):
+    """setup's 20m at 15 UTC (1 station a day), plus 40m at 15 UTC (2 a day, 1 contact) and 20m once at 03 UTC."""
+    conn = open_db(db)
+    save_decodes(conn, [Decode(datetime(2026, 10, 25 - n, 15, 0, tzinfo=UTC), 7_074_000, False, -5, call, None,
+                               f"CQ {call}") for n in range(5) for call in ("N0CALL/P", "N0CALL/M")])
+    save_decodes(conn, [Decode(datetime(2026, 10, 25, 3, 0, tzinfo=UTC), 14_074_000, False, -5, "N0CALL", None,
+                               "CQ N0CALL")])
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 14_074_000, None),
+                         Contact("N0CALL/P", datetime(2026, 10, 24, 15, 0, tzinfo=UTC), 14_074_000, None)])
+    conn.close()
+
+
+def test_overview_prints_an_hour_by_band_grid(overview_db, db, capsys):
+    code, out, err = overview_run(capsys, db)
+    assert (code, err) == (0, "")
+    lines = out.splitlines()
+    assert lines[:4] == ["24-hour overview (your last 30 days, through 2026-10-25 15:30 UTC)",
+                         "Typical-day stations; * = best bet (busiest); . = too little data", "",
+                         "UTC  160m    80m    40m    30m    20m    17m    15m    12m    10m"]
+    assert lines[4].split() == ["03", *["."] * 9]  # listened, but too little data everywhere: no star
+    assert lines[5].split() == ["15", ".", ".", "2*", ".", "1", ".", ".", ".", "."]
+    assert lines[5].index("2*") + 1 == lines[3].index("40m") + 3  # numbers line up under their band
+    assert lines[6:] == ["", "Hours with no listening: 00-02, 04-14, 16-23"]
+
+
+def test_overview_rank_contacts_moves_the_star(overview_db, db, capsys):
+    lines = overview_run(capsys, db, "--rank", "contacts")[1].splitlines()
+    assert lines[1] == "Typical-day stations; * = best bet (most contacts); . = too little data"
+    assert lines[5].split() == ["15", ".", ".", "2", ".", "1*", ".", ".", ".", "."]
+
+
+def test_overview_matches_the_forecast_for_each_hour(overview_db, db, capsys):
+    grid = overview_run(capsys, db)[1].splitlines()[5].split()
+    forecast_lines = forecast_run(capsys, db, "--hour", "15")[1].splitlines()
+    assert grid[3] == row(forecast_lines, "40m")[1] + "*" and grid[5] == row(forecast_lines, "20m")[1]
+    assert forecast_lines[2].startswith("Best bet (busiest): 40m")
+
+
+def test_overview_without_a_database_is_an_error(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
+    code, _, err = overview_run(capsys, tmp_path / "none.sqlite")
+    assert code == 2 and "no database" in err and not (tmp_path / "none.sqlite").exists()
+
+
+def test_overview_bad_rank_is_a_usage_error(overview_db, db, capsys):
+    code, _, err = overview_run(capsys, db, "--rank", "most")
+    assert code == 2 and "must be 'busiest' or 'contacts'" in err
+
+
+def test_overview_stale_data_gets_a_note(overview_db, db, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_now", lambda: NOW + timedelta(days=10))
+    assert "Note: your newest data is 11 days old" in overview_run(capsys, db)[1]
+
+
+@pytest.mark.parametrize("hours, text", [([0, 1, 2, 3, 22, 23], "00-03, 22-23"), ([5], "05"), ([1, 3], "01, 03"),
+                                         (list(range(24)), "00-23")])
+def test_hour_ranges(hours, text):
+    assert cli.hour_ranges(hours) == text
+
+
 @pytest.mark.parametrize("env", ["MY_GRID=\n", "# MY_GRID=JJ00\n", "OTHER=1\n"])
 def test_empty_or_commented_my_grid_counts_as_unset(setup, db, capsys, env):
     setup.write_text(env)

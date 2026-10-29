@@ -115,6 +115,26 @@
   {% endif %}
 </section>
 
+{% if overview is not none %}
+<section aria-labelledby="overview-title">
+  <h2 id="overview-title">24-hour overview</h2>
+  <p class="muted">{{ overview_key }}</p>
+  <table class="overview">
+    <thead>
+      <tr><th scope="col">UTC</th>{% for name in bands %}<th scope="col">{{ name }}</th>{% endfor %}</tr>
+    </thead>
+    <tbody>
+    {% for h, cells in overview %}
+      <tr><th scope="row"><a href="/?hour={{ h }}&amp;rank={{ rank }}">{{ "%02d" % h }}</a></th>{% for text, best in cells %}<td{% if best %} class="best"{% endif %}>{{ text }}{% if best %}*{% endif %}</td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if silent %}
+    <p class="muted">Hours with no listening: {{ silent }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
 <section aria-labelledby="import-title">
   <h2 id="import-title">Import a log</h2>
   <form method="post" action="/import" enctype="multipart/form-data" class="upload">
