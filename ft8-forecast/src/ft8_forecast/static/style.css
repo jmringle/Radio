@@ -78,4 +78,5 @@ p.file { margin: 0.4rem 0; }
 table.overview { width: auto; }
 table.overview td { min-width: 3.5rem; }
 .summary { margin: -0.5rem 0 0; padding-left: calc(0.75rem + 3px); }
+td .grid { color: var(--muted); font-size: 0.8rem; }
 table.overview td.local { color: var(--muted); font-family: inherit; font-size: 0.9rem; }

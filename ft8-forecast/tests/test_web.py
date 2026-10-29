@@ -93,7 +93,7 @@ def test_page_shows_the_best_bet_and_forecast_for_the_current_utc_hour(client, d
                                                          "Signal<br>dB SNR", "Farthest<br>heard",
                                                          "Farthest<br>worked", "Contacts<br>30 days",
                                                          "Answered<br>of calls"]
-    assert cells(page, "20m") == ["1", "5", "-12", "69 mi (JJ01)", "-", "0", "-"]  # the page keeps grids
+    assert cells(page, "20m") == ["1", "5", "-12", "69 mi<br><span class=\"grid\">JJ01</span>", "-", "0", "-"]  # the page keeps grids
     assert "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)" in page
     assert "need your grid" not in page
 
@@ -157,7 +157,7 @@ def test_page_shows_farthest_contacts_like_the_terminal(client, db, five_days, e
     ])
     conn.close()
     _, page = get(client)
-    assert cells(page, "20m")[3:] == ["-", "69 mi (JJ01)", "2", "-"]
+    assert cells(page, "20m")[3:] == ["-", "69 mi<br><span class=\"grid\">JJ01</span>", "2", "-"]
     assert "Farthest contact ever: 415 mi (JJ30) on 20m, 2026-04-08" in page
     assert "Farthest contact by day (30 days, any hour)" in page
     days = re.search(r'<table class="daily"[^>]*>.*?<tbody>(.*?)</tbody>', page, re.S).group(1)

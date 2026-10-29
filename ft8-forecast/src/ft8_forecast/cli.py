@@ -443,13 +443,13 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
     if ranked:
         print()
         span = f"{forecast.WINDOW_DAYS} days"
-        print(f"{'':<4} {'Stations':>9} {'Stations':>9} {'Signal':>7} {'Farthest':>10} {'Farthest':>10} {'Contacts':>9} {'Answered':>10}")
-        print(f"{'Band':<4} {'per day':>9} {span:>9} {'dB SNR':>7} {'heard':>10} {'worked':>10} {span:>9} {'of calls':>10}")
+        print(f"{'':<4} {'Stations':>9} {'Stations':>9} {'Signal':>7} {'Farthest':>10} {'Farthest':>10} {'Contacts':>9} {'Answered':>13}")
+        print(f"{'Band':<4} {'per day':>9} {span:>9} {'dB SNR':>7} {'heard':>10} {'worked':>10} {span:>9} {'of calls':>13}")
         for band in ranked:
             snr = "-" if band.median_snr is None else f"{band.median_snr:.0f}"
             per_day = f"{band.stations_per_day:,.0f}"
             print(f"{band.band:<4} {per_day:>9} {band.stations:>9,} {snr:>7} {distance(band.farthest_miles):>10} "
-                  f"{distance(band.contact_miles):>10} {band.contacts:>9,} {answered(band):>10}")
+                  f"{distance(band.contact_miles):>10} {band.contacts:>9,} {answered(band):>13}")
     if thin := thin_line(result):
         print("", thin, sep="\n")
     if ranked:
