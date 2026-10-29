@@ -24,8 +24,9 @@ ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
 
 
 # Under the table, here and on the web page: what the less obvious columns mean.
-LEGEND = (f"Typical day: median stations per day you listened. Total heard: over {forecast.WINDOW_DAYS} days.",
-          f"Signal: median SNR. Heard out to: same station and grid on {forecast.FARTHEST_MIN_DAYS}+ days.")
+LEGEND = ("Stations per day: the median (middle value) over the days you listened.",
+          "Signal: median signal-to-noise ratio; higher is stronger.",
+          f"Farthest heard: same station and grid on {forecast.FARTHEST_MIN_DAYS}+ days.")
 RANK_LABELS = {"busiest": "busiest", "contacts": "most contacts"}
 
 
@@ -430,13 +431,14 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
     ranked = forecast.rank(result.bands, by)
     if ranked:
         print()
-        print(f"{'Band':<4} {'Typical day':>12} {'Total heard':>12} {'Signal':>7} {'Heard out to':>13} "
-              f"{'Worked out to':>14} {'Contacts':>9}")
+        span = f"{forecast.WINDOW_DAYS} days"
+        print(f"{'':<4} {'Stations':>9} {'Stations':>9} {'Signal':>7} {'Farthest':>10} {'Farthest':>10} {'Contacts':>9}")
+        print(f"{'Band':<4} {'per day':>9} {span:>9} {'dB SNR':>7} {'heard':>10} {'worked':>10} {span:>9}")
         for band in ranked:
-            snr = "-" if band.median_snr is None else f"{band.median_snr:.0f} dB"
+            snr = "-" if band.median_snr is None else f"{band.median_snr:.0f}"
             per_day = f"{band.stations_per_day:,.0f}"
-            print(f"{band.band:<4} {per_day:>12} {band.stations:>12,} {snr:>7} {distance(band.farthest_miles):>13} "
-                  f"{distance(band.contact_miles):>14} {band.contacts:>9,}")
+            print(f"{band.band:<4} {per_day:>9} {band.stations:>9,} {snr:>7} {distance(band.farthest_miles):>10} "
+                  f"{distance(band.contact_miles):>10} {band.contacts:>9,}")
     if thin := thin_line(result):
         print("", thin, sep="\n")
     if ranked:
@@ -451,7 +453,7 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
         for far in result.daily:
             print(f"{far.day:<10}  {far.band or '-':<4} {distance(far.miles):>9}")
     if my_grid is None:
-        print(f"\nHeard out to and Worked out to need your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
+        print(f"\nFarthest heard and worked need your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
     return OK
 
 

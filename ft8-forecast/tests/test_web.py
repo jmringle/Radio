@@ -89,9 +89,10 @@ def test_page_shows_the_best_bet_and_forecast_for_the_current_utc_hour(client, d
     assert "Your last 30 days, through 2026-10-25 15:30 UTC" in page
     assert '<p class="verdict">Best bet (busiest): 20m - about 1 station on a typical day</p>' in page
     head = re.search(r"<thead>(.*?)</thead>", page, re.S).group(1)
-    assert re.findall(r"<th[^>]*>(.*?)</th>", head) == ["Band", "Typical day", "Total heard", "Signal",
-                                                         "Heard out to", "Worked out to", "Contacts"]
-    assert cells(page, "20m") == ["1", "5", "-12 dB", "69 mi (JJ01)", "-", "0"]  # the page keeps grids
+    assert re.findall(r"<th[^>]*>(.*?)</th>", head) == ["Band", "Stations<br>per day", "Stations<br>30 days",
+                                                         "Signal<br>dB SNR", "Farthest<br>heard",
+                                                         "Farthest<br>worked", "Contacts<br>30 days"]
+    assert cells(page, "20m") == ["1", "5", "-12", "69 mi (JJ01)", "-", "0"]  # the page keeps grids
     assert "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)" in page
     assert "need your grid" not in page
 
@@ -183,7 +184,7 @@ def test_hour_option(client, five_days):
     assert "FT8 forecast for 09:00-09:59 UTC" in page
     assert '<option value="9" selected>' in page
     assert "Best bet (busiest): none - no listening at this hour in these 30 days" in page
-    assert '<th scope="col">Typical day</th>' not in page and cli.LEGEND[0] not in page  # no band to list
+    assert '<th scope="col">Stations<br>per day</th>' not in page and cli.LEGEND[0] not in page  # no band to list
     assert "Too little data at this hour" not in page
 
 
@@ -298,7 +299,7 @@ def test_bad_hour_is_a_400(client, five_days, hour):
 
 def test_without_my_grid_farthest_is_blank_and_explained(client, five_days):
     _, page = get(client)
-    assert "Heard out to and Worked out to need your grid: set MY_GRID in .env" in page
+    assert "Farthest heard and worked need your grid: set MY_GRID in .env" in page
 
 
 def test_invalid_my_grid_is_explained(client, five_days, env):
