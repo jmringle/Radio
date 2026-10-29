@@ -77,7 +77,7 @@
     <div class="scroll">
     <table>
       <thead>
-        <tr><th scope="col">Band</th><th scope="col">Stations<br>per day</th><th scope="col">Stations<br>{{ window_days }} days</th><th scope="col">Signal<br>dB SNR</th><th scope="col">Farthest<br>heard</th><th scope="col">Farthest<br>worked</th><th scope="col">Contacts<br>{{ window_days }} days</th></tr>
+        <tr><th scope="col">Band</th><th scope="col">Stations<br>per day</th><th scope="col">Stations<br>{{ window_days }} days</th><th scope="col">Signal<br>dB SNR</th><th scope="col">Farthest<br>heard</th><th scope="col">Farthest<br>worked</th><th scope="col">Contacts<br>{{ window_days }} days</th><th scope="col">Answered<br>of calls</th></tr>
       </thead>
       <tbody>
       {% for band in ranked %}
@@ -89,6 +89,7 @@
           <td>{{ distance(band.farthest_miles, band.farthest_grid) }}</td>
           <td>{{ distance(band.contact_miles, band.contact_grid) }}</td>
           <td>{{ "{:,}".format(band.contacts) }}</td>
+          <td>{{ answered(band) }}</td>
         </tr>
       {% endfor %}
       </tbody>

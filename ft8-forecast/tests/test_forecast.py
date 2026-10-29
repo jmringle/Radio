@@ -395,7 +395,7 @@ def test_no_farthest_contact_ever_without_a_gridded_contact_or_my_grid(conn):
 # --- ranking: best bet and table order ---
 
 def stats(name, per_day=10.0, contacts=0, days=MIN_DAYS):
-    return forecast.BandStats(name, days, per_day, 0, None, None, None, None, None, contacts)
+    return forecast.BandStats(name, days, per_day, 0, None, None, None, None, None, contacts, 0, 0, None, None)
 
 
 def test_rank_busiest_lists_enough_data_bands_busiest_first():
@@ -434,3 +434,137 @@ def test_best_bet_is_the_top_band():
 ])
 def test_no_best_bet_without_a_band_scoring_above_zero(bands, by):
     assert forecast.best_bet(bands, by) is None
+
+
+# --- answered: your calls that got a reply (README) ---
+
+def call(when=NEWEST, dial=TWENTY, message="CQ N0CALL AA00") -> Decode:
+    """Your own opening call: a CQ, or a call to another station with your grid."""
+    return Decode(when, dial, True, 0, "N0CALL", "AA00", message)
+
+
+def reply(when, dial=TWENTY, message="N0CALL N1CALL FN31") -> Decode:
+    """A decode addressed to you."""
+    return Decode(when, dial, False, -10, "N1CALL", "FN31", message)
+
+
+def at(seconds):
+    return NEWEST - timedelta(minutes=10) + timedelta(seconds=seconds)
+
+
+def answered(conn, **kwargs):
+    stats = band(conn, **kwargs)
+    return stats.answered, stats.calls
+
+
+def test_answered_counts_calls_with_a_reply_to_you_in_the_next_30_s(conn):
+    save_decodes(conn, [call(at(0)), reply(at(15)), call(at(30)), call(NEWEST)])
+    assert answered(conn) == (1, 3)
+
+
+@pytest.mark.parametrize("seconds, counts", [(0, False), (1, True), (15, True), (30, True), (31, False), (45, False)])
+def test_a_reply_counts_only_after_the_call_and_within_30_s(conn, seconds, counts):
+    save_decodes(conn, [call(at(0)), reply(at(seconds))])
+    assert answered(conn) == (int(counts), 1)
+
+
+@pytest.mark.parametrize("message", ["N1CALL N2CALL FN31", "CQ N1CALL FN31", "N0CALLX N1CALL FN31", "XN0CALL N1CALL -10"])
+def test_a_decode_not_addressed_to_you_isnt_a_reply(conn, message):
+    save_decodes(conn, [call(at(0)), reply(at(15), message=message)])
+    assert answered(conn) == (0, 1)
+
+
+@pytest.mark.parametrize("message", ["N0CALL N1CALL -10", "N0CALL N1CALL RR73", "<N0CALL> N1CALL FN31"])
+def test_any_decode_addressed_to_you_is_a_reply(conn, message):
+    save_decodes(conn, [call(at(0)), reply(at(15), message=message)])
+    assert answered(conn) == (1, 1)
+
+
+def test_a_reply_on_another_band_doesnt_count(conn):
+    save_decodes(conn, [call(at(0)), reply(at(15), dial=7_074_000)])
+    assert answered(conn) == (0, 1)
+    assert answered(conn, name="40m") == (0, 0)
+
+
+def test_reports_and_sign_offs_arent_calls(conn):
+    save_decodes(conn, [call(at(0), message="N1CALL N0CALL AA00"),  # calling a station: counts
+                        Decode(at(30), TWENTY, True, 0, "N0CALL", None, "N1CALL N0CALL R-10"),
+                        Decode(at(60), TWENTY, True, 0, "N0CALL", None, "N1CALL N0CALL RR73")])
+    assert answered(conn) == (0, 1)
+
+
+def test_replies_to_each_of_your_calls_count(conn):
+    save_decodes(conn, [call(at(0)), Decode(at(30), TWENTY, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00"),
+                        reply(at(45), message="N0CALL/P N1CALL FN31")])
+    assert answered(conn) == (1, 2)
+
+
+def test_your_calls_without_a_readable_sender_are_counted_not_answered(conn):
+    save_decodes(conn, [Decode(at(0), TWENTY, True, 0, None, None, "CQ HELLO THERE FRIENDS"), reply(at(15))])
+    assert answered(conn) == (0, 1)
+
+
+def test_only_calls_in_the_window_and_hour_count(conn):
+    save_decodes(conn, [call(days_back(31)), reply(days_back(31) + timedelta(seconds=15)),
+                        call(days_back(1, hour=14)), reply(days_back(1, hour=14) + timedelta(seconds=15)),
+                        call(NEWEST)])
+    assert answered(conn) == (0, 1)
+
+
+def test_a_reply_in_the_next_hour_still_answers(conn):
+    late = NEWEST.replace(minute=59, second=45) - timedelta(days=1)
+    save_decodes(conn, [call(late), reply(late + timedelta(seconds=15)), call(NEWEST)])
+    assert answered(conn) == (1, 2)
+
+
+def test_all_hours_counts_calls_at_every_hour(conn):
+    save_decodes(conn, [call(at(0)), reply(at(15)), call(days_back(1, hour=3))])
+    assert answered(conn, hour=None) == (1, 2)
+
+
+def test_no_calls_gives_zero_of_zero(conn):
+    save_decodes(conn, [rx(), reply(at(15))])
+    assert answered(conn) == (0, 0)
+
+
+# --- trend: the last 15 days against the 15 before (README) ---
+
+def heard_on(days_ago, stations):
+    return [rx(days_back(days_ago), sender=f"N{i}CALL") for i in range(stations)]
+
+
+def test_trend_compares_the_median_day_of_each_half(conn):
+    # Days 0-14 back are the recent half, 15-29 the earlier one.
+    save_decodes(conn, [d for n, count in [(0, 9), (7, 5), (14, 6), (15, 1), (20, 2), (29, 3)]
+                        for d in heard_on(n, count)])
+    stats = band(conn)
+    assert (stats.recent_per_day, stats.earlier_per_day) == (6, 2)
+
+
+def test_trend_needs_3_listening_days_in_each_half(conn):
+    save_decodes(conn, [d for n in (0, 1, 2, 15, 16) for d in heard_on(n, 2)])
+    stats = band(conn)
+    assert (stats.recent_per_day, stats.earlier_per_day) == (2, None)
+
+
+def trend_of(earlier, recent):
+    return forecast.trend(forecast.BandStats("20m", MIN_DAYS, 10.0, 0, None, None, None, None, None, 0, 0, 0,
+                                             recent, earlier))
+
+
+@pytest.mark.parametrize("earlier, recent, word", [
+    (10, 13, "busier"),  # +30%, +3 a day
+    (10, 12.5, "busier"),  # exactly +25%
+    (10, 12, None),  # +20%
+    (4, 6, "busier"),  # +50%, +2 a day
+    (2, 3, None),  # +50% but only 1 more a day
+    (0, 2, "busier"),
+    (12, 9, "quieter"),  # exactly -25%
+    (13, 10, None),  # -23%
+    (3, 1, "quieter"),
+    (5, 5, None),
+    (None, 9, None),
+    (9, None, None),
+])
+def test_trend_needs_25_percent_and_2_stations_a_day(earlier, recent, word):
+    assert trend_of(earlier, recent) == word

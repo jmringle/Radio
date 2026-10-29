@@ -307,11 +307,12 @@ def forecast_run(capsys, db, *args):
     return code, out, err
 
 
-HEADER = ["      Stations  Stations  Signal   Farthest   Farthest  Contacts",
-          "Band   per day   30 days  dB SNR      heard     worked   30 days"]
+HEADER = ["      Stations  Stations  Signal   Farthest   Farthest  Contacts   Answered",
+          "Band   per day   30 days  dB SNR      heard     worked   30 days   of calls"]
 LEGEND = ["Stations per day: the median (middle value) over the days you listened.",
           "Signal: median signal-to-noise ratio; higher is stronger.",
-          "Farthest heard: same station and grid on 2+ days."]
+          "Farthest heard: same station and grid on 2+ days.",
+          "Answered: your CQs and calls that got a reply to you within 30 s."]
 
 
 def row(lines, band):
@@ -330,10 +331,38 @@ def test_forecast_prints_the_best_bet_and_table(setup, db, capsys):
                          "Best bet (busiest): 20m - about 1 station on a typical day",
                          "This is 20m's busiest hour", "",
                          *HEADER, lines[7]]
-    assert row(lines, "20m") == ["20m", "1", "5", "-12", "69", "mi", "-", "0"]  # miles only, no grid
+    assert row(lines, "20m") == ["20m", "1", "5", "-12", "69", "mi", "-", "0", "-"]  # miles only, no grid
     assert lines[8:] == ["", "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)",
                          "", *LEGEND, "", "Every hour at a glance: ft8cast overview"]
     assert "Note:" not in out and "MY_GRID" not in out and "JJ" not in out
+
+
+def test_forecast_shows_how_many_calls_were_answered(setup, db, capsys):
+    conn = open_db(db)
+    cq = datetime(2026, 10, 24, 15, 10, tzinfo=UTC)
+    save_decodes(conn, [Decode(cq, 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00"),
+                        Decode(cq + timedelta(seconds=15), 14_074_000, False, -9, "N1CALL", "FN31", "N0CALL/P N1CALL FN31"),
+                        Decode(cq + timedelta(seconds=30), 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00")])
+    conn.close()
+    assert row(forecast_run(capsys, db)[1].splitlines(), "20m")[-3:] == ["1", "of", "2"]
+
+
+def test_forecast_says_which_bands_got_busier_or_quieter(setup, db, capsys):
+    newest = datetime(2026, 10, 25, 15, 30, tzinfo=UTC)
+    conn = open_db(db)  # 20m had 4 a day 15+ days back (now 1); 15m went from 2 to 6
+    save_decodes(conn, [Decode(newest - timedelta(days=n), 14_074_000, False, -10, f"N{i}CALL/M", None, f"CQ N{i}CALL/M")
+                        for n in (15, 16, 17) for i in range(4)])
+    save_decodes(conn, [Decode(newest - timedelta(days=n), 21_074_000, False, -10, f"N{i}CALL", None, f"CQ N{i}CALL")
+                        for n, count in [(0, 6), (1, 6), (2, 6), (3, 6), (4, 6), (15, 2), (16, 2), (17, 2)]
+                        for i in range(count)])
+    conn.close()
+    lines = forecast_run(capsys, db)[1].splitlines()
+    assert "Busier in the last 15 days: 15m (6 a day, up from 2)" in lines
+    assert "Quieter in the last 15 days: 20m (1 a day, down from 4)" in lines
+
+
+def test_no_trend_line_without_a_clear_change(setup, db, capsys):
+    assert "in the last 15 days" not in forecast_run(capsys, db)[1]
 
 
 def test_forecast_shows_farthest_contacts_and_ranks_by_contacts(setup, db, capsys):
@@ -353,7 +382,7 @@ def test_forecast_shows_farthest_contacts_and_ranks_by_contacts(setup, db, capsy
     assert lines[2] == "Best bet (busiest): 40m - about 1 station on a typical day; worked out to 69 mi"
     top = lines.index(HEADER[1]) + 1
     assert [line.split()[0] for line in lines[top:top + 2]] == ["40m", "20m"]
-    assert row(lines, "40m") == ["40m", "1", "5", "-5", "-", "69", "mi", "2"]
+    assert row(lines, "40m") == ["40m", "1", "5", "-5", "-", "69", "mi", "2", "-"]
     assert lines[-7:] == ["", "Farthest contact ever: 415 mi on 20m, 2026-04-08",
                           "", "Farthest contact by day (30 days, any hour):",
                           "Date        Band  Farthest",
@@ -488,7 +517,7 @@ def test_thin_bands_are_grouped_by_days_and_one_day_is_singular(setup, db, capsy
 
 def test_without_my_grid_distances_are_blank_and_explained(setup, db, capsys):
     lines = forecast_run(capsys, db)[1].splitlines()
-    assert row(lines, "20m") == ["20m", "1", "5", "-12", "-", "-", "0"]
+    assert row(lines, "20m") == ["20m", "1", "5", "-12", "-", "-", "0", "-"]
     assert lines[-1] == "Farthest heard and worked need your grid: set MY_GRID in .env (see .env.example)."
     assert not any("Farthest contact" in line for line in lines)
 

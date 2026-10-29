@@ -172,7 +172,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
     return render_template(
         "page.html", hour=hour, hours=range(24), result=result, message=message, imported=imported,
         stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
-        env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS,
+        env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS, answered=cli.answered,
         show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour, now),
         all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by, log_dir=cli._log_dir(),
         now_hour=now.hour, summary=summary, tab_title=_tab_title(result, hour, by), age_text=result and cli.data_age(result.newest, now), kind_for_name=folder.kind_for_name,
