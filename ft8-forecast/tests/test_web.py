@@ -227,6 +227,20 @@ def test_overview_comes_before_farthest_contacts(client, db, five_days, env):
     assert page.index("Best bet (busiest)") < page.index("24-hour overview") < page.index("Farthest contact ever")
 
 
+def test_narrow_screens_get_a_scroll_hint_under_the_forecast_table(client, five_days):
+    _, page = get(client)
+    assert re.search(r'</table>\s*</div>\s*<p class="scroll-hint">Scroll the table sideways for more</p>', page)
+    assert page.count('class="scroll-hint"') == 1  # the other tables fit a phone
+    css = client.get("/static/style.css", base_url=BASE).get_data(as_text=True)
+    assert ".scroll-hint { display: none;" in css
+    assert re.search(r"@media \(max-width: 44rem\) \{\s*\.scroll-hint \{ display: block;", css)
+
+
+def test_no_scroll_hint_without_a_table(client, five_days):
+    _, page = get(client, query_string={"hour": "3"})
+    assert "scroll-hint" not in page
+
+
 def test_tables_scroll_in_their_own_box(client, db, five_days, env):
     env.write_text("MY_GRID=JJ00\n")
     conn = open_db(db)

@@ -271,6 +271,7 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
         print("", thin, sep="\n")
     if ranked:
         print("", *LEGEND, sep="\n")
+    print("", "Every hour at a glance: ft8cast overview", sep="\n")
     if result.best_ever:
         best = result.best_ever
         print(f"\nFarthest contact ever: {distance(best.miles)} on {best.band}, {best.day}")
