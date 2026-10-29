@@ -93,18 +93,24 @@ $ ft8cast overview
 24-hour overview (your last 30 days, through 2026-10-25 19:48 UTC)
 Typical-day stations; * = best bet (busiest); . = too little data
 
-UTC  160m    80m    40m    30m    20m    17m    15m    12m    10m
-10      .      .     32*     .      .      .      .      .      .
-11      .      .    109*     .      .      .      .      .      .
-12      .      .    144*     .     24      .      3      .      .
-13      .      .     90*     .     25      .     18      .      .
-14      .      .     31      .     53*     .     37      .      9
-...
+UTC   40m    20m    15m    10m
+10     32*     .      .      .
+11    109*     .      .      .
+12    144*    24      3      .
+13     90*    25     18      .
+14     31     53*    37      9
+15     24     96*    30     12
+16      5     50*    45     18
+17      5     65*    46     17
+18      4     70*    43     16
+19      .     75*     .     18
 
+Too little data on every band: 20-23
 Hours with no listening: 00-09
+Too little data at every hour: 160m 80m 30m 17m 12m
 ```
 
-`ft8cast overview [--rank busiest|contacts]` puts every UTC hour side by side: each cell is that band's typical-day stations at that hour (exactly what `ft8cast forecast --hour HH` shows), `.` where there are fewer than 5 days of listening, and `*` on the hour's best bet. Hours with no listening at all are summed up on one line. On the web page the same table follows the forecast, and each hour links to its forecast.
+`ft8cast overview [--rank busiest|contacts]` puts every UTC hour side by side: each cell is that band's typical-day stations at that hour (exactly what `ft8cast forecast --hour HH` shows), `.` where there are fewer than 5 days of listening, and `*` on the hour's best bet. Rows and columns that would be all dots are left out and summed up underneath instead: hours you listened with too little data on every band, hours with no listening, and bands with too little data at every hour. On the web page the same table comes right after the forecast (before Farthest contacts), the hour on show is outlined, and each hour links to its forecast.
 
 ### The web page
 
@@ -140,7 +146,7 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
   - **Best bet** (added 2026-10-29): one line above the table naming the top band by `--rank`: `busiest` (default; stations per day, then contacts) or `contacts` (contacts, then stations per day); a full tie goes to the lower band. The table lists only bands with enough data, in that order. No band with enough data, or none scoring above 0: the line says "none" and why. No listening at all at that hour: one sentence, no table, no legend.
   - Column names (2026-10-29): Typical day, Total heard, Signal (median SNR), Heard out to, Worked out to, Contacts. The terminal shows miles only (fits 80 columns); the page adds grid squares.
   - Only bands where General may operate data, via `band-privileges`.
-- `ft8cast overview [--rank busiest|contacts]` (added 2026-10-29): one row per UTC hour with any listening, one column per band; a cell is the typical-day stations (as `forecast --hour HH` computes them) or `.` below 5 listening days; `*` marks the hour's best bet by the same rule (no star when there's none). Hours with no listening are listed as ranges (`00-09, 22-23`). Same header, stale note and errors as `forecast`.
+- `ft8cast overview [--rank busiest|contacts]` (added 2026-10-29): one row per UTC hour with any listening, one column per band; a cell is the typical-day stations (as `forecast --hour HH` computes them) or `.` below 5 listening days; `*` marks the hour's best bet by the same rule (no star when there's none). Hours with no listening are listed as ranges (`00-09, 22-23`). Changed 2026-10-29: hours with too little data on every band, and bands with too little data at every hour, get no row or column, only a line each under the grid; with no band ready at any hour, one sentence instead of a grid. Same header, stale note and errors as `forecast`.
 - `ft8cast serve [--port N]` (added 2026-10-28): a web page on `127.0.0.1` only, default port 8074.
   - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason. A "Best bet by" list does what `--rank` does; a bad value is a 400. Below it, the 24-hour overview (added 2026-10-29), following "Best bet by", each hour linking to its forecast.
   - Uploading `ALL.TXT` or ADIF imports it exactly like `ft8cast import` (same detection, de-duplication and problem reporting) and shows the summary; the file isn't kept. No file, a file with no FT8 records, or an ADIF over 100 MB is a 400 that stores nothing; an upload over 500 MB is a 413.

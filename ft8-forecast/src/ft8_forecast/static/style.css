@@ -63,3 +63,8 @@ table.daily { width: auto; }
 .verdict { font-size: 1.1rem; font-weight: 600; border-left: 3px solid var(--accent); padding-left: 0.75rem; }
 table.overview td.best { color: var(--accent); font-weight: 700; }
 table.overview a { color: inherit; }
+/* Phones: a wide table scrolls inside its own box; the page never scrolls sideways. */
+.scroll { overflow-x: auto; max-width: 100%; }
+th, td { white-space: nowrap; }
+table.overview td.thin { color: var(--muted); }
+table.overview tr.current { outline: 2px solid var(--accent); outline-offset: -2px; }

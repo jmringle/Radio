@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -73,17 +74,47 @@ def overview_key(by: str) -> str:
     return f"Typical-day stations; * = best bet ({RANK_LABELS[by]}); . = too little data"
 
 
-def overview_rows(results: list[forecast.Forecast], by: str) -> list[tuple[int, list[tuple[str, bool]]]]:
-    """For each hour with any listening: (hour, one (cell, is best bet) per band in BANDS order).
-    The terminal and the web page both draw the overview from this."""
-    rows = []
+@dataclass(frozen=True)
+class Overview:
+    """The 24-hour grid, trimmed of rows and columns that would be all dots. The terminal and
+    the web page both draw from this."""
+    bands: list[str]  # columns: bands with enough data at some hour, in BANDS order
+    rows: list[tuple[int, list[tuple[str, bool]]]]  # (hour, (cell, is best bet) per column)
+    thin_hours: list[int]  # listened, but too little data on every band
+    silent_hours: list[int]  # no listening at all
+    hidden_bands: list[str]  # too little data at every hour
+
+    def notes(self) -> list[str]:
+        """The lines under the grid. With no rows, only the no-listening line: the
+        'no band has 5 days' message covers the rest."""
+        silent = [f"Hours with no listening: {hour_ranges(self.silent_hours)}"] if self.silent_hours else []
+        if not self.rows:
+            return silent
+        thin = [f"Too little data on every band: {hour_ranges(self.thin_hours)}"] if self.thin_hours else []
+        hidden = [f"Too little data at every hour: {' '.join(self.hidden_bands)}"] if self.hidden_bands else []
+        return thin + silent + hidden
+
+
+OVERVIEW_EMPTY = f"No band has {forecast.MIN_DAYS} days of listening at any hour yet."
+
+
+def overview(results: list[forecast.Forecast], by: str) -> Overview:
+    """results: compute() for hours 0-23."""
+    shown = [i for i, (name, _, _) in enumerate(forecast.BANDS)
+             if any(result.bands[i].enough_data for result in results)]
+    rows, thin, silent = [], [], []
     for result in results:
         if not any(band.listening_days for band in result.bands):
-            continue
-        best = forecast.best_bet(result.bands, by)
-        rows.append((result.hour, [(f"{band.stations_per_day:,.0f}" if band.enough_data else ".", band is best)
-                                   for band in result.bands]))
-    return rows
+            silent.append(result.hour)
+        elif not any(band.enough_data for band in result.bands):
+            thin.append(result.hour)
+        else:
+            best = forecast.best_bet(result.bands, by)
+            rows.append((result.hour, [(f"{band.stations_per_day:,.0f}" if band.enough_data else ".", band is best)
+                                       for band in (result.bands[i] for i in shown)]))
+    names = [name for name, _, _ in forecast.BANDS]
+    return Overview([names[i] for i in shown], rows, thin, silent,
+                    [name for i, name in enumerate(names) if i not in shown])
 
 
 def hour_ranges(hours: list[int]) -> str:
@@ -277,13 +308,15 @@ def _overview(by: str, db: Path) -> int:
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
     print(overview_key(by), "", sep="\n")
-    print(("UTC" + "".join(f" {name:>5} " for name, _, _ in forecast.BANDS)).rstrip())
-    rows = overview_rows(results, by)
-    for hour, cells in rows:
-        print((f"{hour:02d} " + "".join(f" {text:>5}{'*' if best else ' '}" for text, best in cells)).rstrip())
-    silent = sorted(set(range(24)) - {hour for hour, _ in rows})
-    if silent:
-        print("", f"Hours with no listening: {hour_ranges(silent)}", sep="\n")
+    grid = overview(results, by)
+    if grid.rows:
+        print(("UTC" + "".join(f" {name:>5} " for name in grid.bands)).rstrip())
+        for hour, cells in grid.rows:
+            print((f"{hour:02d} " + "".join(f" {text:>5}{'*' if best else ' '}" for text, best in cells)).rstrip())
+    else:
+        print(OVERVIEW_EMPTY)
+    if notes := grid.notes():
+        print("", *notes, sep="\n")
     return OK
 
 
