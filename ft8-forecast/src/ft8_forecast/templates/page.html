@@ -66,6 +66,7 @@
     {% endif %}
     <p class="verdict">{{ best_bet }}</p>
     {% if ranked %}
+    <div class="scroll">
     <table>
       <thead>
         <tr><th scope="col">Band</th><th scope="col">Typical day</th><th scope="col">Total heard</th><th scope="col">Signal</th><th scope="col">Heard out to</th><th scope="col">Worked out to</th><th scope="col">Contacts</th></tr>
@@ -84,27 +85,13 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
     {% endif %}
     {% if thin %}
       <p class="muted">{{ thin }}</p>
     {% endif %}
     {% if ranked %}
       <p class="muted">{% for line in legend %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
-    {% endif %}
-    {% if result.best_ever %}
-      {% set best = result.best_ever %}
-      <p>Farthest contact ever: {{ distance(best.miles, best.grid) }} on {{ best.band }}, {{ best.day }}</p>
-    {% endif %}
-    {% if result.daily %}
-      <h3 id="daily-title">Farthest contact by day ({{ window_days }} days, any hour)</h3>
-      <table class="daily" aria-labelledby="daily-title">
-        <thead><tr><th scope="col">Date</th><th scope="col">Band</th><th scope="col">Farthest</th></tr></thead>
-        <tbody>
-        {% for far in result.daily %}
-          <tr><th scope="row">{{ far.day }}</th><td>{{ far.band or "-" }}</td><td>{{ distance(far.miles, far.grid) }}</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
     {% endif %}
     {% if my_grid is none %}
       <p class="note">Heard out to and Worked out to need your grid: set MY_GRID in {{ env_name }} (see .env.example).</p>
@@ -115,23 +102,52 @@
   {% endif %}
 </section>
 
-{% if overview is not none %}
+{% if overview %}
 <section aria-labelledby="overview-title">
   <h2 id="overview-title">24-hour overview</h2>
   <p class="muted">{{ overview_key }}</p>
+  {% if overview.rows %}
+  <div class="scroll">
   <table class="overview">
     <thead>
-      <tr><th scope="col">UTC</th>{% for name in bands %}<th scope="col">{{ name }}</th>{% endfor %}</tr>
+      <tr><th scope="col">UTC</th>{% for name in overview.bands %}<th scope="col">{{ name }}</th>{% endfor %}</tr>
     </thead>
     <tbody>
-    {% for h, cells in overview %}
-      <tr><th scope="row"><a href="/?hour={{ h }}&amp;rank={{ rank }}">{{ "%02d" % h }}</a></th>{% for text, best in cells %}<td{% if best %} class="best"{% endif %}>{{ text }}{% if best %}*{% endif %}</td>{% endfor %}</tr>
+    {% for h, cells in overview.rows %}
+      <tr{% if h == hour %} class="current"{% endif %}><th scope="row"><a href="/?hour={{ h }}&amp;rank={{ rank }}"{% if h == hour %} aria-current="true"{% endif %}>{{ "%02d" % h }}</a></th>{% for text, best in cells %}<td{% if best %} class="best"{% elif text == "." %} class="thin"{% endif %}>{{ text }}{% if best %}*{% endif %}</td>{% endfor %}</tr>
     {% endfor %}
     </tbody>
   </table>
-  {% if silent %}
-    <p class="muted">Hours with no listening: {{ silent }}</p>
+  </div>
+  {% else %}
+  <p>{{ overview_empty }}</p>
   {% endif %}
+  {% if overview.notes() %}
+    <p class="muted">{% for note in overview.notes() %}{{ note }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if result and (result.best_ever or result.daily) %}
+<section aria-labelledby="farthest-title">
+  <h2 id="farthest-title">Farthest contacts</h2>
+    {% if result.best_ever %}
+      {% set best = result.best_ever %}
+      <p>Farthest contact ever: {{ distance(best.miles, best.grid) }} on {{ best.band }}, {{ best.day }}</p>
+    {% endif %}
+    {% if result.daily %}
+      <h3 id="daily-title">Farthest contact by day ({{ window_days }} days, any hour)</h3>
+      <div class="scroll">
+      <table class="daily" aria-labelledby="daily-title">
+        <thead><tr><th scope="col">Date</th><th scope="col">Band</th><th scope="col">Farthest</th></tr></thead>
+        <tbody>
+        {% for far in result.daily %}
+          <tr><th scope="row">{{ far.day }}</th><td>{{ far.band or "-" }}</td><td>{{ distance(far.miles, far.grid) }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+    {% endif %}
 </section>
 {% endif %}
 

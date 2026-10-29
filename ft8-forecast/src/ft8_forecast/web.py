@@ -135,7 +135,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: dict | None = N
         try:
             result = forecast.compute(conn, hour, my_grid)
             if result is not None:  # about 0.3 s for a year of listening
-                overview = cli.overview_rows([forecast.compute(conn, h, my_grid) for h in range(24)], by)
+                overview = cli.overview([forecast.compute(conn, h, my_grid) for h in range(24)], by)
         finally:
             conn.close()
         if result is None:
@@ -150,6 +150,5 @@ def _render(db: Path, hour: int | str | None, by: str, imported: dict | None = N
         all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by,
         best_bet=result and cli.best_bet_line(result, by), ranked=result and forecast.rank(result.bands, by),
         thin=result and cli.thin_line(result), overview=overview, overview_key=cli.overview_key(by),
-        bands=[name for name, _, _ in forecast.BANDS],
-        silent=overview is not None and cli.hour_ranges(sorted(set(range(24)) - {h for h, _ in overview})),
+        overview_empty=cli.OVERVIEW_EMPTY,
     )

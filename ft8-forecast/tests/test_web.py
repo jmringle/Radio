@@ -171,7 +171,7 @@ def test_hour_option(client, five_days):
     assert '<option value="9" selected>' in page
     assert "Best bet (busiest): none - no listening at this hour in these 30 days" in page
     assert '<th scope="col">Typical day</th>' not in page and cli.LEGEND[0] not in page  # no band to list
-    assert "Too little data" not in page
+    assert "Too little data at this hour" not in page
 
 
 def test_all_hours_option(client, five_days):
@@ -191,18 +191,52 @@ def test_page_shows_the_24_hour_overview_like_the_terminal(client, db, five_days
     _, page = get(client, query_string={"rank": "busiest"})
     table = re.search(r'<table class="overview"[^>]*>(.*?)</table>', page, re.S).group(1)
     head = re.findall(r"<th[^>]*>(.*?)</th>", re.search(r"<thead>(.*?)</thead>", table, re.S).group(1))
-    assert head == ["UTC", "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m"]
-    rows = re.findall(r"<tr>(.*?)</tr>", re.search(r"<tbody>(.*?)</tbody>", table, re.S).group(1), re.S)
-    assert len(rows) == 2
-    # Each hour links to its forecast, keeping the ranking.
-    assert '<th scope="row"><a href="/?hour=15&amp;rank=busiest">15</a></th>' in rows[1]
-    assert re.findall(r"<td[^>]*>(.*?)</td>", rows[1]) == [".", ".", "2*", ".", "1", ".", ".", ".", "."]
-    assert '<td class="best">2*</td>' in rows[1]
-    assert re.findall(r"<td[^>]*>(.*?)</td>", rows[0]) == ["."] * 9
+    assert head == ["UTC", "40m", "20m"]  # all-dot columns and rows are summed up instead
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", re.search(r"<tbody>(.*?)</tbody>", table, re.S).group(1), re.S)
+    assert len(rows) == 1
+    # Each hour links to its forecast, keeping the ranking; the hour on show is marked.
+    assert '<tr class="current"><th scope="row"><a href="/?hour=15&amp;rank=busiest" aria-current="true">15</a></th>' in table
+    assert re.findall(r"<td[^>]*>(.*?)</td>", rows[0]) == ["2*", "1"]
+    assert '<td class="best">2*</td>' in rows[0]
     main(["overview", "--db", str(db)])
     out = capsys.readouterr().out.splitlines()
     assert out[1] in page  # the key
-    assert out[-1] == "Hours with no listening: 00-02, 04-14, 16-23" and out[-1] in page
+    assert out[-3:] == ["Too little data on every band: 03", "Hours with no listening: 00-02, 04-14, 16-23",
+                        "Too little data at every hour: 160m 80m 30m 17m 15m 12m 10m"]
+    for line in out[-3:]:
+        assert line in page
+
+
+def test_overview_dots_are_muted_and_other_hours_unmarked(client, db, five_days):
+    conn = open_db(db)  # 40m at 14 UTC on 5 days: a 14 row, where 20m is "."
+    save_decodes(conn, [Decode(datetime(2026, 10, 25 - n, 14, 0, tzinfo=UTC), 7_074_000, False, -5, "N0CALL/P",
+                               None, "CQ N0CALL/P") for n in range(5)])
+    conn.close()
+    _, page = get(client, query_string={"hour": "14"})
+    assert '<td class="thin">.</td>' in page
+    assert '<tr><th scope="row"><a href="/?hour=15&amp;rank=busiest">15</a></th>' in page  # not current
+    assert '<tr class="current"><th scope="row"><a href="/?hour=14&amp;rank=busiest" aria-current="true">14</a>' in page
+
+
+def test_overview_comes_before_farthest_contacts(client, db, five_days, env):
+    env.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 14_074_000, "JJ01")])
+    conn.close()
+    _, page = get(client)
+    assert page.index("Best bet (busiest)") < page.index("24-hour overview") < page.index("Farthest contact ever")
+
+
+def test_tables_scroll_in_their_own_box(client, db, five_days, env):
+    env.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 14_074_000, "JJ01")])
+    conn.close()
+    _, page = get(client)
+    tables = re.findall(r"(.{40})<table", page, re.S)
+    assert len(tables) == 3 and all('<div class="scroll">' in before for before in tables)
+    css = client.get("/static/style.css", base_url=BASE).get_data(as_text=True)
+    assert ".scroll { overflow-x: auto;" in css and "white-space: nowrap" in css
 
 
 def test_overview_follows_best_bet_by(client, db, five_days):
@@ -211,7 +245,7 @@ def test_overview_follows_best_bet_by(client, db, five_days):
     conn.close()
     _, page = get(client, query_string={"rank": "contacts"})
     assert "* = best bet (most contacts)" in page
-    assert '<a href="/?hour=15&amp;rank=contacts">15</a>' in page
+    assert '<a href="/?hour=15&amp;rank=contacts" aria-current="true">15</a>' in page
 
 
 def test_no_overview_without_data(client, db):

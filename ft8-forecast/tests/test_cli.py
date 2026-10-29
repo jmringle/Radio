@@ -346,26 +346,41 @@ def overview_db(setup, db):
 def test_overview_prints_an_hour_by_band_grid(overview_db, db, capsys):
     code, out, err = overview_run(capsys, db)
     assert (code, err) == (0, "")
-    lines = out.splitlines()
-    assert lines[:4] == ["24-hour overview (your last 30 days, through 2026-10-25 15:30 UTC)",
-                         "Typical-day stations; * = best bet (busiest); . = too little data", "",
-                         "UTC  160m    80m    40m    30m    20m    17m    15m    12m    10m"]
-    assert lines[4].split() == ["03", *["."] * 9]  # listened, but too little data everywhere: no star
-    assert lines[5].split() == ["15", ".", ".", "2*", ".", "1", ".", ".", ".", "."]
-    assert lines[5].index("2*") + 1 == lines[3].index("40m") + 3  # numbers line up under their band
-    assert lines[6:] == ["", "Hours with no listening: 00-02, 04-14, 16-23"]
+    assert out.splitlines() == [
+        "24-hour overview (your last 30 days, through 2026-10-25 15:30 UTC)",
+        "Typical-day stations; * = best bet (busiest); . = too little data", "",
+        "UTC   40m    20m",
+        "15      2*     1", "",
+        # Rows and columns that would be all dots are summed up instead.
+        "Too little data on every band: 03",
+        "Hours with no listening: 00-02, 04-14, 16-23",
+        "Too little data at every hour: 160m 80m 30m 17m 15m 12m 10m"]
 
 
-def test_overview_rank_contacts_moves_the_star(overview_db, db, capsys):
-    lines = overview_run(capsys, db, "--rank", "contacts")[1].splitlines()
-    assert lines[1] == "Typical-day stations; * = best bet (most contacts); . = too little data"
-    assert lines[5].split() == ["15", ".", ".", "2", ".", "1*", ".", ".", ".", "."]
+def test_overview_keeps_a_dot_for_a_band_with_data_at_other_hours(overview_db, db, capsys):
+    conn = open_db(db)  # 20m at 03 UTC on 5 days: 03 gets a row, and 40m shows "." there
+    save_decodes(conn, [Decode(datetime(2026, 10, 24 - n, 3, 0, tzinfo=UTC), 14_074_000, False, -5, "N0CALL", None,
+                               "CQ N0CALL") for n in range(4)])
+    conn.close()
+    lines = overview_run(capsys, db)[1].splitlines()
+    assert lines[3:6] == ["UTC   40m    20m", "03      .      1*", "15      2*     1"]
+    assert not any(line.startswith("Too little data on every band") for line in lines)
+
+
+def test_overview_with_no_band_ready_at_any_hour(setup, db, capsys):
+    conn = open_db(db)
+    conn.execute("DELETE FROM decodes WHERE time < '2026-10-23'")  # 20m now has 3 days
+    conn.commit()
+    conn.close()
+    lines = overview_run(capsys, db)[1].splitlines()
+    assert lines[2:] == ["", "No band has 5 days of listening at any hour yet.", "",
+                         "Hours with no listening: 00-14, 16-23"]
 
 
 def test_overview_matches_the_forecast_for_each_hour(overview_db, db, capsys):
-    grid = overview_run(capsys, db)[1].splitlines()[5].split()
+    grid = overview_run(capsys, db)[1].splitlines()[4].split()
     forecast_lines = forecast_run(capsys, db, "--hour", "15")[1].splitlines()
-    assert grid[3] == row(forecast_lines, "40m")[1] + "*" and grid[5] == row(forecast_lines, "20m")[1]
+    assert grid[1] == row(forecast_lines, "40m")[1] + "*" and grid[2] == row(forecast_lines, "20m")[1]
     assert forecast_lines[2].startswith("Best bet (busiest): 40m")
 
 
