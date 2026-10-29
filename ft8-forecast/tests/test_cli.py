@@ -197,14 +197,14 @@ def test_forecast_prints_the_table(setup, db, capsys):
     lines = out.splitlines()
     assert lines[0] == "FT8 forecast for 15:00-15:59 UTC (your data: 30 days through 2026-10-25 15:30 UTC)"
     assert lines[2] == "      ----- Stations heard -----"
-    assert lines[3] == "Band   Typical day  30-day total  Median SNR          Farthest  30-day contacts"
+    assert lines[3] == "Band   Typical day  30-day total  Median SNR    Farthest heard  30-day contacts"
     assert "20m              1             5      -12 dB      69 mi (JJ01)                0" in lines
     assert "40m   not enough data (0 days listening; need 5)" in lines
     # The table, then the note on the two station columns, last.
     assert lines[-5:] == ["10m   not enough data (0 days listening; need 5)", "",
                           "Typical day: stations heard on the median day you listened at this hour.",
                           "30-day total: different stations heard over the whole 30 days.",
-                          "Farthest: a station heard with the same grid square on 2+ days at this hour; "
+                          "Farthest heard: a station heard with the same grid square on 2+ days at this hour; "
                           "the square is theirs."]
     assert "Note:" not in out and "MY_GRID" not in out
 
@@ -232,7 +232,7 @@ def test_forecast_all_hours(setup, db, capsys):
     assert lines[0] == "FT8 forecast for all hours (00:00-23:59 UTC) (your data: 30 days through 2026-10-25 15:30 UTC)"
     assert any(line.startswith("20m ") and line.split()[2] == "6" for line in lines)  # 30-day total
     assert "Typical day: stations heard on the median day you listened, at any hour." in lines
-    assert "Farthest: a station heard with the same grid square on 2+ days, at any hour; the square is theirs." in lines
+    assert "Farthest heard: a station heard with the same grid square on 2+ days, at any hour; the square is theirs." in lines
 
 
 def test_one_day_is_singular(setup, db, capsys):
@@ -248,14 +248,14 @@ def test_one_day_is_singular(setup, db, capsys):
 def test_without_my_grid_farthest_is_blank_and_explained(setup, db, capsys):
     out = forecast_run(capsys, db)[1]
     assert "20m              1             5      -12 dB                 -                0" in out
-    assert "Farthest needs your grid: set MY_GRID in .env (see .env.example)." in out
+    assert "Farthest heard needs your grid: set MY_GRID in .env (see .env.example)." in out
 
 
 @pytest.mark.parametrize("env", ["MY_GRID=\n", "# MY_GRID=JJ00\n", "OTHER=1\n"])
 def test_empty_or_commented_my_grid_counts_as_unset(setup, db, capsys, env):
     setup.write_text(env)
     code, out, _ = forecast_run(capsys, db)
-    assert code == 0 and "Farthest needs your grid" in out
+    assert code == 0 and "Farthest heard needs your grid" in out
 
 
 @pytest.mark.parametrize("env", ['MY_GRID="JJ00"\n', "MY_GRID = jj00  # home\n", "MY_GRID=JJ00ab\n"])

@@ -26,7 +26,7 @@ def station_notes(hour: int | None) -> tuple[str, ...]:
     when = "at this hour" if hour is not None else "at any hour"
     return (f"Typical day: stations heard on the median day you listened{'' if hour is not None else ','} {when}.",
             f"30-day total: different stations heard over the whole {forecast.WINDOW_DAYS} days.",
-            f"Farthest: a station heard with the same grid square on {forecast.FARTHEST_MIN_DAYS}+ days"
+            f"Farthest heard: a station heard with the same grid square on {forecast.FARTHEST_MIN_DAYS}+ days"
             f"{' ' if hour is not None else ', '}{when}; the square is theirs.")
 
 
@@ -146,7 +146,7 @@ def _forecast(hour: int | str | None, db: Path) -> int:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
     print()
     print(f"{'':6}{' Stations heard ':-^26}")  # spans the two station columns below
-    print(f"{'Band':<5} {'Typical day':>12} {'30-day total':>13} {'Median SNR':>11} {'Farthest':>17} {'30-day contacts':>16}")
+    print(f"{'Band':<5} {'Typical day':>12} {'30-day total':>13} {'Median SNR':>11} {'Farthest heard':>17} {'30-day contacts':>16}")
     for band in result.bands:
         if not band.enough_data:
             days = band.listening_days
@@ -159,7 +159,7 @@ def _forecast(hour: int | str | None, db: Path) -> int:
         print(f"{band.band:<5} {per_day:>12} {band.stations:>13,} {snr:>11} {far:>17} {band.contacts:>16,}")
     print("", *station_notes(hour), sep="\n")
     if my_grid is None:
-        print(f"\nFarthest needs your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
+        print(f"\nFarthest heard needs your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
     return OK
 
 
