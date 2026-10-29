@@ -286,3 +286,80 @@ def test_enough_data_needs_min_days(conn, days, enough):
 def test_every_band_is_listed_low_to_high_even_with_no_data(conn):
     save_decodes(conn, [rx()])
     assert [b.band for b in forecast.compute(conn, 15, None).bands] == [name for name, _, _ in BANDS]
+
+
+
+# --- farthest contact (ADIF): column, by day, ever ---
+
+def contact(when=NEWEST, grid="JJ01", freq=TWENTY, call="N0CALL"):
+    return Contact(call, when, freq, grid)
+
+
+def test_farthest_contact_is_the_maximum_in_the_window_at_this_hour(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [
+        contact(grid="JJ01"), contact(days_back(1), grid="JJ10", call="N0CALL/P"),
+        contact(NEWEST.replace(hour=14), grid="JJ20", call="N0CALL/M"),  # other hour
+        contact(NEWEST - timedelta(days=31), grid="JJ30", call="N0CALL/QRP"),  # before the window
+        contact(grid=None, call="N0CALL/B"),  # no grid logged
+    ])
+    stats = band(conn, my_grid="JJ00")
+    assert (stats.contact_miles, stats.contact_grid) == (138, "JJ10")
+
+
+def test_farthest_contact_needs_my_grid(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [contact()])
+    assert band(conn).contact_miles is None
+    assert band(conn, my_grid="JJ00").contact_miles == 69
+
+
+def test_farthest_contact_tie_goes_to_the_earlier(conn):
+    # JJ01 and JJ0-1 (JI09) are both 69 mi from JJ00: the earlier contact's square is shown.
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [contact(grid="JJ01"), contact(days_back(1), grid="JI09", call="N0CALL/P")])
+    assert band(conn, my_grid="JJ00").contact_grid == "JI09"
+
+
+def test_farthest_contact_ignores_frequencies_without_general_data(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [contact(grid="JJ01"), contact(grid="JJ10", freq=14_010_000, call="N0CALL/P")])
+    assert band(conn, my_grid="JJ00").contact_grid == "JJ01"
+
+
+def test_farthest_contact_by_day_ignores_the_hour_newest_day_first(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [
+        contact(NEWEST.replace(hour=3), grid="JJ01"),
+        contact(NEWEST.replace(hour=10), grid="JJ10", freq=7_074_000, call="N0CALL/P"),  # farther, other band
+        contact(days_back(2), grid=None, call="N0CALL/M"),  # a day with no grid logged
+        contact(NEWEST - timedelta(days=31), grid="JJ30", call="N0CALL/QRP"),  # before the window
+    ])
+    result = forecast.compute(conn, 15, "JJ00")
+    assert result.daily == [forecast.Farthest("2026-10-25", "40m", 138, "JJ10"),
+                            forecast.Farthest("2026-10-23", None, None, None)]
+
+
+def test_farthest_contact_by_day_needs_my_grid(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [contact()])
+    assert forecast.compute(conn, 15, None).daily == []
+
+
+def test_farthest_contact_ever_ignores_window_and_hour(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [
+        contact(grid="JJ01"),
+        contact(NEWEST - timedelta(days=200, hours=12), grid="JJ30", call="N0CALL/P"),
+        contact(NEWEST - timedelta(days=100), grid="JJ30", call="N0CALL/M"),  # a tie, later
+        contact(NEWEST - timedelta(days=50), grid="RR99", freq=14_010_000, call="N0CALL/A"),  # no General data
+    ])
+    assert forecast.compute(conn, 15, "JJ00").best_ever == forecast.Farthest("2026-04-08", "20m", 415, "JJ30")
+
+
+def test_no_farthest_contact_ever_without_a_gridded_contact_or_my_grid(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [contact(grid=None)])
+    assert forecast.compute(conn, 15, "JJ00").best_ever is None
+    save_contacts(conn, [contact(grid="JJ01", call="N0CALL/P")])
+    assert forecast.compute(conn, 15, None).best_ever is None

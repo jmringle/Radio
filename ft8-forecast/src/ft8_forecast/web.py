@@ -141,5 +141,5 @@ def _render(db: Path, hour: int | str | None, imported: dict | None = None) -> s
         stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
         env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS, min_days=forecast.MIN_DAYS,
         show_problems=cli.SHOW_PROBLEMS, station_notes=cli.station_notes(hour), title=cli.hour_title(hour),
-        all_hours=cli.ALL_HOURS,
+        all_hours=cli.ALL_HOURS, distance=cli.distance,
     )

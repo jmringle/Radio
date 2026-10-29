@@ -49,6 +49,8 @@ class BandStats:
     median_snr: float | None
     farthest_miles: int | None  # None without MY_GRID or without a station heard on FARTHEST_MIN_DAYS days
     farthest_grid: str | None  # the 4-character square farthest_miles is measured to
+    contact_miles: int | None  # farthest logged contact with a grid; None without MY_GRID or one
+    contact_grid: str | None
     contacts: int  # completed contacts from the ADIF log
 
     @property
@@ -57,10 +59,21 @@ class BandStats:
 
 
 @dataclass(frozen=True)
+class Farthest:
+    """A farthest logged contact. On a day whose contacts have no grid, band/miles/grid are None."""
+    day: str  # UTC date, YYYY-MM-DD
+    band: str | None
+    miles: int | None
+    grid: str | None  # the other station's 4-character square
+
+
+@dataclass(frozen=True)
 class Forecast:
     hour: int | None  # None: all hours
     newest: datetime  # newest imported decode: the window ends here
     bands: list[BandStats]  # every band in BANDS, low to high
+    daily: list[Farthest]  # farthest contact per day with contacts in the window, newest first; [] without MY_GRID
+    best_ever: Farthest | None  # farthest of every imported contact; None without MY_GRID or a gridded contact
 
 
 def parse_grid(text: str) -> str:
@@ -137,9 +150,25 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None) -> 
             farthest[band] = max(qualified)
 
     contacts: dict[str, int] = {}
-    for (freq_hz,) in conn.execute(f"SELECT freq_hz FROM contacts WHERE {where}", window):
-        if band := band_for(freq_hz):
-            contacts[band] = contacts.get(band, 0) + 1
+    contact_far: dict[str, Farthest] = {}  # the column: window and hour
+    by_day: dict[str, Farthest] = {}  # the daily list: window, any hour
+    best_ever = None  # every contact
+    # No 2-day rule here: a contact is a completed exchange, and its grid came from it.
+    # Oldest first, so a tie keeps the earlier contact.
+    for time, freq_hz, grid in conn.execute("SELECT time, freq_hz, grid FROM contacts ORDER BY time"):
+        band = band_for(freq_hz)
+        if band is None:
+            continue
+        day = time[:10]
+        far = Farthest(day, band, miles_between(my_grid, grid), grid) if grid and my_grid else None
+        best_ever = _farther(best_ever, far)
+        if not window[0] < time <= window[1]:
+            continue
+        by_day[day] = _farther(by_day.get(day, Farthest(day, None, None, None)), far)
+        if hour is not None and time[11:13] != f"{hour:02d}":
+            continue
+        contacts[band] = contacts.get(band, 0) + 1
+        contact_far[band] = _farther(contact_far.get(band), far)
 
     bands = []
     for name, _, _ in BANDS:
@@ -152,6 +181,16 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None) -> 
             median_snr=statistics.median(snrs[name]) if name in snrs else None,
             farthest_miles=farthest[name][0] if name in farthest else None,
             farthest_grid=farthest[name][1] if name in farthest else None,
+            contact_miles=contact_far[name].miles if contact_far.get(name) else None,
+            contact_grid=contact_far[name].grid if contact_far.get(name) else None,
             contacts=contacts.get(name, 0),
         ))
-    return Forecast(hour, newest, bands)
+    daily = sorted(by_day.values(), key=lambda far: far.day, reverse=True) if my_grid else []
+    return Forecast(hour, newest, bands, daily, best_ever)
+
+
+def _farther(best: Farthest | None, new: Farthest | None) -> Farthest | None:
+    """The farther of two; a tie keeps `best`, so with contacts in time order the earlier wins."""
+    if new is None or (best is not None and best.miles is not None and new.miles <= best.miles):
+        return best
+    return new

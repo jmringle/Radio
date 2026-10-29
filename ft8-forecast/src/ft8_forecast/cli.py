@@ -22,12 +22,20 @@ ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
 
 def station_notes(hour: int | None) -> tuple[str, ...]:
     """Under the forecast table, here and on the web page: the two station columns are easy
-    to mix up, and Farthest leaves stations out on purpose. hour None: all hours."""
+    to mix up, Farthest heard leaves stations out on purpose, and Farthest contact is
+    worked, not heard. hour None: all hours."""
     when = "at this hour" if hour is not None else "at any hour"
     return (f"Typical day: stations heard on the median day you listened{'' if hour is not None else ','} {when}.",
             f"30-day total: different stations heard over the whole {forecast.WINDOW_DAYS} days.",
             f"Farthest heard: a station heard with the same grid square on {forecast.FARTHEST_MIN_DAYS}+ days"
+            f"{' ' if hour is not None else ', '}{when}; the square is theirs.",
+            f"Farthest contact: your farthest logged contact with a grid square"
             f"{' ' if hour is not None else ', '}{when}; the square is theirs.")
+
+
+def distance(miles: int | None, grid: str | None) -> str:
+    """A farthest contact as '1,234 mi (FN31)', or '-' for none; the page uses it too."""
+    return "-" if miles is None else f"{miles:,} mi ({grid})"
 
 
 def hour_title(hour: int | None) -> str:
@@ -146,7 +154,8 @@ def _forecast(hour: int | str | None, db: Path) -> int:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
     print()
     print(f"{'':6}{' Stations heard ':-^26}")  # spans the two station columns below
-    print(f"{'Band':<5} {'Typical day':>12} {'30-day total':>13} {'Median SNR':>11} {'Farthest heard':>17} {'30-day contacts':>16}")
+    print(f"{'Band':<5} {'Typical day':>12} {'30-day total':>13} {'Median SNR':>11} {'Farthest heard':>17} "
+          f"{'Farthest contact':>17} {'30-day contacts':>16}")
     for band in result.bands:
         if not band.enough_data:
             days = band.listening_days
@@ -155,11 +164,20 @@ def _forecast(hour: int | str | None, db: Path) -> int:
             continue
         snr = "-" if band.median_snr is None else f"{band.median_snr:.0f} dB"
         far = "-" if band.farthest_miles is None else f"{band.farthest_miles:,} mi ({band.farthest_grid})"
+        worked = distance(band.contact_miles, band.contact_grid)
         per_day = f"{band.stations_per_day:,.0f}"
-        print(f"{band.band:<5} {per_day:>12} {band.stations:>13,} {snr:>11} {far:>17} {band.contacts:>16,}")
+        print(f"{band.band:<5} {per_day:>12} {band.stations:>13,} {snr:>11} {far:>17} {worked:>17} {band.contacts:>16,}")
     print("", *station_notes(hour), sep="\n")
+    if result.best_ever:
+        best = result.best_ever
+        print(f"\nFarthest contact ever: {distance(best.miles, best.grid)} on {best.band}, {best.day}")
+    if result.daily:
+        print(f"\nFarthest contact by day ({forecast.WINDOW_DAYS} days, any hour):")
+        print(f"{'Date':<10}  {'Band':<5} {'Farthest':>17}")
+        for far in result.daily:
+            print(f"{far.day:<10}  {far.band or '-':<5} {distance(far.miles, far.grid):>17}")
     if my_grid is None:
-        print(f"\nFarthest heard needs your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
+        print(f"\nFarthest heard and contacts need your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
     return OK
 
 
