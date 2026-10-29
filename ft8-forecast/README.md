@@ -81,11 +81,11 @@ The file type is detected from its content, not its name. Import as often as you
 
 ```
 $ ft8cast forecast --hour 16
-FT8 forecast for 16:00-16:59 UTC (your last 30 days, through 2026-10-25 19:48 UTC, 4 days ago)
+FT8 forecast for 16:00-16:59 UTC, 12 pm EDT (your last 30 days, through 2026-10-25 19:48 UTC, 4 days ago)
 
 Best bet (busiest): 20m - about 50 stations on a typical day; worked out to 1,739 mi
 Next: 15m - about 45 stations on a typical day
-20m is busiest at 15 UTC: about 96 stations on a typical day
+20m is busiest at 15 UTC (11 am EDT): about 96 stations on a typical day
 Farthest contact at this hour: 5,306 mi on 10m
 
 Band  Typical day  Total heard  Signal  Heard out to  Worked out to  Contacts
@@ -115,27 +115,29 @@ Date        Band  Farthest
 
 The daily list has a row for each day with contacts in the 30 days, newest first; `-` means none of that day's contacts logged a grid. It ignores `--hour`, since each row is a whole day. The all-time line counts every imported contact. Without `MY_GRID` in `.env`, the distances are `-` and these two parts are left out.
 
+**Local times** (added 2026-10-29) appear next to UTC: in the forecast heading, the summary's peak line, the overview's Local column and hour lines ("00-09 UTC (8 pm-5 am EDT)"), and the page's hour list ("17:00 (1 pm, now)"). They come from this computer's time zone at today's offset, so after a daylight-saving change the same UTC hour shows the new local time; the data stays in UTC, as WSJT-X logs it. On a computer set to UTC they're left out.
+
 Without `--hour` it uses the current UTC hour; `--hour all` counts the whole day instead of one hour (on the page: "All hours" in the hour list). The 30 days end at your newest imported decode or contact, whichever is later, not today: an older copy of `ALL.TXT` still gives a full window, and a fresher `wsjtx_log.adi` still counts (a contact dated in the future, from a wrong clock on the radio computer, is ignored for this); if that's more than 7 days ago, a note says to copy a fresh one over.
 
 ```
 $ ft8cast overview
 24-hour overview (your last 30 days, through 2026-10-25 19:48 UTC, 4 days ago)
-Typical-day stations; * = best bet (busiest); . = too little data
+Typical-day stations; * = best bet (busiest); . = too little data; Local = EDT
 
-UTC   40m    20m    15m    10m
-10     32*     .      .      .
-11    109*     .      .      .
-12    144*    24      3      .
-13     90*    25     18      .
-14     31     53*    37      9
-15     24     96*    30     12
-16      5     50*    45     18
-17      5     65*    46     17
-18      4     70*    43     16
-19      .     75*     .     18
+UTC Local   40m    20m    15m    10m
+10   6 am    32*     .      .      .
+11   7 am   109*     .      .      .
+12   8 am   144*    24      3      .
+13   9 am    90*    25     18      .
+14  10 am    31     53*    37      9
+15  11 am    24     96*    30     12
+16  12 pm     5     50*    45     18
+17   1 pm     5     65*    46     17
+18   2 pm     4     70*    43     16
+19   3 pm     .     75*     .     18
 
-Too little data on every band: 20-23
-Hours with no listening: 00-09
+Too little data on every band: 20-23 UTC (4 pm-7 pm EDT)
+Hours with no listening: 00-09 UTC (8 pm-5 am EDT)
 Too little data at every hour: 160m 80m 30m 17m 12m
 ```
 

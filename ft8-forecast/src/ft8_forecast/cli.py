@@ -64,7 +64,8 @@ def _stations(per_day: float) -> str:
     return f"about {busy} station{'' if busy == '1' else 's'} on a typical day"
 
 
-def summary_lines(result: forecast.Forecast, by: str, hours: list[forecast.Forecast] | None) -> list[str]:
+def summary_lines(result: forecast.Forecast, by: str, hours: list[forecast.Forecast] | None,
+                  now: datetime) -> list[str]:
     """Plain-English lines under the best bet, here and on the web page: the runner-up, when the
     best band peaks (from `hours`, compute() for 0-23; skipped for all hours) and the farthest
     contact. Only numbers the table and overview already show; nothing without a best bet."""
@@ -87,9 +88,9 @@ def summary_lines(result: forecast.Forecast, by: str, hours: list[forecast.Forec
             lines.append(f"This is {best.band}'s busiest hour" if by == "busiest"
                          else f"This is the hour you've made the most {best.band} contacts")
         elif by == "busiest":
-            lines.append(f"{best.band} is busiest at {peak:02d} UTC: {_stations(value)}")
+            lines.append(f"{best.band} is busiest at {_utc_and_local(peak, now)}: {_stations(value)}")
         else:
-            lines.append(f"You've made the most {best.band} contacts at {peak:02d} UTC: {value:,}")
+            lines.append(f"You've made the most {best.band} contacts at {_utc_and_local(peak, now)}: {value:,}")
     worked = [band for band in result.bands if band.contact_miles is not None]
     if worked:
         far = max(worked, key=lambda band: band.contact_miles)  # a tie: the lower band
@@ -112,8 +113,10 @@ def thin_line(result: forecast.Forecast) -> str | None:
     return f"Too little data{when} (need {forecast.MIN_DAYS} days): {', '.join(parts)}"
 
 
-def overview_key(by: str) -> str:
-    return f"Typical-day stations; * = best bet ({RANK_LABELS[by]}); . = too little data"
+def overview_key(by: str, now: datetime) -> str:
+    local = local_hour(0, now)
+    zone = f"; Local = {local.rsplit(' ', 1)[1]}" if local else ""
+    return f"Typical-day stations; * = best bet ({RANK_LABELS[by]}); . = too little data{zone}"
 
 
 @dataclass(frozen=True)
@@ -126,13 +129,13 @@ class Overview:
     silent_hours: list[int]  # no listening at all
     hidden_bands: list[str]  # too little data at every hour
 
-    def notes(self) -> list[str]:
-        """The lines under the grid. With no rows, only the no-listening line: the
-        'no band has 5 days' message covers the rest."""
-        silent = [f"Hours with no listening: {hour_ranges(self.silent_hours)}"] if self.silent_hours else []
+    def notes(self, now: datetime) -> list[str]:
+        """The lines under the grid, hours with local times too. With no rows, only the
+        no-listening line: the 'no band has 5 days' message covers the rest."""
+        silent = [f"Hours with no listening: {hour_ranges(self.silent_hours, now)}"] if self.silent_hours else []
         if not self.rows:
             return silent
-        thin = [f"Too little data on every band: {hour_ranges(self.thin_hours)}"] if self.thin_hours else []
+        thin = [f"Too little data on every band: {hour_ranges(self.thin_hours, now)}"] if self.thin_hours else []
         hidden = [f"Too little data at every hour: {' '.join(self.hidden_bands)}"] if self.hidden_bands else []
         return thin + silent + hidden
 
@@ -159,15 +162,26 @@ def overview(results: list[forecast.Forecast], by: str) -> Overview:
                     [name for i, name in enumerate(names) if i not in shown])
 
 
-def hour_ranges(hours: list[int]) -> str:
-    """[0, 1, 2, 5] -> '00-02, 05'."""
+def hour_ranges(hours: list[int], now: datetime | None = None) -> str:
+    """[0, 1, 2, 5] -> '00-02, 05'. With `now`, each range also gets local times at today's
+    offset: '00-02 UTC (8 pm-10 pm EDT), 05 UTC (1 am EDT)' (none on a UTC computer)."""
     runs: list[list[int]] = []
     for hour in hours:
         if runs and hour == runs[-1][-1] + 1:
             runs[-1].append(hour)
         else:
             runs.append([hour])
-    return ", ".join(f"{run[0]:02d}" if len(run) == 1 else f"{run[0]:02d}-{run[-1]:02d}" for run in runs)
+    def utc(run: list[int]) -> str:
+        return f"{run[0]:02d}" if len(run) == 1 else f"{run[0]:02d}-{run[-1]:02d}"
+
+    if now is None or local_hour(0, now) is None:
+        return ", ".join(utc(run) for run in runs)
+    parts = []
+    for run in runs:
+        start = local_hour(run[0], now)
+        local = start if len(run) == 1 else f"{local_short(run[0], now)}-{local_hour(run[-1], now)}"
+        parts.append(f"{utc(run)} UTC ({local})")
+    return ", ".join(parts)
 
 
 def data_age(newest: datetime, now: datetime) -> str:
@@ -176,8 +190,32 @@ def data_age(newest: datetime, now: datetime) -> str:
     return "today" if days == 0 else "yesterday" if days == 1 else f"{days} days ago"
 
 
-def hour_title(hour: int | None) -> str:
-    return "all hours (00:00-23:59 UTC)" if hour is None else f"{hour:02d}:00-{hour:02d}:59 UTC"
+def local_hour(hour: int, now: datetime) -> str | None:
+    """A UTC hour as this computer's local time, using today's offset: '1 pm EDT'. None when
+    the computer is on UTC (it would only repeat the UTC hour)."""
+    local = now.astimezone(UTC).replace(hour=hour, minute=0, second=0, microsecond=0).astimezone()
+    if not local.utcoffset():
+        return None
+    # Not strftime's %-I: Windows doesn't have it.
+    return f"{local.hour % 12 or 12} {'am' if local.hour < 12 else 'pm'} {local.tzname()}"
+
+
+def local_short(hour: int, now: datetime) -> str | None:
+    """local_hour without the zone ('1 pm'), for lists and the overview's Local column."""
+    local = local_hour(hour, now)
+    return local and local.rsplit(" ", 1)[0]
+
+
+def _utc_and_local(hour: int, now: datetime) -> str:
+    local = local_hour(hour, now)
+    return f"{hour:02d} UTC" + (f" ({local})" if local else "")
+
+
+def hour_title(hour: int | None, now: datetime) -> str:
+    if hour is None:
+        return "all hours (00:00-23:59 UTC)"
+    local = local_hour(hour, now)
+    return f"{hour:02d}:00-{hour:02d}:59 UTC" + (f", {local}" if local else "")
 
 # Exit codes (README): 0 imported, 2 bad input (argparse uses 2 for usage errors too).
 OK, BAD_INPUT = 0, 2
@@ -383,12 +421,12 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
         return _error("no ALL.TXT data imported yet; run `ft8cast import <ALL.TXT>` first")
 
     newest = result.newest.strftime("%Y-%m-%d %H:%M")
-    print(f"FT8 forecast for {hour_title(hour)} (your last {forecast.WINDOW_DAYS} days, "
+    print(f"FT8 forecast for {hour_title(hour, now)} (your last {forecast.WINDOW_DAYS} days, "
           f"through {newest} UTC, {data_age(result.newest, now)})")
     age = (now.replace(tzinfo=None) - result.newest).days
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
-    print("", best_bet_line(result, by), *summary_lines(result, by, hours), sep="\n")
+    print("", best_bet_line(result, by), *summary_lines(result, by, hours, now), sep="\n")
     ranked = forecast.rank(result.bands, by)
     if ranked:
         print()
@@ -442,15 +480,17 @@ def _overview(by: str, db: Path) -> int:
     age = (now.replace(tzinfo=None) - newest).days
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
-    print(overview_key(by), "", sep="\n")
+    print(overview_key(by, now), "", sep="\n")
+    local = local_hour(0, now) is not None  # a Local column, unless this computer is on UTC
     grid = overview(results, by)
     if grid.rows:
-        print(("UTC" + "".join(f" {name:>5} " for name in grid.bands)).rstrip())
+        print(("UTC" + (" Local" if local else "") + "".join(f" {name:>5} " for name in grid.bands)).rstrip())
         for hour, cells in grid.rows:
-            print((f"{hour:02d} " + "".join(f" {text:>5}{'*' if best else ' '}" for text, best in cells)).rstrip())
+            prefix = f"{hour:02d}  {local_short(hour, now):>5}" if local else f"{hour:02d} "
+            print((prefix + "".join(f" {text:>5}{'*' if best else ' '}" for text, best in cells)).rstrip())
     else:
         print(OVERVIEW_EMPTY)
-    if notes := grid.notes():
+    if notes := grid.notes(now):
         print("", *notes, sep="\n")
     return OK
 
