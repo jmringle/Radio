@@ -86,8 +86,9 @@
           <td>{{ "{:,.0f}".format(band.stations_per_day) }}</td>
           <td>{{ "{:,}".format(band.stations) }}</td>
           <td>{{ "-" if band.median_snr is none else "%.0f" % band.median_snr }}</td>
-          <td>{{ distance(band.farthest_miles, band.farthest_grid) }}</td>
-          <td>{{ distance(band.contact_miles, band.contact_grid) }}</td>
+          {# The grid on its own line keeps the table narrow enough not to scroll on a computer. #}
+          <td>{{ distance(band.farthest_miles) }}{% if band.farthest_grid %}<br><span class="grid">{{ band.farthest_grid }}</span>{% endif %}</td>
+          <td>{{ distance(band.contact_miles) }}{% if band.contact_grid %}<br><span class="grid">{{ band.contact_grid }}</span>{% endif %}</td>
           <td>{{ "{:,}".format(band.contacts) }}</td>
           <td>{{ answered(band) }}</td>
         </tr>

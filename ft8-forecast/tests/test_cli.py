@@ -307,8 +307,8 @@ def forecast_run(capsys, db, *args):
     return code, out, err
 
 
-HEADER = ["      Stations  Stations  Signal   Farthest   Farthest  Contacts   Answered",
-          "Band   per day   30 days  dB SNR      heard     worked   30 days   of calls"]
+HEADER = ["      Stations  Stations  Signal   Farthest   Farthest  Contacts      Answered",
+          "Band   per day   30 days  dB SNR      heard     worked   30 days      of calls"]
 LEGEND = ["Stations per day: the median (middle value) over the days you listened.",
           "Signal: median signal-to-noise ratio; higher is stronger.",
           "Farthest heard: same station and grid on 2+ days.",
@@ -345,6 +345,21 @@ def test_forecast_shows_how_many_calls_were_answered(setup, db, capsys):
                         Decode(cq + timedelta(seconds=30), 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00")])
     conn.close()
     assert row(forecast_run(capsys, db)[1].splitlines(), "20m")[-3:] == ["1", "of", "2"]
+
+
+def test_four_digit_call_counts_still_line_up(setup, db, capsys):
+    """Real all-hours data reaches "269 of 1,959" (2026-10-29), which once ran into Contacts."""
+    conn = open_db(db)
+    start = datetime(2026, 10, 23, 0, 0, tzinfo=UTC)
+    cqs = [start + timedelta(seconds=30 * n) for n in range(1959)]
+    save_decodes(conn, [Decode(when, 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00") for when in cqs])
+    save_decodes(conn, [Decode(when + timedelta(seconds=15), 14_074_000, False, -9, "N1CALL", "FN31", "N0CALL/P N1CALL FN31")
+                        for when in cqs[:269]])
+    conn.close()
+    lines = forecast_run(capsys, db, "--hour", "all")[1].splitlines()
+    assert row(lines, "20m")[-3:] == ["269", "of", "1,959"]  # row() also checks it lines up with the header
+    assert "  269 of 1,959" in next(line for line in lines if line.startswith("20m "))  # not run into Contacts
+    assert max(len(line) for line in lines[lines.index(HEADER[0]):lines.index(HEADER[0]) + 3]) <= 80
 
 
 def test_forecast_says_which_bands_got_busier_or_quieter(setup, db, capsys):

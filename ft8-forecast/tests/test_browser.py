@@ -13,8 +13,8 @@ import pytest
 from playwright.sync_api import expect
 from werkzeug.serving import make_server
 
-from ft8_forecast import Decode, cli, web
-from ft8_forecast.store import open_db, save_decodes
+from ft8_forecast import Contact, Decode, cli, web
+from ft8_forecast.store import open_db, save_contacts, save_decodes
 
 NOW = datetime(2026, 10, 27, 15, 5, tzinfo=UTC)
 HINT = "Scroll the table sideways for more"
@@ -22,8 +22,9 @@ HINT = "Scroll the table sideways for more"
 
 @pytest.fixture
 def server(tmp_path, monkeypatch):
-    """The real app on a free 127.0.0.1 port; yields its URL. 5 days of 20 m at 15 UTC, with the
-    widest cells real data gives: a 5-digit distance with its grid and 3-digit Answered."""
+    """The real app on a free 127.0.0.1 port; yields its URL. 5 days of 20 m at 15 UTC, and the
+    widest cells the author's real data gives (all hours, 2026-10-29): 5-digit distances with
+    grids in both Farthest columns, 3-digit contacts and "269 of 1,959" Answered."""
     monkeypatch.setattr(cli, "_now", lambda: NOW)
     monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
     (tmp_path / ".env").write_text("MY_GRID=FN31\n")
@@ -33,11 +34,13 @@ def server(tmp_path, monkeypatch):
     save_decodes(conn, [Decode(newest - timedelta(days=n), 14_074_000, False, -10, f"N{n}CALL", "PF95",
                                f"CQ N{n}CALL PF95") for n in range(5)])
     save_decodes(conn, [Decode(newest - timedelta(days=1), 14_074_000, False, -10, "N0CALL", "PF95", "CQ N0CALL PF95")])
-    first = newest.replace(minute=0, second=0) - timedelta(days=1)
-    cqs = [first + timedelta(seconds=30 * n) for n in range(100)] + [first - timedelta(days=1) + timedelta(seconds=30 * n) for n in range(50)]
+    midnight = newest.replace(hour=0, minute=0, second=0)
+    cqs = [midnight - timedelta(days=2) + timedelta(seconds=30 * n) for n in range(1959)]
     save_decodes(conn, [Decode(when, 14_074_000, True, 0, "N9CALL", "FN31", "CQ N9CALL FN31") for when in cqs])
     save_decodes(conn, [Decode(when + timedelta(seconds=15), 14_074_000, False, -10, "N1CALL", "PF95", "N9CALL N1CALL PF95")
-                        for when in cqs[:15]])
+                        for when in cqs[:269]])
+    save_contacts(conn, [Contact("N1CALL", midnight - timedelta(days=1) + timedelta(minutes=5 * n), 14_074_000, "PF95")
+                         for n in range(110)])
     conn.close()
     httpd = make_server("127.0.0.1", 0, web.create_app(db))  # port 0: the OS picks a free one
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
@@ -56,12 +59,23 @@ def test_the_scroll_hint_shows_whenever_the_table_overflows(page, server, width)
     page.set_viewport_size({"width": width, "height": 800})
     page.goto(server)
     hint = page.get_by_text(HINT)
-    expect(page.get_by_role("cell", name="15 of 150")).to_be_visible()  # the widest data is there
     if overflows(page, "div.scroll"):
         expect(hint).to_be_visible()
     if width >= 1280:
         assert not overflows(page, "div.scroll")
         expect(hint).to_be_hidden()
+
+
+@pytest.mark.parametrize("width", [800, 1024, 1440])
+def test_on_a_computer_the_widest_table_fits_without_scrolling(page, server, width):
+    page.set_viewport_size({"width": width, "height": 800})
+    page.goto(server + "?hour=all")
+    # The forecast table is the one with an Answered column; the overview and daily tables repeat values.
+    table = page.get_by_role("table").filter(has=page.get_by_role("columnheader", name=re.compile("Answered")))
+    expect(table.get_by_role("cell", name="269 of 1,959")).to_be_visible()  # the widest data is there
+    expect(table.get_by_role("cell", name=re.compile(r"10,\d{3} mi"))).to_have_count(2)  # in both Farthest columns
+    assert not overflows(page, "div.scroll")
+    expect(page.get_by_text(HINT)).to_be_hidden()
 
 
 def test_on_a_phone_the_table_scrolls_not_the_page(page, server):
