@@ -171,6 +171,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS,
         show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour),
         all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by, log_dir=cli._log_dir(),
+        now_hour=now.hour, age_text=result and cli.data_age(result.newest, now), kind_for_name=folder.kind_for_name,
         best_bet=result and cli.best_bet_line(result, by), ranked=result and forecast.rank(result.bands, by),
         thin=result and cli.thin_line(result), overview=overview, overview_key=cli.overview_key(by),
         overview_empty=cli.OVERVIEW_EMPTY,

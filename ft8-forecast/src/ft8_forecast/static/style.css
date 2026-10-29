@@ -73,3 +73,6 @@ table.overview tr.current { outline: 2px solid var(--accent); outline-offset: -2
 @media (max-width: 44rem) {
   .scroll-hint { display: block; }
 }
+p.file { margin: 0.4rem 0; }
+table.overview { width: auto; }
+table.overview td { min-width: 3.5rem; }

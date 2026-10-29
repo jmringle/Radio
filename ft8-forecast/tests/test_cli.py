@@ -324,7 +324,7 @@ def test_forecast_prints_the_best_bet_and_table(setup, db, capsys):
     code, out, err = forecast_run(capsys, db)
     assert (code, err) == (0, "")
     lines = out.splitlines()
-    assert lines[:6] == ["FT8 forecast for 15:00-15:59 UTC (your last 30 days, through 2026-10-25 15:30 UTC)", "",
+    assert lines[:6] == ["FT8 forecast for 15:00-15:59 UTC (your last 30 days, through 2026-10-25 15:30 UTC, 2 days ago)", "",
                          "Best bet (busiest): 20m - about 1 station on a typical day", "",
                          HEADER, lines[5]]
     assert row(lines, "20m") == ["20m", "1", "5", "-12", "dB", "69", "mi", "-", "0"]  # miles only, no grid
@@ -417,7 +417,7 @@ def test_forecast_all_hours(setup, db, capsys):
     code, out, _ = forecast_run(capsys, db, "--hour", "all")
     lines = out.splitlines()
     assert code == 0
-    assert lines[0] == "FT8 forecast for all hours (00:00-23:59 UTC) (your last 30 days, through 2026-10-25 15:30 UTC)"
+    assert lines[0] == "FT8 forecast for all hours (00:00-23:59 UTC) (your last 30 days, through 2026-10-25 15:30 UTC, 2 days ago)"
     assert row(lines, "20m")[2] == "6"  # total heard
     assert "Too little data (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)" in lines
     assert "at this hour" not in out
@@ -465,7 +465,7 @@ def test_overview_prints_an_hour_by_band_grid(overview_db, db, capsys):
     code, out, err = overview_run(capsys, db)
     assert (code, err) == (0, "")
     assert out.splitlines() == [
-        "24-hour overview (your last 30 days, through 2026-10-25 15:30 UTC)",
+        "24-hour overview (your last 30 days, through 2026-10-25 15:30 UTC, 2 days ago)",
         "Typical-day stations; * = best bet (busiest); . = too little data", "",
         "UTC   40m    20m",
         "15      2*     1", "",
@@ -516,6 +516,12 @@ def test_overview_bad_rank_is_a_usage_error(overview_db, db, capsys):
 def test_overview_stale_data_gets_a_note(overview_db, db, capsys, monkeypatch):
     monkeypatch.setattr(cli, "_now", lambda: NOW + timedelta(days=10))
     assert "Note: your newest data is 11 days old" in overview_run(capsys, db)[1]
+
+
+@pytest.mark.parametrize("newest, text", [("2026-10-27 00:01", "today"), ("2026-10-26 23:59", "yesterday"),
+                                          ("2026-10-25 15:30", "2 days ago"), ("2026-09-27 15:30", "30 days ago")])
+def test_data_age_counts_calendar_days(newest, text):
+    assert cli.data_age(datetime.strptime(newest, "%Y-%m-%d %H:%M"), NOW) == text
 
 
 @pytest.mark.parametrize("hours, text", [([0, 1, 2, 3, 22, 23], "00-03, 22-23"), ([5], "05"), ([1, 3], "01, 03"),

@@ -16,6 +16,13 @@ ALL_TXT = "all.txt"  # compared case-insensitively
 ADIF_SUFFIXES = (".adi", ".adif")
 
 
+def kind_for_name(name: str) -> str | None:
+    """The log type a file name suggests (content still decides): 'ALL.TXT', 'ADIF' or None."""
+    if name.lower() == ALL_TXT:
+        return "ALL.TXT"
+    return "ADIF" if Path(name).suffix.lower() in ADIF_SUFFIXES else None
+
+
 class FolderError(Exception):
     """The folder can't be used: missing, not a folder, or unreadable."""
 

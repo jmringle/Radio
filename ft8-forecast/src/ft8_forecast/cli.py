@@ -130,6 +130,12 @@ def hour_ranges(hours: list[int]) -> str:
     return ", ".join(f"{run[0]:02d}" if len(run) == 1 else f"{run[0]:02d}-{run[-1]:02d}" for run in runs)
 
 
+def data_age(newest: datetime, now: datetime) -> str:
+    """How old the newest decode is, in calendar days: 'today', 'yesterday', '3 days ago'."""
+    days = max((now.date() - newest.date()).days, 0)
+    return "today" if days == 0 else "yesterday" if days == 1 else f"{days} days ago"
+
+
 def hour_title(hour: int | None) -> str:
     return "all hours (00:00-23:59 UTC)" if hour is None else f"{hour:02d}:00-{hour:02d}:59 UTC"
 
@@ -335,7 +341,8 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
         return _error("no ALL.TXT data imported yet; run `ft8cast import <ALL.TXT>` first")
 
     newest = result.newest.strftime("%Y-%m-%d %H:%M")
-    print(f"FT8 forecast for {hour_title(hour)} (your last {forecast.WINDOW_DAYS} days, through {newest} UTC)")
+    print(f"FT8 forecast for {hour_title(hour)} (your last {forecast.WINDOW_DAYS} days, "
+          f"through {newest} UTC, {data_age(result.newest, now)})")
     age = (now.replace(tzinfo=None) - result.newest).days
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
@@ -387,8 +394,10 @@ def _overview(by: str, db: Path) -> int:
         return _error("no ALL.TXT data imported yet; run `ft8cast import <ALL.TXT>` first")
 
     newest = results[0].newest
-    print(f"24-hour overview (your last {forecast.WINDOW_DAYS} days, through {newest:%Y-%m-%d %H:%M} UTC)")
-    age = (_now().replace(tzinfo=None) - newest).days
+    now = _now()
+    print(f"24-hour overview (your last {forecast.WINDOW_DAYS} days, "
+          f"through {newest:%Y-%m-%d %H:%M} UTC, {data_age(newest, now)})")
+    age = (now.replace(tzinfo=None) - newest).days
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
     print(overview_key(by), "", sep="\n")
