@@ -49,13 +49,53 @@ def best_bet_line(result: forecast.Forecast, by: str) -> str:
         if by == "busiest":
             return f"{label}: none - no stations heard{when}"
         return f"{label}: none - no contacts{when} in these {forecast.WINDOW_DAYS} days"
-    if by == "busiest":
-        busy = f"{best.stations_per_day:,.0f}"
-        why = f"about {busy} station{'' if busy == '1' else 's'} on a typical day"
-    else:
-        why = f"{best.contacts:,} contact{'' if best.contacts == 1 else 's'} in {forecast.WINDOW_DAYS} days"
     worked = f"; worked out to {distance(best.contact_miles)}" if best.contact_miles is not None else ""
-    return f"{label}: {best.band} - {why}{worked}"
+    return f"{label}: {best.band} - {_why(best, by)}{worked}"
+
+
+def _why(band: forecast.BandStats, by: str) -> str:
+    if by == "busiest":
+        return _stations(band.stations_per_day)
+    return f"{band.contacts:,} contact{'' if band.contacts == 1 else 's'} in {forecast.WINDOW_DAYS} days"
+
+
+def _stations(per_day: float) -> str:
+    busy = f"{per_day:,.0f}"
+    return f"about {busy} station{'' if busy == '1' else 's'} on a typical day"
+
+
+def summary_lines(result: forecast.Forecast, by: str, hours: list[forecast.Forecast] | None) -> list[str]:
+    """Plain-English lines under the best bet, here and on the web page: the runner-up, when the
+    best band peaks (from `hours`, compute() for 0-23; skipped for all hours) and the farthest
+    contact. Only numbers the table and overview already show; nothing without a best bet."""
+    best = forecast.best_bet(result.bands, by)
+    if best is None:
+        return []
+    def score(band: forecast.BandStats) -> float:
+        return band.stations_per_day if by == "busiest" else band.contacts
+
+    lines = []
+    ranked = forecast.rank(result.bands, by)
+    if len(ranked) > 1 and score(ranked[1]):
+        lines.append(f"Next: {ranked[1].band} - {_why(ranked[1], by)}")
+    if result.hour is not None and hours:
+        i = [band.band for band in result.bands].index(best.band)
+        # The highest-scoring hour with enough data; a tie goes to the earlier hour.
+        value, peak = max(((score(r.bands[i]), -r.hour) for r in hours if r.bands[i].enough_data))
+        peak = -peak
+        if peak == result.hour:
+            lines.append(f"This is {best.band}'s busiest hour" if by == "busiest"
+                         else f"This is the hour you've made the most {best.band} contacts")
+        elif by == "busiest":
+            lines.append(f"{best.band} is busiest at {peak:02d} UTC: {_stations(value)}")
+        else:
+            lines.append(f"You've made the most {best.band} contacts at {peak:02d} UTC: {value:,}")
+    worked = [band for band in result.bands if band.contact_miles is not None]
+    if worked:
+        far = max(worked, key=lambda band: band.contact_miles)  # a tie: the lower band
+        when = "at this hour" if result.hour is not None else f"in these {forecast.WINDOW_DAYS} days"
+        lines.append(f"Farthest contact {when}: {distance(far.contact_miles)} on {far.band}")
+    return lines
 
 
 def thin_line(result: forecast.Forecast) -> str | None:
@@ -335,6 +375,8 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
     hour = now.hour if hour is None else None if hour == ALL_HOURS else hour
     try:
         result = forecast.compute(conn, hour, my_grid, now)
+        # The summary's peak line looks across the day (about 0.3 s for a year of listening).
+        hours = None if result is None or hour is None else [forecast.compute(conn, h, my_grid, now) for h in range(24)]
     finally:
         conn.close()
     if result is None:
@@ -346,7 +388,7 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
     age = (now.replace(tzinfo=None) - result.newest).days
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
-    print("", best_bet_line(result, by), sep="\n")
+    print("", best_bet_line(result, by), *summary_lines(result, by, hours), sep="\n")
     ranked = forecast.rank(result.bands, by)
     if ranked:
         print()

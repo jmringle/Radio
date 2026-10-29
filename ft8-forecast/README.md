@@ -84,6 +84,9 @@ $ ft8cast forecast --hour 16
 FT8 forecast for 16:00-16:59 UTC (your last 30 days, through 2026-10-25 19:48 UTC, 4 days ago)
 
 Best bet (busiest): 20m - about 50 stations on a typical day; worked out to 1,739 mi
+Next: 15m - about 45 stations on a typical day
+20m is busiest at 15 UTC: about 96 stations on a typical day
+Farthest contact at this hour: 5,306 mi on 10m
 
 Band  Typical day  Total heard  Signal  Heard out to  Worked out to  Contacts
 20m            50          573  -13 dB      4,884 mi       1,739 mi        11
@@ -170,6 +173,7 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
   - **Farthest contact** ("Worked out to", added 2026-10-29): the farthest ADIF contact with a logged grid, on that band at that hour in the window, as miles and the other station's square; `-` without one or without `MY_GRID`. No 2-day rule. Under the table: **Farthest contact ever** (every imported contact, any hour or date, with band and date) and **Farthest contact by day** (one row per day with contacts in the window, any hour, newest first; `-` for a day with no logged grid). Ties go to the earlier contact. Only bands with General data privileges count. No callsigns are shown. Both parts are left out without `MY_GRID`.
   - Fewer than 5 listening days on a band at that hour: "not enough data", never a score; these bands share one line ("Too little data"), grouped by days listened.
   - **Best bet** (added 2026-10-29): one line above the table naming the top band by `--rank`: `busiest` (default; stations per day, then contacts) or `contacts` (contacts, then stations per day); a full tie goes to the lower band. The table lists only bands with enough data, in that order. No band with enough data, or none scoring above 0: the line says "none" and why. No listening at all at that hour: one sentence, no table, no legend.
+  - **Summary** (added 2026-10-29): up to three lines under the best bet, here and on the page, built only from numbers already shown: "Next:" the second-ranked band (if it scores above 0); when the best band peaks by the same ranking ("20m is busiest at 15 UTC: ...", or "This is 20m's busiest hour"; ties go to the earlier hour; left out for all hours); and the farthest contact at this hour (or in the 30 days for all hours; needs `MY_GRID`). Nothing without a best bet.
   - Ends with a pointer to `ft8cast overview` (2026-10-29), so the overview is easy to find.
   - The header says how old the newest data is in calendar days ("today", "yesterday", "4 days ago"; 2026-10-29), here, in `overview` and on the page; the >7-day note stays.
   - Column names (2026-10-29): Typical day, Total heard, Signal (median SNR), Heard out to, Worked out to, Contacts. The terminal shows miles only (fits 80 columns); the page adds grid squares.
