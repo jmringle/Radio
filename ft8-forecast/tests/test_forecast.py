@@ -109,6 +109,33 @@ def test_window_ends_at_the_newest_decode_not_today(conn):
     assert band(conn).listening_days == 5
 
 
+def test_window_ends_at_the_newest_contact_when_it_is_later(conn):
+    # A fresh wsjtx_log.adi copied over without a fresh ALL.TXT: its contacts still count.
+    later = NEWEST + timedelta(days=2, minutes=-20)  # 2026-10-27 15:10
+    save_decodes(conn, [rx(days_back(n)) for n in range(5)])
+    save_contacts(conn, [Contact("N0CALL", later, TWENTY, None)])
+    result = forecast.compute(conn, 15, None)
+    assert result.newest == later.replace(tzinfo=None)
+    assert band(conn).contacts == 1
+
+
+def test_window_ends_at_the_newest_decode_when_it_is_later(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [Contact("N0CALL", NEWEST - timedelta(days=1), TWENTY, None)])
+    assert forecast.compute(conn, 15, None).newest == NEWEST.replace(tzinfo=None)
+
+
+def test_a_contact_dated_in_the_future_doesnt_move_the_window(conn):
+    # A wrong clock on the radio computer: one 2099 contact mustn't empty the forecast.
+    save_decodes(conn, [rx(days_back(n)) for n in range(5)])
+    save_contacts(conn, [Contact("N0CALL", NEWEST.replace(year=2099), TWENTY, None)])
+    now = NEWEST + timedelta(days=2)
+    result = forecast.compute(conn, 15, None, now=now)
+    assert result.newest == NEWEST.replace(tzinfo=None)
+    twenty = next(b for b in result.bands if b.band == "20m")
+    assert twenty.enough_data and twenty.contacts == 0
+
+
 def test_window_is_30_days_exclusive_at_the_far_end(conn):
     edge = NEWEST - timedelta(days=30)
     save_decodes(conn, [rx(), rx(edge, sender="N0CALL/P"), rx(edge + timedelta(seconds=1), sender="N0CALL/M")])
@@ -272,9 +299,9 @@ def test_contacts_count_in_the_window_and_hour_only(conn):
         Contact("N0CALL", NEWEST, TWENTY, None),
         Contact("N0CALL/P", NEWEST.replace(hour=14), TWENTY, None),  # other hour
         Contact("N0CALL/M", NEWEST - timedelta(days=31), TWENTY, None),  # before the window
-        Contact("N0CALL/QRP", NEWEST + timedelta(minutes=1), TWENTY, None),  # after newest decode
+        Contact("N0CALL/QRP", NEWEST + timedelta(minutes=1), TWENTY, None),  # after newest decode: ends the window
     ])
-    assert band(conn).contacts == 1
+    assert band(conn).contacts == 2
 
 
 @pytest.mark.parametrize("days, enough", [(MIN_DAYS - 1, False), (MIN_DAYS, True)])

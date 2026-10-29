@@ -1,7 +1,8 @@
 """The forecast: how each band has done for you at one UTC hour (or all hours), from your own data.
 
-Window: the 30 days up to your newest imported decode (not up to today), so an
-older copy of ALL.TXT still gives a full window; the CLI says how old it is.
+Window: the 30 days up to your newest imported decode or contact, whichever is
+later (not up to today), so an older copy of ALL.TXT still gives a full window and
+a fresher ADIF log still counts; the CLI says how old it is.
 """
 
 import math
@@ -74,7 +75,7 @@ class Farthest:
 @dataclass(frozen=True)
 class Forecast:
     hour: int | None  # None: all hours
-    newest: datetime  # newest imported decode: the window ends here
+    newest: datetime  # newest imported decode or contact (not in the future): the window ends here
     bands: list[BandStats]  # every band in BANDS, low to high
     daily: list[Farthest]  # farthest contact per day with contacts in the window, newest first; [] without MY_GRID
     best_ever: Farthest | None  # farthest of every imported contact; None without MY_GRID or a gridded contact
@@ -114,11 +115,20 @@ def band_for(freq_hz: int) -> str | None:
     return next((name for name, low, high in BANDS if low <= freq_hz <= high), None)
 
 
-def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None) -> Forecast | None:
-    """The forecast for `hour` (0-23 UTC; None for all hours), or None if no decodes are imported."""
+def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
+            now: datetime | None = None) -> Forecast | None:
+    """The forecast for `hour` (0-23 UTC; None for all hours), or None if no decodes are imported.
+
+    `now` (UTC): contacts dated after it (a wrong clock on the radio computer) don't move
+    the window's end; without it, every contact may.
+    """
     newest_text = conn.execute("SELECT max(time) FROM decodes").fetchone()[0]
     if newest_text is None:
         return None
+    latest = "9999" if now is None else now.strftime(_TIME)
+    contact_text = conn.execute("SELECT max(time) FROM contacts WHERE time <= ?", (latest,)).fetchone()[0]
+    if contact_text is not None and contact_text > newest_text:
+        newest_text = contact_text
     newest = datetime.strptime(newest_text, _TIME)
     window: tuple = ((newest - timedelta(days=WINDOW_DAYS)).strftime(_TIME), newest_text)
     where = "time > ? AND time <= ?"
