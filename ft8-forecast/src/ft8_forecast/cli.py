@@ -69,6 +69,34 @@ def thin_line(result: forecast.Forecast) -> str | None:
     return f"Too little data{when} (need {forecast.MIN_DAYS} days): {', '.join(parts)}"
 
 
+def overview_key(by: str) -> str:
+    return f"Typical-day stations; * = best bet ({RANK_LABELS[by]}); . = too little data"
+
+
+def overview_rows(results: list[forecast.Forecast], by: str) -> list[tuple[int, list[tuple[str, bool]]]]:
+    """For each hour with any listening: (hour, one (cell, is best bet) per band in BANDS order).
+    The terminal and the web page both draw the overview from this."""
+    rows = []
+    for result in results:
+        if not any(band.listening_days for band in result.bands):
+            continue
+        best = forecast.best_bet(result.bands, by)
+        rows.append((result.hour, [(f"{band.stations_per_day:,.0f}" if band.enough_data else ".", band is best)
+                                   for band in result.bands]))
+    return rows
+
+
+def hour_ranges(hours: list[int]) -> str:
+    """[0, 1, 2, 5] -> '00-02, 05'."""
+    runs: list[list[int]] = []
+    for hour in hours:
+        if runs and hour == runs[-1][-1] + 1:
+            runs[-1].append(hour)
+        else:
+            runs.append([hour])
+    return ", ".join(f"{run[0]:02d}" if len(run) == 1 else f"{run[0]:02d}-{run[-1]:02d}" for run in runs)
+
+
 def hour_title(hour: int | None) -> str:
     return "all hours (00:00-23:59 UTC)" if hour is None else f"{hour:02d}:00-{hour:02d}:59 UTC"
 
@@ -87,6 +115,10 @@ def _parser() -> argparse.ArgumentParser:
     fc.add_argument("--rank", type=_rank, default="busiest",
                     help="pick the best bet and order bands by 'busiest' typical day or most 'contacts' (default: busiest)")
     fc.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
+    ov = commands.add_parser("overview", help="every UTC hour at a glance: stations per band, best bet starred")
+    ov.add_argument("--rank", type=_rank, default="busiest",
+                    help="star the best bet by 'busiest' typical day or most 'contacts' (default: busiest)")
+    ov.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
     sv = commands.add_parser("serve", help="the forecast and import as a web page, on this machine only")
     sv.add_argument("--port", type=_port, default=DEFAULT_PORT, help=f"port (default: {DEFAULT_PORT})")
     sv.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
@@ -126,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
         return int(exit_.code or 0)
     if args.command == "forecast":
         return _forecast(args.hour, args.rank, args.db)
+    if args.command == "overview":
+        return _overview(args.rank, args.db)
     if args.command == "serve":
         return _serve(args.port, args.db)
     return _import(args.file, args.db)
@@ -216,6 +250,40 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
             print(f"{far.day:<10}  {far.band or '-':<4} {distance(far.miles):>9}")
     if my_grid is None:
         print(f"\nHeard out to and Worked out to need your grid: set MY_GRID in {ENV_FILE.name} (see .env.example).")
+    return OK
+
+
+def _overview(by: str, db: Path) -> int:
+    try:
+        my_grid = _my_grid()
+    except ValueError as error:
+        return _error(f"MY_GRID in {ENV_FILE.name}: {error}")
+    if not db.is_file():
+        return _error(f"no database at {db}; run `ft8cast import` first")
+    try:
+        conn = open_db(db)
+    except StoreError as error:
+        return _error(str(error))
+    try:
+        results = [forecast.compute(conn, hour, my_grid) for hour in range(24)]
+    finally:
+        conn.close()
+    if results[0] is None:
+        return _error("no ALL.TXT data imported yet; run `ft8cast import <ALL.TXT>` first")
+
+    newest = results[0].newest
+    print(f"24-hour overview (your last {forecast.WINDOW_DAYS} days, through {newest:%Y-%m-%d %H:%M} UTC)")
+    age = (_now().replace(tzinfo=None) - newest).days
+    if age > STALE_DAYS:
+        print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
+    print(overview_key(by), "", sep="\n")
+    print(("UTC" + "".join(f" {name:>5} " for name, _, _ in forecast.BANDS)).rstrip())
+    rows = overview_rows(results, by)
+    for hour, cells in rows:
+        print((f"{hour:02d} " + "".join(f" {text:>5}{'*' if best else ' '}" for text, best in cells)).rstrip())
+    silent = sorted(set(range(24)) - {hour for hour, _ in rows})
+    if silent:
+        print("", f"Hours with no listening: {hour_ranges(silent)}", sep="\n")
     return OK
 
 

@@ -127,13 +127,15 @@ def _render(db: Path, hour: int | str | None, by: str, imported: dict | None = N
         raise PageError(500, f"MY_GRID in {cli.ENV_FILE.name}: {error}") from None
     now = cli._now()
     hour = now.hour if hour is None else None if hour == cli.ALL_HOURS else hour
-    result, age, message = None, None, None
+    result, age, message, overview = None, None, None, None
     if not db.is_file():
         message = "No data yet: import your ALL.TXT below."
     else:
         conn = _open(db)
         try:
             result = forecast.compute(conn, hour, my_grid)
+            if result is not None:  # about 0.3 s for a year of listening
+                overview = cli.overview_rows([forecast.compute(conn, h, my_grid) for h in range(24)], by)
         finally:
             conn.close()
         if result is None:
@@ -147,5 +149,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: dict | None = N
         show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour),
         all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by,
         best_bet=result and cli.best_bet_line(result, by), ranked=result and forecast.rank(result.bands, by),
-        thin=result and cli.thin_line(result),
+        thin=result and cli.thin_line(result), overview=overview, overview_key=cli.overview_key(by),
+        bands=[name for name, _, _ in forecast.BANDS],
+        silent=overview is not None and cli.hour_ranges(sorted(set(range(24)) - {h for h, _ in overview})),
     )

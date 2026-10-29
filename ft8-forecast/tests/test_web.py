@@ -170,7 +170,7 @@ def test_hour_option(client, five_days):
     assert "FT8 forecast for 09:00-09:59 UTC" in page
     assert '<option value="9" selected>' in page
     assert "Best bet (busiest): none - no listening at this hour in these 30 days" in page
-    assert "<thead>" not in page and cli.LEGEND[0] not in page  # no band to list or explain
+    assert '<th scope="col">Typical day</th>' not in page and cli.LEGEND[0] not in page  # no band to list
     assert "Too little data" not in page
 
 
@@ -179,6 +179,44 @@ def test_all_hours_option(client, five_days):
     assert "FT8 forecast for all hours (00:00-23:59 UTC)" in page
     assert '<option value="all" selected>All hours</option>' in page
     assert "at this hour" not in page
+
+
+def test_page_shows_the_24_hour_overview_like_the_terminal(client, db, five_days, capsys):
+    conn = open_db(db)  # 40m at 15 UTC on 5 days, 2 stations a day: the best bet; 20m once at 03 UTC
+    save_decodes(conn, [Decode(datetime(2026, 10, 25 - n, 15, 0, tzinfo=UTC), 7_074_000, False, -5, call, None,
+                               f"CQ {call}") for n in range(5) for call in ("N0CALL/P", "N0CALL/M")])
+    save_decodes(conn, [Decode(datetime(2026, 10, 25, 3, 0, tzinfo=UTC), 14_074_000, False, -5, "N0CALL", None,
+                               "CQ N0CALL")])
+    conn.close()
+    _, page = get(client, query_string={"rank": "busiest"})
+    table = re.search(r'<table class="overview"[^>]*>(.*?)</table>', page, re.S).group(1)
+    head = re.findall(r"<th[^>]*>(.*?)</th>", re.search(r"<thead>(.*?)</thead>", table, re.S).group(1))
+    assert head == ["UTC", "160m", "80m", "40m", "30m", "20m", "17m", "15m", "12m", "10m"]
+    rows = re.findall(r"<tr>(.*?)</tr>", re.search(r"<tbody>(.*?)</tbody>", table, re.S).group(1), re.S)
+    assert len(rows) == 2
+    # Each hour links to its forecast, keeping the ranking.
+    assert '<th scope="row"><a href="/?hour=15&amp;rank=busiest">15</a></th>' in rows[1]
+    assert re.findall(r"<td[^>]*>(.*?)</td>", rows[1]) == [".", ".", "2*", ".", "1", ".", ".", ".", "."]
+    assert '<td class="best">2*</td>' in rows[1]
+    assert re.findall(r"<td[^>]*>(.*?)</td>", rows[0]) == ["."] * 9
+    main(["overview", "--db", str(db)])
+    out = capsys.readouterr().out.splitlines()
+    assert out[1] in page  # the key
+    assert out[-1] == "Hours with no listening: 00-02, 04-14, 16-23" and out[-1] in page
+
+
+def test_overview_follows_best_bet_by(client, db, five_days):
+    conn = open_db(db)
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 14_074_000, None)])
+    conn.close()
+    _, page = get(client, query_string={"rank": "contacts"})
+    assert "* = best bet (most contacts)" in page
+    assert '<a href="/?hour=15&amp;rank=contacts">15</a>' in page
+
+
+def test_no_overview_without_data(client, db):
+    _, page = get(client)
+    assert "24-hour overview" not in page
 
 
 def test_current_hour_is_selected_by_default_not_all(client, five_days):

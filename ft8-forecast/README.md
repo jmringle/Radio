@@ -88,6 +88,24 @@ The daily list has a row for each day with contacts in the 30 days, newest first
 
 Without `--hour` it uses the current UTC hour; `--hour all` counts the whole day instead of one hour (on the page: "All hours" in the hour list). The 30 days end at your newest imported decode, not today, so an older copy of `ALL.TXT` still gives a full window; if that's more than 7 days ago, a note says to copy a fresh one over.
 
+```
+$ ft8cast overview
+24-hour overview (your last 30 days, through 2026-10-25 19:48 UTC)
+Typical-day stations; * = best bet (busiest); . = too little data
+
+UTC  160m    80m    40m    30m    20m    17m    15m    12m    10m
+10      .      .     32*     .      .      .      .      .      .
+11      .      .    109*     .      .      .      .      .      .
+12      .      .    144*     .     24      .      3      .      .
+13      .      .     90*     .     25      .     18      .      .
+14      .      .     31      .     53*     .     37      .      9
+...
+
+Hours with no listening: 00-09
+```
+
+`ft8cast overview [--rank busiest|contacts]` puts every UTC hour side by side: each cell is that band's typical-day stations at that hour (exactly what `ft8cast forecast --hour HH` shows), `.` where there are fewer than 5 days of listening, and `*` on the hour's best bet. Hours with no listening at all are summed up on one line. On the web page the same table follows the forecast, and each hour links to its forecast.
+
 ### The web page
 
 ```
@@ -122,8 +140,9 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
   - **Best bet** (added 2026-10-29): one line above the table naming the top band by `--rank`: `busiest` (default; stations per day, then contacts) or `contacts` (contacts, then stations per day); a full tie goes to the lower band. The table lists only bands with enough data, in that order. No band with enough data, or none scoring above 0: the line says "none" and why. No listening at all at that hour: one sentence, no table, no legend.
   - Column names (2026-10-29): Typical day, Total heard, Signal (median SNR), Heard out to, Worked out to, Contacts. The terminal shows miles only (fits 80 columns); the page adds grid squares.
   - Only bands where General may operate data, via `band-privileges`.
+- `ft8cast overview [--rank busiest|contacts]` (added 2026-10-29): one row per UTC hour with any listening, one column per band; a cell is the typical-day stations (as `forecast --hour HH` computes them) or `.` below 5 listening days; `*` marks the hour's best bet by the same rule (no star when there's none). Hours with no listening are listed as ranges (`00-09, 22-23`). Same header, stale note and errors as `forecast`.
 - `ft8cast serve [--port N]` (added 2026-10-28): a web page on `127.0.0.1` only, default port 8074.
-  - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason. A "Best bet by" list does what `--rank` does; a bad value is a 400.
+  - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason. A "Best bet by" list does what `--rank` does; a bad value is a 400. Below it, the 24-hour overview (added 2026-10-29), following "Best bet by", each hour linking to its forecast.
   - Uploading `ALL.TXT` or ADIF imports it exactly like `ft8cast import` (same detection, de-duplication and problem reporting) and shows the summary; the file isn't kept. No file, a file with no FT8 records, or an ADIF over 100 MB is a 400 that stores nothing; an upload over 500 MB is a 413.
   - No database yet: the page says to upload, and creates nothing until you do. A database that isn't ft8cast's, or an invalid `MY_GRID`, shows the reason (500) and changes nothing.
   - Unexpected errors show "Something went wrong; see the terminal" and never a traceback; debug mode can't be switched on (not even by `FLASK_DEBUG`).
@@ -156,7 +175,7 @@ The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FR
 
 **Next:**
 - Phase 2, if wanted: a standalone app (a native window around the same page).
-- Possible later: a 24-hour overview (band by hour) on the page; solar values typed in by hand (`--k`, `--flux`; no network).
+- Possible later: solar values typed in by hand (`--k`, `--flux`; no network).
 
 ### Threat model
 
