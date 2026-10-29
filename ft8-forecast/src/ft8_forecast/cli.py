@@ -46,7 +46,7 @@ def _parser() -> argparse.ArgumentParser:
     fc = commands.add_parser("forecast", help="how each band has done for you at this UTC hour")
     fc.add_argument("--hour", type=_hour, help=f"UTC hour 0-23, or {ALL_HOURS!r} for the whole day (default: now)")
     fc.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
-    sv = commands.add_parser("serve", help="the forecast and import as a web page, on this Mac only")
+    sv = commands.add_parser("serve", help="the forecast and import as a web page, on this machine only")
     sv.add_argument("--port", type=_port, default=DEFAULT_PORT, help=f"port (default: {DEFAULT_PORT})")
     sv.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
     return parser
@@ -168,7 +168,7 @@ def _serve(port: int, db: Path) -> int:
 
     print(f"FT8 forecast page: http://127.0.0.1:{port}  (Ctrl+C stops it)")
     try:
-        # 127.0.0.1: only this Mac can connect. debug=False and no .env loading, so
+        # 127.0.0.1: only this machine can connect. debug=False and no .env loading, so
         # FLASK_DEBUG can't switch on Werkzeug's debugger (it runs typed-in code).
         web.create_app(db).run(host="127.0.0.1", port=port, debug=False, load_dotenv=False)
     except SystemExit:

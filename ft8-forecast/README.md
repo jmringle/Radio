@@ -2,7 +2,7 @@
 
 Answers "which band should I try for FT8 right now?" from your own WSJT-X/JTDX data: what you've decoded (`ALL.TXT`) and who you've worked (ADIF log), hour by hour. It only reads files; it never talks to a radio or transmits.
 
-Status: v1 complete, plus a local web page (`ft8cast serve`). All three commands work on the author's real data (2026-10-28). Fully offline: nothing uses the network, and the web page is reachable only from this Mac.
+Status: v1 complete, plus a local web page (`ft8cast serve`). All three commands work on the author's real data (2026-10-28). Fully offline: nothing uses the network, and the web page is reachable only from this machine.
 
 ## Setup
 
@@ -12,6 +12,21 @@ Requires Python 3.12 or newer (CI uses 3.15). Lives next to `band-privileges` in
 2. `python3 -m venv .venv && source .venv/bin/activate`
 3. `pip install -r requirements-dev.txt` (also installs `../band-privileges` in editable mode)
 4. `pip install -e .` (installs the `ft8cast` command into the venv)
+
+### On Windows
+
+Not tested on Windows yet (written 2026-10-29; CI runs on Linux, the author on macOS). The commands are PowerShell.
+
+1. Install Python 3.12 or newer from [python.org](https://www.python.org/downloads/windows/) and tick "Add python.exe to PATH". `py --version` checks it.
+2. Get the whole `Radio` repo, not just this folder: `band-privileges` must sit next to `ft8-forecast`.
+3. `cd Radio\ft8-forecast`
+4. `py -m venv .venv`
+5. `.venv\Scripts\Activate.ps1`. If PowerShell says running scripts is disabled, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, or skip activating and put `.venv\Scripts\` in front of `pip` and `ft8cast` below.
+6. `pip install -r requirements-dev.txt`, then `pip install -e .`
+7. `copy .env.example .env`, then `notepad .env` and set `MY_GRID`.
+8. `ft8cast serve` and open http://127.0.0.1:8074. It listens on `127.0.0.1` only, so Windows Firewall shouldn't ask; if it does, you can decline.
+
+If this is the radio computer, you can import straight from WSJT-X's folder instead of copying (import only reads the file): `ft8cast import "$env:LOCALAPPDATA\WSJT-X\ALL.TXT"`, and the same for `wsjtx_log.adi`. JTDX uses `$env:LOCALAPPDATA\JTDX`. The page uses macOS fonts, so Windows shows its default fonts instead.
 
 ## Configuration
 
@@ -70,7 +85,7 @@ $ ft8cast serve
 FT8 forecast page: http://127.0.0.1:8074  (Ctrl+C stops it)
 ```
 
-Open that address in your browser. The page shows the same forecast as `ft8cast forecast` (pick the UTC hour from the list) and has an upload form for `ALL.TXT` or ADIF that works like `ft8cast import`: the summary and the first 10 problems show on the page. Uploads go into the same database the commands use; the uploaded file isn't kept. `--port N` (1024-65535) picks another port, `--db PATH` another database. Werkzeug prints a "development server" warning at start; that's expected here, since it only serves you, on this Mac (see the threat model).
+Open that address in your browser. The page shows the same forecast as `ft8cast forecast` (pick the UTC hour from the list) and has an upload form for `ALL.TXT` or ADIF that works like `ft8cast import`: the summary and the first 10 problems show on the page. Uploads go into the same database the commands use; the uploaded file isn't kept. `--port N` (1024-65535) picks another port, `--db PATH` another database. Werkzeug prints a "development server" warning at start; that's expected here, since it only serves you, on this machine (see the threat model).
 
 Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `2` bad input (missing or unreadable file, no FT8 records in it, a database that isn't ft8cast's, no database or no `ALL.TXT` data yet for a forecast, an invalid `MY_GRID`, usage errors such as `--hour 24` or `--port 80`; for `serve`, the port already in use).
 
@@ -139,13 +154,13 @@ Personal tool, local files only, no network. `serve` adds a local web server, so
 | T2 | Other operators' callsigns and grids get committed | none (privacy mistake, not a code flaw) | `data/`, logs and `*.sqlite` gitignored | `git check-ignore` |
 | T3 | A package published on PyPI as `band-privileges` gets installed instead of the local one (dependency confusion) | A03 Software Supply Chain Failures | Installed from `../band-privileges` only; not listed in `pyproject.toml` | — |
 | T4 | Text in a log (free-text messages come from anyone on the air) runs as SQL | A05 Injection | Parameterized queries only | `test_store.py` |
-| T5 | Another computer on your Wi-Fi opens the page or uploads to it | A01 Broken Access Control | Binds to `127.0.0.1` only (`lsof` on the running server shows `127.0.0.1:8074`) | `test_serve_listens_only_on_this_mac_with_debug_off` |
+| T5 | Another computer on your Wi-Fi opens the page or uploads to it | A01 Broken Access Control | Binds to `127.0.0.1` only (`lsof` on the running server shows `127.0.0.1:8074`) | `test_serve_listens_only_on_this_machine_with_debug_off` |
 | T6 | A website open in your browser posts a file to the server (CSRF, cross-site request forgery) to plant fake data | A01 Broken Access Control | Uploads must carry this page's exact `Origin`; browsers always send it on a POST and pages can't fake it | `test_upload_from_any_other_origin_is_refused` |
 | T7 | DNS rebinding: an attacker's domain is pointed at 127.0.0.1, so their page counts as "same site" and can read yours | A01 Broken Access Control | Only `Host: 127.0.0.1` or `localhost` is answered | `test_other_host_names_are_refused` |
 | T8 | A crafted `ALL.TXT` line or file name, echoed in the problem list, runs as script in the page (XSS, cross-site scripting) | A05 Injection | Jinja auto-escaping; CSP with no `script-src`, so even injected script wouldn't run; names cut to 80 characters | `test_on_air_text_and_file_names_are_escaped`, `test_security_headers_on_every_response` |
-| T9 | Werkzeug's debugger gets switched on: its in-browser console runs any Python typed into it | A02 Security Misconfiguration | `debug=False` and no `.env` loading, so `FLASK_DEBUG` is ignored; errors show no traceback | `test_serve_listens_only_on_this_mac_with_debug_off`, `test_errors_show_no_traceback` |
+| T9 | Werkzeug's debugger gets switched on: its in-browser console runs any Python typed into it | A02 Security Misconfiguration | `debug=False` and no `.env` loading, so `FLASK_DEBUG` is ignored; errors show no traceback | `test_serve_listens_only_on_this_machine_with_debug_off`, `test_errors_show_no_traceback` |
 
-**Accepted risks:** a huge garbage file passed to `import` would collect one problem per line in memory. It's a personal tool reading your own files, so there's no cap beyond ADIF's 100 MB (and 500 MB for uploads). Werkzeug's development server is used rather than a production server (one more dependency): it serves one person on one Mac, and T5-T9 cover what a production server wouldn't add. Mutation-checked 2026-10-28: removing each control above makes a test fail.
+**Accepted risks:** a huge garbage file passed to `import` would collect one problem per line in memory. It's a personal tool reading your own files, so there's no cap beyond ADIF's 100 MB (and 500 MB for uploads). Werkzeug's development server is used rather than a production server (one more dependency): it serves one person on one machine, and T5-T9 cover what a production server wouldn't add. Mutation-checked 2026-10-28: removing each control above makes a test fail.
 
 ## Security notes
 
