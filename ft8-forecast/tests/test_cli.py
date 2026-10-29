@@ -212,7 +212,7 @@ def test_forecast_prints_the_best_bet_and_table(setup, db, capsys):
                          HEADER, lines[5]]
     assert row(lines, "20m") == ["20m", "1", "5", "-12", "dB", "69", "mi", "-", "0"]  # miles only, no grid
     assert lines[6:] == ["", "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)",
-                         "", *LEGEND]
+                         "", *LEGEND, "", "Every hour at a glance: ft8cast overview"]
     assert "Note:" not in out and "MY_GRID" not in out and "JJ" not in out
 
 
@@ -269,6 +269,7 @@ def test_no_band_with_enough_data_has_no_table_or_legend(setup, db, capsys):
 def test_no_listening_at_this_hour_says_so_once(setup, db, capsys, monkeypatch):
     monkeypatch.setattr(cli, "_now", lambda: NOW.replace(hour=3))
     lines = forecast_run(capsys, db)[1].splitlines()
+    assert "Every hour at a glance: ft8cast overview" in lines  # most useful when this hour is empty
     assert lines[2] == "Best bet (busiest): none - no listening at this hour in these 30 days"
     assert not any(line.startswith("Too little data") for line in lines)
     assert HEADER not in lines and LEGEND[0] not in lines
