@@ -152,7 +152,9 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
     hour = now.hour if hour is None else None if hour == cli.ALL_HOURS else hour
     result, age, message, overview = None, None, None, None
     if not db.is_file():
-        message = "No data yet: import your ALL.TXT below."
+        message = ("No data yet. Import your WSJT-X ALL.TXT below, or press Import from folder." if cli._log_dir() else
+                   "No data yet. Import your WSJT-X ALL.TXT below; add wsjtx_log.adi too for your contacts. "
+                   f"To import from a folder instead, set LOG_DIR in {cli.ENV_FILE.name}.")
     else:
         conn = _open(db)
         try:
@@ -162,7 +164,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         finally:
             conn.close()
         if result is None:
-            message = "No ALL.TXT data imported yet: import it below."
+            message = "No ALL.TXT data imported yet: the forecast is built from it. Import it below."
         else:
             age = (now.replace(tzinfo=None) - result.newest).days
     return render_template(
@@ -171,8 +173,18 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS,
         show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour),
         all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by, log_dir=cli._log_dir(),
-        now_hour=now.hour, age_text=result and cli.data_age(result.newest, now), kind_for_name=folder.kind_for_name,
+        now_hour=now.hour, tab_title=_tab_title(result, hour, by), age_text=result and cli.data_age(result.newest, now), kind_for_name=folder.kind_for_name,
         best_bet=result and cli.best_bet_line(result, by), ranked=result and forecast.rank(result.bands, by),
         thin=result and cli.thin_line(result), overview=overview, overview_key=cli.overview_key(by),
         overview_empty=cli.OVERVIEW_EMPTY,
     )
+
+
+def _tab_title(result: forecast.Forecast | None, hour: int | None, by: str) -> str:
+    """The browser tab: the answer at a glance while the page sits in a tab."""
+    if result is None:
+        return "FT8 forecast"
+    parts = ["FT8 forecast", "all hours" if hour is None else f"{hour:02d}:00 UTC"]
+    if best := forecast.best_bet(result.bands, by):
+        parts.append(f"best bet {best.band}")
+    return " · ".join(parts)

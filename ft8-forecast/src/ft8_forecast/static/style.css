@@ -2,6 +2,7 @@
    Fonts that ship with macOS only, so nothing is fetched. Contrast checked
    against WCAG AA (4.5:1 for body text) in both color schemes. */
 :root {
+  color-scheme: light dark;  /* native controls (lists, file picker) follow the theme too */
   --paper: #f6f3ea;
   --ink: #1d1f1c;
   --muted: #5c5a52;

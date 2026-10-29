@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FT8 forecast</title>
+<title>{{ tab_title or "FT8 forecast" }}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -44,6 +44,7 @@
 {% endif %}
 
 <section aria-labelledby="forecast-title">
+  {% if result or error %}
   <form method="get" action="/" class="hour">
     <label for="hour">UTC hour</label>
     <select id="hour" name="hour">
@@ -60,6 +61,7 @@
     </select>
     <button type="submit">Show</button>
   </form>
+  {% endif %}
 
   {% if result %}
     <h2 id="forecast-title">FT8 forecast for {{ title }}</h2>
