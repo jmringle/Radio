@@ -61,7 +61,7 @@
     <table>
       <thead>
         <tr><th scope="col" rowspan="2">Band</th><th scope="colgroup" colspan="2">Stations heard</th>
-            <th scope="col" rowspan="2">Median SNR</th><th scope="col" rowspan="2">Farthest</th>
+            <th scope="col" rowspan="2">Median SNR</th><th scope="col" rowspan="2">Farthest heard</th>
             <th scope="col" rowspan="2">30-day contacts</th></tr>
         <tr><th scope="col">Typical day</th><th scope="col">30-day total</th></tr>
       </thead>
@@ -87,7 +87,7 @@
     </table>
     <p class="muted">{% for note in station_notes %}{{ note }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
     {% if my_grid is none %}
-      <p class="note">Farthest needs your grid: set MY_GRID in {{ env_name }} (see .env.example).</p>
+      <p class="note">Farthest heard needs your grid: set MY_GRID in {{ env_name }} (see .env.example).</p>
     {% endif %}
   {% elif message %}
     <h2 id="forecast-title">Forecast</h2>

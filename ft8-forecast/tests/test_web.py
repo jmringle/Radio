@@ -93,9 +93,10 @@ def test_station_columns_are_grouped_and_explained(client, five_days):
     assert '<th scope="colgroup" colspan="2">Stations heard</th>' in page
     assert '<th scope="col">Typical day</th><th scope="col">30-day total</th>' in page
     assert '<th scope="col" rowspan="2">30-day contacts</th>' in page  # a total, not per day
+    assert '<th scope="col" rowspan="2">Farthest heard</th>' in page  # heard, not worked
     assert "Typical day: stations heard on the median day you listened at this hour." in page
     assert "30-day total: different stations heard over the whole 30 days." in page
-    assert "Farthest: a station heard with the same grid square on 2+ days at this hour" in page
+    assert "Farthest heard: a station heard with the same grid square on 2+ days at this hour" in page
 
 
 def test_hour_option(client, five_days):
@@ -127,7 +128,7 @@ def test_bad_hour_is_a_400(client, five_days, hour):
 
 def test_without_my_grid_farthest_is_blank_and_explained(client, five_days):
     _, page = get(client)
-    assert "Farthest needs your grid: set MY_GRID in .env" in page
+    assert "Farthest heard needs your grid: set MY_GRID in .env" in page
 
 
 def test_invalid_my_grid_is_explained(client, five_days, env):
