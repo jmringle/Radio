@@ -8,9 +8,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from ft8_forecast import Decode, cli, forecast, logs, web
+from ft8_forecast import Contact, Decode, cli, forecast, logs, web
 from ft8_forecast.cli import main
-from ft8_forecast.store import open_db, save_decodes
+from ft8_forecast.store import open_db, save_contacts, save_decodes
 
 BASE = "http://127.0.0.1:8074"
 NOW = datetime(2026, 10, 27, 15, 5, tzinfo=UTC)
@@ -83,7 +83,7 @@ def test_page_shows_the_forecast_for_the_current_utc_hour(client, db, five_days,
     assert "FT8 forecast for 15:00-15:59 UTC" in page
     assert "30 days through 2026-10-25 15:30 UTC" in page
     row = re.search(r"<tr>\s*<th[^>]*>20m</th>(.*?)</tr>", page, re.S).group(1)
-    assert re.findall(r"<td[^>]*>(.*?)</td>", row) == ["1", "5", "-12 dB", "69 mi (JJ01)", "0"]
+    assert re.findall(r"<td[^>]*>(.*?)</td>", row) == ["1", "5", "-12 dB", "69 mi (JJ01)", "-", "0"]
     assert "not enough data (0 days listening; need 5)" in page
     assert "needs your grid" not in page
 
@@ -94,10 +94,46 @@ def test_station_columns_are_grouped_and_explained(client, five_days):
     assert '<th scope="col">Typical day</th><th scope="col">30-day total</th>' in page
     assert '<th scope="col" rowspan="2">30-day contacts</th>' in page  # a total, not per day
     assert '<th scope="col" rowspan="2">Farthest heard</th>' in page  # heard, not worked
+    assert '<th scope="col" rowspan="2">Farthest contact</th>' in page  # worked
     assert "Nothing leaves this machine." in page
     assert "Typical day: stations heard on the median day you listened at this hour." in page
     assert "30-day total: different stations heard over the whole 30 days." in page
     assert "Farthest heard: a station heard with the same grid square on 2+ days at this hour" in page
+    assert "Farthest contact: your farthest logged contact with a grid square at this hour" in page
+
+
+def test_page_shows_farthest_contacts_like_the_terminal(client, db, five_days, env, capsys):
+    env.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)
+    save_contacts(conn, [
+        Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 14_074_000, "JJ01"),
+        Contact("N0CALL/P", datetime(2026, 10, 25, 3, 0, tzinfo=UTC), 7_074_000, "JJ10"),  # other hour
+        Contact("N0CALL/M", datetime(2026, 10, 23, 15, 0, tzinfo=UTC), 14_074_000, None),  # no grid
+        Contact("N0CALL/QRP", datetime(2026, 4, 8, 15, 0, tzinfo=UTC), 14_074_000, "JJ30"),  # before the window
+    ])
+    conn.close()
+    _, page = get(client)
+    row = re.search(r"<tr>\s*<th[^>]*>20m</th>(.*?)</tr>", page, re.S).group(1)
+    assert re.findall(r"<td[^>]*>(.*?)</td>", row)[3:] == ["-", "69 mi (JJ01)", "2"]
+    assert "Farthest contact ever: 415 mi (JJ30) on 20m, 2026-04-08" in page
+    assert "Farthest contact by day (30 days, any hour)" in page
+    days = re.search(r'<table class="daily"[^>]*>.*?<tbody>(.*?)</tbody>', page, re.S).group(1)
+    assert [re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", r) for r in re.findall(r"<tr>(.*?)</tr>", days, re.S)] == [
+        ["2026-10-25", "40m", "138 mi (JJ10)"], ["2026-10-23", "-", "-"]]
+    assert "N0CALL" not in page  # grids only, never callsigns
+    # The terminal shows the same.
+    main(["forecast", "--db", str(db)])
+    out = capsys.readouterr().out
+    assert "Farthest contact ever: 415 mi (JJ30) on 20m, 2026-04-08" in out
+    assert "2026-10-25  40m       138 mi (JJ10)" in out and "2026-10-23  -                     -" in out
+
+
+def test_without_my_grid_no_farthest_contact_sections(client, db, five_days):
+    conn = open_db(db)
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 14_074_000, "JJ01")])
+    conn.close()
+    _, page = get(client)
+    assert "Farthest contact ever" not in page and "Farthest contact by day" not in page
 
 
 def test_hour_option(client, five_days):
@@ -129,7 +165,7 @@ def test_bad_hour_is_a_400(client, five_days, hour):
 
 def test_without_my_grid_farthest_is_blank_and_explained(client, five_days):
     _, page = get(client)
-    assert "Farthest heard needs your grid: set MY_GRID in .env" in page
+    assert "Farthest heard and contacts need your grid: set MY_GRID in .env" in page
 
 
 def test_invalid_my_grid_is_explained(client, five_days, env):

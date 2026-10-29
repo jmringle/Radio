@@ -58,3 +58,5 @@ button {
   cursor: pointer;
 }
 .problems { font: 0.9rem ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+h3 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0; }
+table.daily { width: auto; }
