@@ -81,7 +81,7 @@ The file type is detected from its content, not its name. Import as often as you
 
 ```
 $ ft8cast forecast --hour 16
-FT8 forecast for 16:00-16:59 UTC (your last 30 days, through 2026-10-25 19:48 UTC)
+FT8 forecast for 16:00-16:59 UTC (your last 30 days, through 2026-10-25 19:48 UTC, 4 days ago)
 
 Best bet (busiest): 20m - about 50 stations on a typical day; worked out to 1,739 mi
 
@@ -116,7 +116,7 @@ Without `--hour` it uses the current UTC hour; `--hour all` counts the whole day
 
 ```
 $ ft8cast overview
-24-hour overview (your last 30 days, through 2026-10-25 19:48 UTC)
+24-hour overview (your last 30 days, through 2026-10-25 19:48 UTC, 4 days ago)
 Typical-day stations; * = best bet (busiest); . = too little data
 
 UTC   40m    20m    15m    10m
@@ -171,13 +171,14 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
   - Fewer than 5 listening days on a band at that hour: "not enough data", never a score; these bands share one line ("Too little data"), grouped by days listened.
   - **Best bet** (added 2026-10-29): one line above the table naming the top band by `--rank`: `busiest` (default; stations per day, then contacts) or `contacts` (contacts, then stations per day); a full tie goes to the lower band. The table lists only bands with enough data, in that order. No band with enough data, or none scoring above 0: the line says "none" and why. No listening at all at that hour: one sentence, no table, no legend.
   - Ends with a pointer to `ft8cast overview` (2026-10-29), so the overview is easy to find.
+  - The header says how old the newest decode is in calendar days ("today", "yesterday", "4 days ago"; 2026-10-29), here, in `overview` and on the page; the >7-day note stays.
   - Column names (2026-10-29): Typical day, Total heard, Signal (median SNR), Heard out to, Worked out to, Contacts. The terminal shows miles only (fits 80 columns); the page adds grid squares.
   - Only bands where General may operate data, via `band-privileges`.
 - `ft8cast overview [--rank busiest|contacts]` (added 2026-10-29): one row per UTC hour with any listening, one column per band; a cell is the typical-day stations (as `forecast --hour HH` computes them) or `.` below 5 listening days; `*` marks the hour's best bet by the same rule (no star when there's none). Hours with no listening are listed as ranges (`00-09, 22-23`). Changed 2026-10-29: hours with too little data on every band, and bands with too little data at every hour, get no row or column, only a line each under the grid; with no band ready at any hour, one sentence instead of a grid. Same header, stale note and errors as `forecast`.
 - `ft8cast import [FILE] [--dir PATH]` from a folder (added 2026-10-29): with `--dir`, or with no file and `LOG_DIR` set in `.env`, imports `ALL.TXT` and `*.adi`/`*.adif` directly in the folder (names in any case; content still decides the type). Symlinks, subfolders and other files are skipped; the folder is never written. A missing folder or one with no logs is an error that stores nothing. One summary per file; a bad file is reported and the rest import; exit 2 if any file failed. A file and `--dir` together, or neither with no `LOG_DIR`, is an error saying what to do.
 - `ft8cast watch [--dir PATH] [--every SECONDS]` (added 2026-10-29): user-started, runs until Ctrl+C ("Stopped.", exit 0). Imports the folder, then every `--every` seconds (default 60, allowed 10-3600) re-reads files whose inode, size or modified time changed: for `ALL.TXT` only the complete lines after the last read (a half-written line waits; a smaller or replaced file is read from the start), for ADIF the whole file. New files are picked up, deleted ones forgotten. Prints `HH:MM UTC  name: N new` and problems (with the file's line numbers) only when something happens. Folder missing at start: error. Folder unreachable later: one message, keeps checking, says when it's back. A file it can't read: a message, tried again next check. An ADIF with no FT8 records or over 100 MB: reported once until it changes.
 - `ft8cast serve [--port N]` (added 2026-10-28): a web page on `127.0.0.1` only, default port 8074.
-  - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason. An "Import from folder" button (only with `LOG_DIR` set) imports like `ft8cast import` with no file, one summary per file; the folder comes only from `LOG_DIR`, never the request. No `LOG_DIR` or a missing folder is a 400 that stores nothing; it needs the same Origin as uploads. A "Best bet by" list does what `--rank` does; a bad value is a 400. On screens narrower than the forecast table (44rem), it scrolls in its own box with "Scroll the table sideways for more" under it; the page itself never scrolls sideways. Below it, the 24-hour overview (added 2026-10-29), following "Best bet by", each hour linking to its forecast.
+  - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason. An "Import from folder" button (only with `LOG_DIR` set) imports like `ft8cast import` with no file, one summary per file; the folder comes only from `LOG_DIR`, never the request. No `LOG_DIR` or a missing folder is a 400 that stores nothing; it needs the same Origin as uploads. A "Best bet by" list does what `--rank` does; a bad value is a 400. The hour list marks the current UTC hour "(now)". Import results are one block per file: counts, then a muted line with what was skipped and "No problems" or the problem count; "(read as …)" only when the content's type isn't what the name suggests. On screens narrower than the forecast table (44rem), it scrolls in its own box with "Scroll the table sideways for more" under it; the page itself never scrolls sideways. Below it, the 24-hour overview (added 2026-10-29), following "Best bet by", each hour linking to its forecast.
   - Uploading `ALL.TXT` or ADIF imports it exactly like `ft8cast import` (same detection, de-duplication and problem reporting) and shows the summary; the file isn't kept. No file, a file with no FT8 records, or an ADIF over 100 MB is a 400 that stores nothing; an upload over 500 MB is a 413.
   - No database yet: the page says to upload, and creates nothing until you do. A database that isn't ft8cast's, or an invalid `MY_GRID`, shows the reason (500) and changes nothing.
   - Unexpected errors show "Something went wrong; see the terminal" and never a traceback; debug mode can't be switched on (not even by `FLASK_DEBUG`).

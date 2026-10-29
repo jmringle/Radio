@@ -25,15 +25,11 @@
     <p class="error">{{ item.name }}: {{ item.error }}</p>
     {% else %}
     {% set total = log.records|length %}
-    <p>{{ item.name }} (read as {{ log.kind }}): {{ "{:,}".format(total) }} FT8 {{ log.noun }}, {{ "{:,}".format(item.new) }} new, {{ "{:,}".format(total - item.new) }} already stored</p>
     {% set skips = log.skipped|selectattr(0)|list %}
-    {% if skips %}
-      <p>Skipped: {% for count, why in skips %}{{ "{:,}".format(count) }} {{ why }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+    <p class="file">{{ item.name }}{% if kind_for_name(item.name) != log.kind %} (read as {{ log.kind }}){% endif %}: {{ "{:,}".format(total) }} FT8 {{ log.noun }}, {{ "{:,}".format(item.new) }} new, {{ "{:,}".format(total - item.new) }} already stored<br>
+      <span class="muted">{% if skips %}Skipped {% for count, why in skips %}{{ "{:,}".format(count) }} {{ why }}{% if not loop.last %}, {% endif %}{% endfor %} · {% endif %}{% if log.problems %}Problems: {{ "{:,}".format(log.problems|length) }}{% else %}No problems{% endif %}</span></p>
     {% endif %}
-    {% endif %}
-    {% if log %}
-    <p>Problems: {{ "{:,}".format(log.problems|length) }}</p>
-    {% if log.problems %}
+    {% if log and log.problems %}
       <ul class="problems">
       {% for problem in log.problems[:show_problems] %}
         <li>line {{ problem.line }}: {{ problem.message }}</li>
@@ -42,7 +38,6 @@
         <li>... and {{ "{:,}".format(log.problems|length - show_problems) }} more</li>
       {% endif %}
       </ul>
-    {% endif %}
     {% endif %}
   {% endfor %}
   </section>
@@ -54,7 +49,7 @@
     <select id="hour" name="hour">
       <option value="{{ all_hours }}"{% if hour is none %} selected{% endif %}>All hours</option>
     {% for h in hours %}
-      <option value="{{ h }}"{% if h == hour %} selected{% endif %}>{{ "%02d:00" % h }}</option>
+      <option value="{{ h }}"{% if h == hour %} selected{% endif %}>{{ "%02d:00" % h }}{% if h == now_hour %} (now){% endif %}</option>
     {% endfor %}
     </select>
     <label for="rank">Best bet by</label>
@@ -68,7 +63,7 @@
 
   {% if result %}
     <h2 id="forecast-title">FT8 forecast for {{ title }}</h2>
-    <p class="muted">Your last {{ window_days }} days, through {{ result.newest.strftime("%Y-%m-%d %H:%M") }} UTC</p>
+    <p class="muted">Your last {{ window_days }} days, through {{ result.newest.strftime("%Y-%m-%d %H:%M") }} UTC, {{ age_text }}</p>
     {% if stale %}
       <p class="note">Note: your newest data is {{ stale }} days old; import a fresh copy of ALL.TXT.</p>
     {% endif %}

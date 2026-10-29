@@ -331,11 +331,28 @@ def test_unknown_page_is_404_and_import_needs_post(client):
 def test_upload_all_txt_imports_and_reports_counts(client, db):
     response, page = upload(client, RX + RX2 + FT4)
     assert response.status_code == 200
-    assert "ALL.TXT (read as ALL.TXT): 2 FT8 lines, 2 new, 0 already stored" in page
-    assert "Skipped: 1 other modes" in page
-    assert "Problems: 0" in page
+    # Compact: "read as" only when the type isn't what the name says; details on one muted line.
+    assert "ALL.TXT: 2 FT8 lines, 2 new, 0 already stored" in page and "read as" not in page
+    assert '<span class="muted">Skipped 1 other modes · No problems</span>' in page
+    assert "Problems: 0" not in page
     assert "FT8 forecast for 15:00-15:59 UTC" in page  # the page carries on to the forecast
     assert stored(db) == 2
+
+
+def test_an_all_txt_uploaded_as_adi_says_how_it_was_read(client, db):
+    _, page = upload(client, RX, "wsjtx_log.adi")
+    assert "wsjtx_log.adi (read as ALL.TXT): 1 FT8 lines, 1 new" in page
+
+
+def test_hour_list_marks_the_current_utc_hour(client, five_days):
+    _, page = get(client, query_string={"hour": "9"})
+    assert '<option value="15">15:00 (now)</option>' in page
+    assert '<option value="9" selected>09:00</option>' in page
+
+
+def test_data_age_is_shown(client, five_days):
+    _, page = get(client)  # newest 2026-10-25, clock 2026-10-27
+    assert "Your last 30 days, through 2026-10-25 15:30 UTC, 2 days ago" in page
 
 
 def test_upload_adif_is_detected_by_content(client, db):
@@ -437,8 +454,9 @@ def test_page_never_takes_a_folder_path(client, db, logdir, tmp_path):
 def test_import_folder_imports_every_log(client, db, logdir):
     response, page = import_folder(client)
     assert response.status_code == 200
-    assert "ALL.TXT (read as ALL.TXT): 2 FT8 lines, 2 new, 0 already stored" in page
-    assert "wsjtx_log.adi (read as ADIF): 1 FT8 contacts, 1 new, 0 already stored" in page
+    assert "ALL.TXT: 2 FT8 lines, 2 new, 0 already stored" in page
+    assert "wsjtx_log.adi: 1 FT8 contacts, 1 new, 0 already stored" in page
+    assert page.count('<p class="file">') == 2  # one block per file
     assert (stored(db), stored(db, "contacts")) == (2, 1)
 
 
