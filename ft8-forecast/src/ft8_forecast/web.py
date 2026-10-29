@@ -150,7 +150,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         raise PageError(500, f"MY_GRID in {cli.ENV_FILE.name}: {error}") from None
     now = cli._now()
     hour = now.hour if hour is None else None if hour == cli.ALL_HOURS else hour
-    result, age, message, overview = None, None, None, None
+    result, age, message, overview, summary = None, None, None, None, []
     if not db.is_file():
         message = ("No data yet. Import your WSJT-X ALL.TXT below, or press Import from folder." if cli._log_dir() else
                    "No data yet. Import your WSJT-X ALL.TXT below; add wsjtx_log.adi too for your contacts. "
@@ -160,7 +160,9 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         try:
             result = forecast.compute(conn, hour, my_grid, now)
             if result is not None:  # about 0.3 s for a year of listening
-                overview = cli.overview([forecast.compute(conn, h, my_grid, now) for h in range(24)], by)
+                hours = [forecast.compute(conn, h, my_grid, now) for h in range(24)]
+                overview = cli.overview(hours, by)
+                summary = cli.summary_lines(result, by, hours if hour is not None else None)
         finally:
             conn.close()
         if result is None:
@@ -173,7 +175,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS,
         show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour),
         all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by, log_dir=cli._log_dir(),
-        now_hour=now.hour, tab_title=_tab_title(result, hour, by), age_text=result and cli.data_age(result.newest, now), kind_for_name=folder.kind_for_name,
+        now_hour=now.hour, summary=summary, tab_title=_tab_title(result, hour, by), age_text=result and cli.data_age(result.newest, now), kind_for_name=folder.kind_for_name,
         best_bet=result and cli.best_bet_line(result, by), ranked=result and forecast.rank(result.bands, by),
         thin=result and cli.thin_line(result), overview=overview, overview_key=cli.overview_key(by),
         overview_empty=cli.OVERVIEW_EMPTY,

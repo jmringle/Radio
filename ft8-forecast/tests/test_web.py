@@ -96,6 +96,19 @@ def test_page_shows_the_best_bet_and_forecast_for_the_current_utc_hour(client, d
     assert "need your grid" not in page
 
 
+def test_summary_lines_match_the_terminal(client, db, five_days, env, capsys):
+    env.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)  # 40m at 15 UTC, 2 stations a day: best bet, with 20m next
+    save_decodes(conn, [Decode(datetime(2026, 10, 25 - n, 15, 0, tzinfo=UTC), 7_074_000, False, -5, call, None,
+                               f"CQ {call}") for n in range(5) for call in ("N0CALL/P", "N0CALL/M")])
+    conn.close()
+    _, page = get(client)
+    main(["forecast", "--db", str(db)])
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[3:5] == ["Next: 20m - about 1 station on a typical day", "This is 40m's busiest hour"]
+    assert '<p class="summary">Next: 20m - about 1 station on a typical day<br>This is 40m&#39;s busiest hour</p>' in page
+
+
 def test_columns_are_explained_like_the_terminal(client, five_days):
     _, page = get(client)
     assert "Nothing leaves this machine." in page

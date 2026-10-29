@@ -324,11 +324,12 @@ def test_forecast_prints_the_best_bet_and_table(setup, db, capsys):
     code, out, err = forecast_run(capsys, db)
     assert (code, err) == (0, "")
     lines = out.splitlines()
-    assert lines[:6] == ["FT8 forecast for 15:00-15:59 UTC (your last 30 days, through 2026-10-25 15:30 UTC, 2 days ago)", "",
-                         "Best bet (busiest): 20m - about 1 station on a typical day", "",
-                         HEADER, lines[5]]
+    assert lines[:7] == ["FT8 forecast for 15:00-15:59 UTC (your last 30 days, through 2026-10-25 15:30 UTC, 2 days ago)", "",
+                         "Best bet (busiest): 20m - about 1 station on a typical day",
+                         "This is 20m's busiest hour", "",
+                         HEADER, lines[6]]
     assert row(lines, "20m") == ["20m", "1", "5", "-12", "dB", "69", "mi", "-", "0"]  # miles only, no grid
-    assert lines[6:] == ["", "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)",
+    assert lines[7:] == ["", "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)",
                          "", *LEGEND, "", "Every hour at a glance: ft8cast overview"]
     assert "Note:" not in out and "MY_GRID" not in out and "JJ" not in out
 
@@ -348,7 +349,8 @@ def test_forecast_shows_farthest_contacts_and_ranks_by_contacts(setup, db, capsy
     lines = forecast_run(capsys, db)[1].splitlines()
     # Busiest (default): 20m and 40m tie at 1 station a day; 40m's 2 contacts put it first.
     assert lines[2] == "Best bet (busiest): 40m - about 1 station on a typical day; worked out to 69 mi"
-    assert [line.split()[0] for line in lines[5:7]] == ["40m", "20m"]
+    top = lines.index(HEADER) + 1
+    assert [line.split()[0] for line in lines[top:top + 2]] == ["40m", "20m"]
     assert row(lines, "40m") == ["40m", "1", "5", "-5", "dB", "-", "69", "mi", "2"]
     assert lines[-7:] == ["", "Farthest contact ever: 415 mi on 20m, 2026-04-08",
                           "", "Farthest contact by day (30 days, any hour):",
@@ -358,6 +360,55 @@ def test_forecast_shows_farthest_contacts_and_ranks_by_contacts(setup, db, capsy
     out = forecast_run(capsys, db, "--rank", "contacts")[1]
     assert "Best bet (most contacts): 40m - 2 contacts in 30 days; worked out to 69 mi" in out
     assert "N0CALL" not in out and "JJ" not in out  # no callsigns; grids only on the web page
+
+
+@pytest.fixture
+def summary_db(setup, db):
+    """setup's 20m at 15 UTC (1 station a day), plus 40m: 2 a day at 15 UTC, 3 a day at 14 UTC,
+    and one 40m contact at 15 UTC with a grid 138 mi from JJ00."""
+    setup.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)
+    save_decodes(conn, [Decode(datetime(2026, 10, 25 - n, hour, 0, tzinfo=UTC), 7_074_000, False, -5, f"N{i}CALL/P",
+                               None, f"CQ N{i}CALL/P")
+                        for n in range(5) for hour, stations in [(15, 2), (14, 3)] for i in range(stations)])
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 7_074_000, "JJ10")])
+    conn.close()
+
+
+def test_summary_under_the_best_bet(summary_db, db, capsys):
+    lines = forecast_run(capsys, db, "--hour", "15")[1].splitlines()
+    assert lines[2:7] == ["Best bet (busiest): 40m - about 2 stations on a typical day; worked out to 138 mi",
+                          "Next: 20m - about 1 station on a typical day",
+                          "40m is busiest at 14 UTC: about 3 stations on a typical day",
+                          "Farthest contact at this hour: 138 mi on 40m",
+                          ""]
+
+
+def test_summary_at_the_best_bands_peak_hour(summary_db, db, capsys):
+    lines = forecast_run(capsys, db, "--hour", "14")[1].splitlines()
+    # No other band at 14 UTC and no contact then: just the peak line.
+    assert lines[2:5] == ["Best bet (busiest): 40m - about 3 stations on a typical day",
+                          "This is 40m's busiest hour", ""]
+
+
+def test_summary_by_contacts(summary_db, db, capsys):
+    lines = forecast_run(capsys, db, "--hour", "15", "--rank", "contacts")[1].splitlines()
+    # 20m has no contacts, so there's no "Next".
+    assert lines[2:6] == ["Best bet (most contacts): 40m - 1 contact in 30 days; worked out to 138 mi",
+                          "This is the hour you've made the most 40m contacts",
+                          "Farthest contact at this hour: 138 mi on 40m", ""]
+
+
+def test_summary_for_all_hours_has_no_peak_line(summary_db, db, capsys):
+    lines = forecast_run(capsys, db, "--hour", "all")[1].splitlines()
+    assert lines[2:6] == ["Best bet (busiest): 40m - about 3 stations on a typical day; worked out to 138 mi",
+                          "Next: 20m - about 1 station on a typical day",
+                          "Farthest contact in these 30 days: 138 mi on 40m", ""]
+
+
+def test_no_summary_without_a_best_bet(summary_db, db, capsys):
+    lines = forecast_run(capsys, db, "--hour", "3")[1].splitlines()
+    assert lines[2].startswith("Best bet (busiest): none") and lines[3] == ""
 
 
 def test_rank_contacts_without_contacts_names_no_band(setup, db, capsys):

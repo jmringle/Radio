@@ -70,6 +70,9 @@
       <p class="note">Note: your newest data is {{ stale }} days old; import a fresh copy of ALL.TXT.</p>
     {% endif %}
     <p class="verdict">{{ best_bet }}</p>
+    {% if summary %}
+      <p class="summary">{% for line in summary %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+    {% endif %}
     {% if ranked %}
     <div class="scroll">
     <table>

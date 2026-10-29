@@ -77,3 +77,4 @@ table.overview tr.current { outline: 2px solid var(--accent); outline-offset: -2
 p.file { margin: 0.4rem 0; }
 table.overview { width: auto; }
 table.overview td { min-width: 3.5rem; }
+.summary { margin: -0.5rem 0 0; padding-left: calc(0.75rem + 3px); }
