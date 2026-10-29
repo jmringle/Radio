@@ -88,16 +88,18 @@ Next: 15m - about 45 stations on a typical day
 20m is busiest at 15 UTC (11 am EDT): about 96 stations on a typical day
 Farthest contact at this hour: 5,306 mi on 10m
 
-Band  Typical day  Total heard  Signal  Heard out to  Worked out to  Contacts
-20m            50          573  -13 dB      4,884 mi       1,739 mi        11
-15m            45          460  -15 dB      5,155 mi       1,629 mi         5
-10m            18          234  -14 dB      8,499 mi       5,306 mi         6
-40m             5           23  -10 dB        737 mi         125 mi         1
+      Stations  Stations  Signal   Farthest   Farthest  Contacts
+Band   per day   30 days  dB SNR      heard     worked   30 days
+20m         50       573     -13   4,884 mi   1,739 mi        11
+15m         45       460     -15   5,155 mi   1,629 mi         5
+10m         18       234     -14   8,499 mi   5,306 mi         6
+40m          5        23     -10     737 mi     125 mi         1
 
 Too little data at this hour (need 5 days): 160m 80m 12m (0 days), 17m (1 day), 30m (3 days)
 
-Typical day: median stations per day you listened. Total heard: over 30 days.
-Signal: median SNR. Heard out to: same station and grid on 2+ days.
+Stations per day: the median (middle value) over the days you listened.
+Signal: median signal-to-noise ratio; higher is stronger.
+Farthest heard: same station and grid on 2+ days.
 ```
 
 The **Best bet** line answers "which band now?". `--rank busiest` (the default) picks the band with the most stations on a typical day; `--rank contacts` picks the one where you've completed the most contacts. The table follows the same order, best first; a tie goes to the other measure, then the lower band. When no band qualifies, the line says why instead of guessing. Bands with fewer than 5 days of listening share one line under the table, grouped by days. Distances are miles only here; the web page adds each grid square.
@@ -169,16 +171,16 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
 **Acceptance criteria** (settled 2026-10-28). Every command is manual; nothing runs on a schedule.
 - `ft8cast import <file>`: reads an `ALL.TXT` or ADIF file into a local SQLite database (`data/`, gitignored). Re-importing the same file doesn't duplicate. Never modifies the source file. Bad lines are skipped and reported with line numbers; a file with no valid lines is an error.
 - `ft8cast forecast [--hour HH|all] [--rank busiest|contacts]`: per band, for the current UTC hour, the one given, or all hours (added 2026-10-28: the same rules with no hour limit, so a listening day is a day with any line on that band, and Farthest heard's 2 days can be at different hours):
-  - **stations per day**, shown as "Typical day" (replaced "open on X of Y days" 2026-10-28): the median number of distinct stations decoded per listening day at that hour. A listening day is any day `ALL.TXT` shows you on that band at that hour (a decode or your own Tx); a day with only your Tx counts as 0. Window: the last 30 days.
-  - distinct stations heard ("Total heard"), median SNR ("Signal"), farthest station heard with its grid square ("Heard out to"; messages often carry the sender's grid). It counts a station only if it was decoded with the same grid on 2+ days at that hour on that band (decided 2026-10-28);
+  - **stations per day**, shown as "Stations per day" (replaced "open on X of Y days" 2026-10-28): the median number of distinct stations decoded per listening day at that hour. A listening day is any day `ALL.TXT` shows you on that band at that hour (a decode or your own Tx); a day with only your Tx counts as 0. Window: the last 30 days.
+  - distinct stations heard ("Stations 30 days"), median SNR ("Signal dB SNR"), farthest station heard with its grid square ("Farthest heard"; messages often carry the sender's grid). It counts a station only if it was decoded with the same grid on 2+ days at that hour on that band (decided 2026-10-28);
   - confirmed contacts from ADIF, shown separately (proven two-way paths).
-  - **Farthest contact** ("Worked out to", added 2026-10-29): the farthest ADIF contact with a logged grid, on that band at that hour in the window, as miles and the other station's square; `-` without one or without `MY_GRID`. No 2-day rule. Under the table: **Farthest contact ever** (every imported contact, any hour or date, with band and date) and **Farthest contact by day** (one row per day with contacts in the window, any hour, newest first; `-` for a day with no logged grid). Ties go to the earlier contact. Only bands with General data privileges count. No callsigns are shown. Both parts are left out without `MY_GRID`.
+  - **Farthest contact** ("Farthest worked", added 2026-10-29): the farthest ADIF contact with a logged grid, on that band at that hour in the window, as miles and the other station's square; `-` without one or without `MY_GRID`. No 2-day rule. Under the table: **Farthest contact ever** (every imported contact, any hour or date, with band and date) and **Farthest contact by day** (one row per day with contacts in the window, any hour, newest first; `-` for a day with no logged grid). Ties go to the earlier contact. Only bands with General data privileges count. No callsigns are shown. Both parts are left out without `MY_GRID`.
   - Fewer than 5 listening days on a band at that hour: "not enough data", never a score; these bands share one line ("Too little data"), grouped by days listened.
   - **Best bet** (added 2026-10-29): one line above the table naming the top band by `--rank`: `busiest` (default; stations per day, then contacts) or `contacts` (contacts, then stations per day); a full tie goes to the lower band. The table lists only bands with enough data, in that order. No band with enough data, or none scoring above 0: the line says "none" and why. No listening at all at that hour: one sentence, no table, no legend.
   - **Summary** (added 2026-10-29): up to three lines under the best bet, here and on the page, built only from numbers already shown: "Next:" the second-ranked band (if it scores above 0); when the best band peaks by the same ranking ("20m is busiest at 15 UTC: ...", or "This is 20m's busiest hour"; ties go to the earlier hour; left out for all hours); and the farthest contact at this hour (or in the 30 days for all hours; needs `MY_GRID`). Nothing without a best bet.
   - Ends with a pointer to `ft8cast overview` (2026-10-29), so the overview is easy to find.
   - The header says how old the newest data is in calendar days ("today", "yesterday", "4 days ago"; 2026-10-29), here, in `overview` and on the page; the >7-day note stays.
-  - Column names (2026-10-29): Typical day, Total heard, Signal (median SNR), Heard out to, Worked out to, Contacts. The terminal shows miles only (fits 80 columns); the page adds grid squares.
+  - Column names (two-line headers, 2026-10-29): Stations per day, Stations 30 days, Signal dB SNR, Farthest heard, Farthest worked, Contacts 30 days. The second line carries the unit or time span, so cells are bare numbers (SNR without "dB"). Two lines let plain words fit 80 columns. The terminal shows miles only; the page adds grid squares.
   - Only bands where General may operate data, via `band-privileges`.
 - `ft8cast overview [--rank busiest|contacts]` (added 2026-10-29): one row per UTC hour with any listening, one column per band; a cell is the typical-day stations (as `forecast --hour HH` computes them) or `.` below 5 listening days; `*` marks the hour's best bet by the same rule (no star when there's none). Hours with no listening are listed as ranges (`00-09, 22-23`). Changed 2026-10-29: hours with too little data on every band, and bands with too little data at every hour, get no row or column, only a line each under the grid; with no band ready at any hour, one sentence instead of a grid. Same header, stale note and errors as `forecast`.
 - `ft8cast import [FILE] [--dir PATH]` from a folder (added 2026-10-29): with `--dir`, or with no file and `LOG_DIR` set in `.env`, imports `ALL.TXT` and `*.adi`/`*.adif` directly in the folder (names in any case; content still decides the type). Symlinks, subfolders and other files are skipped; the folder is never written. A missing folder or one with no logs is an error that stores nothing. One summary per file; a bad file is reported and the rest import; exit 2 if any file failed. A file and `--dir` together, or neither with no `LOG_DIR`, is an error saying what to do.
