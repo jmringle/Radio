@@ -19,6 +19,8 @@ jobs:
         with:
           python-version: "3.15"
       - run: pip install -r requirements-dev.txt
+      # The browser tests' Chromium (headless only) and the Linux libraries it needs.
+      - run: playwright install --with-deps --only-shell chromium
       - run: pytest
       # Audits the installed environment; -r can't resolve the local -e ../band-privileges line.
       - run: pip-audit

@@ -5,6 +5,7 @@ later (not up to today), so an older copy of ALL.TXT still gives a full window a
 a fresher ADIF log still counts; the CLI says how old it is.
 """
 
+import bisect
 import math
 import re
 import sqlite3
@@ -41,6 +42,19 @@ _GRID = re.compile(r"([A-R]{2}[0-9]{2})([A-X]{2}([0-9]{2})?)?")
 EARTH_RADIUS_MILES = 3958.8
 
 
+# A decode addressed to you this soon after your call answers it. WSJT-X stamps a line with
+# its 15 s cycle's start, so a reply in the next cycle is 15 s later; a reply 45 s later
+# belongs to your next call (surveyed in the author's ALL.TXT, 2026-10-29).
+REPLY_SECONDS = 30
+
+# Trend: the window's last TREND_DAYS against the TREND_DAYS before, each half needing
+# TREND_MIN_DAYS listening days. A change counts only if it is at least TREND_SHARE of
+# the earlier half and at least TREND_STATIONS a day, so 1 -> 2 stations isn't "busier".
+TREND_DAYS = WINDOW_DAYS // 2
+TREND_MIN_DAYS = 3
+TREND_SHARE = 0.25
+TREND_STATIONS = 2
+
 # How to pick the best bet and order the table: --rank / the page's "Best bet by".
 RANKINGS = ("busiest", "contacts")
 
@@ -57,6 +71,10 @@ class BandStats:
     contact_miles: int | None  # farthest logged contact with a grid; None without MY_GRID or one
     contact_grid: str | None
     contacts: int  # completed contacts from the ADIF log
+    calls: int  # your opening calls: a CQ, or a call to a station with your grid
+    answered: int  # calls followed within REPLY_SECONDS by a decode addressed to you on this band
+    recent_per_day: float | None  # stations_per_day over the last TREND_DAYS; None under TREND_MIN_DAYS days
+    earlier_per_day: float | None  # the same for the TREND_DAYS before
 
     @property
     def enough_data(self) -> bool:
@@ -140,8 +158,9 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
     listening: dict[str, dict[str, set[str]]] = {}
     snrs: dict[str, list[int]] = {}
     grid_days: dict[str, dict[tuple[str, str], set[str]]] = {}  # band -> (sender, grid) -> days heard
-    for time, dial_hz, transmit, snr, sender, grid in conn.execute(
-        f"SELECT time, dial_hz, transmit, snr_db, sender, grid FROM decodes WHERE {where}", window
+    calls: dict[str, list[str]] = {}  # band -> times of your opening calls
+    for time, dial_hz, transmit, snr, sender, grid, message in conn.execute(
+        f"SELECT time, dial_hz, transmit, snr_db, sender, grid, message FROM decodes WHERE {where}", window
     ):
         band = band_for(dial_hz)
         if band is None:
@@ -149,7 +168,11 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
         day = time[:10]
         heard = listening.setdefault(band, {}).setdefault(day, set())
         if transmit:
-            continue  # your own Tx: proves you were there, isn't a station heard
+            # Your own Tx: proves you were there, isn't a station heard. Reports and
+            # sign-offs carry no grid, so only the opening call of a contact counts.
+            if message.startswith("CQ ") or grid:
+                calls.setdefault(band, []).append(time)
+            continue
         snrs.setdefault(band, []).append(snr)
         if sender:
             heard.add(sender)
@@ -184,6 +207,9 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
         contacts[band] = contacts.get(band, 0) + 1
         contact_far[band] = _farther(contact_far.get(band), far)
 
+    answered = _answered(conn, calls, window[1])
+    split = (newest - timedelta(days=TREND_DAYS)).strftime("%Y-%m-%d")  # later dates: the recent half
+
     bands = []
     for name, _, _ in BANDS:
         days = listening.get(name, {})
@@ -198,9 +224,59 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
             contact_miles=contact_far[name].miles if contact_far.get(name) else None,
             contact_grid=contact_far[name].grid if contact_far.get(name) else None,
             contacts=contacts.get(name, 0),
+            calls=len(calls.get(name, [])),
+            answered=answered.get(name, 0),
+            recent_per_day=_median_day([heard for day, heard in days.items() if day > split]),
+            earlier_per_day=_median_day([heard for day, heard in days.items() if day <= split]),
         ))
     daily = sorted(by_day.values(), key=lambda far: far.day, reverse=True) if my_grid else []
     return Forecast(hour, newest, bands, daily, best_ever)
+
+
+def _median_day(days: list[set[str]]) -> float | None:
+    return statistics.median(len(heard) for heard in days) if len(days) >= TREND_MIN_DAYS else None
+
+
+def trend(band: BandStats) -> str | None:
+    """'busier' or 'quieter' in the recent half of the window, or None (no clear change, or too few days)."""
+    if band.recent_per_day is None or band.earlier_per_day is None:
+        return None
+    change = band.recent_per_day - band.earlier_per_day
+    if abs(change) < TREND_STATIONS or abs(change) < TREND_SHARE * band.earlier_per_day:
+        return None
+    return "busier" if change > 0 else "quieter"
+
+
+def _answered(conn: sqlite3.Connection, calls: dict[str, list[str]], end: str) -> dict[str, int]:
+    """Per band, how many of `calls` (times) a decode addressed to you followed within REPLY_SECONDS.
+
+    You are every sender of your own Tx lines (more than one if you've used /P or a new call).
+    """
+    if not calls:
+        return {}
+    first = min(min(times) for times in calls.values())
+    last = (datetime.strptime(end, _TIME) + timedelta(seconds=REPLY_SECONDS)).strftime(_TIME)
+    mine = [row[0] for row in conn.execute("SELECT DISTINCT sender FROM decodes WHERE transmit = 1 AND sender IS NOT NULL")]
+    if not mine:
+        return {}  # no Tx line with a readable call: nothing can be addressed to you
+    # Calls only hold A-Z, 0-9 and / (alltxt checks), so they can't carry LIKE wildcards.
+    to_me = " OR ".join("message LIKE ? OR message LIKE ?" for _ in mine)
+    replies: dict[str, list[str]] = {}
+    for time, dial_hz in conn.execute(
+        f"SELECT time, dial_hz FROM decodes WHERE transmit = 0 AND time > ? AND time <= ? AND ({to_me}) ORDER BY time",
+        (first, last, *[pattern for call in mine for pattern in (f"{call} %", f"<{call}> %")]),
+    ):
+        if band := band_for(dial_hz):
+            replies.setdefault(band, []).append(time)
+    answered = {}
+    for band, times in calls.items():
+        heard = replies.get(band, [])
+        answered[band] = 0
+        for time in times:
+            soon = (datetime.strptime(time, _TIME) + timedelta(seconds=REPLY_SECONDS)).strftime(_TIME)
+            i = bisect.bisect_right(heard, time)
+            answered[band] += i < len(heard) and heard[i] <= soon
+    return answered
 
 
 def _farther(best: Farthest | None, new: Farthest | None) -> Farthest | None:

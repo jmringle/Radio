@@ -26,7 +26,8 @@ ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
 # Under the table, here and on the web page: what the less obvious columns mean.
 LEGEND = ("Stations per day: the median (middle value) over the days you listened.",
           "Signal: median signal-to-noise ratio; higher is stronger.",
-          f"Farthest heard: same station and grid on {forecast.FARTHEST_MIN_DAYS}+ days.")
+          f"Farthest heard: same station and grid on {forecast.FARTHEST_MIN_DAYS}+ days.",
+          f"Answered: your CQs and calls that got a reply to you within {forecast.REPLY_SECONDS} s.")
 RANK_LABELS = {"busiest": "busiest", "contacts": "most contacts"}
 
 
@@ -35,6 +36,11 @@ def distance(miles: int | None, grid: str | None = None) -> str:
     if miles is None:
         return "-"
     return f"{miles:,} mi" + (f" ({grid})" if grid else "")
+
+
+def answered(band: forecast.BandStats) -> str:
+    """'12 of 95': both numbers, so the reader can see how much it rests on; '-' with no calls."""
+    return f"{band.answered:,} of {band.calls:,}" if band.calls else "-"
 
 
 def best_bet_line(result: forecast.Forecast, by: str) -> str:
@@ -69,7 +75,7 @@ def summary_lines(result: forecast.Forecast, by: str, hours: list[forecast.Forec
                   now: datetime) -> list[str]:
     """Plain-English lines under the best bet, here and on the web page: the runner-up, when the
     best band peaks (from `hours`, compute() for 0-23; skipped for all hours) and the farthest
-    contact. Only numbers the table and overview already show; nothing without a best bet."""
+    contact, then bands busier or quieter lately (forecast.trend). Nothing without a best bet."""
     best = forecast.best_bet(result.bands, by)
     if best is None:
         return []
@@ -97,6 +103,11 @@ def summary_lines(result: forecast.Forecast, by: str, hours: list[forecast.Forec
         far = max(worked, key=lambda band: band.contact_miles)  # a tie: the lower band
         when = "at this hour" if result.hour is not None else f"in these {forecast.WINDOW_DAYS} days"
         lines.append(f"Farthest contact {when}: {distance(far.contact_miles)} on {far.band}")
+    for word, way in (("busier", "up"), ("quieter", "down")):
+        changed = [f"{band.band} ({band.recent_per_day:,.0f} a day, {way} from {band.earlier_per_day:,.0f})"
+                   for band in ranked if forecast.trend(band) == word]
+        if changed:
+            lines.append(f"{word.capitalize()} in the last {forecast.TREND_DAYS} days: {', '.join(changed)}")
     return lines
 
 
@@ -432,13 +443,13 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
     if ranked:
         print()
         span = f"{forecast.WINDOW_DAYS} days"
-        print(f"{'':<4} {'Stations':>9} {'Stations':>9} {'Signal':>7} {'Farthest':>10} {'Farthest':>10} {'Contacts':>9}")
-        print(f"{'Band':<4} {'per day':>9} {span:>9} {'dB SNR':>7} {'heard':>10} {'worked':>10} {span:>9}")
+        print(f"{'':<4} {'Stations':>9} {'Stations':>9} {'Signal':>7} {'Farthest':>10} {'Farthest':>10} {'Contacts':>9} {'Answered':>10}")
+        print(f"{'Band':<4} {'per day':>9} {span:>9} {'dB SNR':>7} {'heard':>10} {'worked':>10} {span:>9} {'of calls':>10}")
         for band in ranked:
             snr = "-" if band.median_snr is None else f"{band.median_snr:.0f}"
             per_day = f"{band.stations_per_day:,.0f}"
             print(f"{band.band:<4} {per_day:>9} {band.stations:>9,} {snr:>7} {distance(band.farthest_miles):>10} "
-                  f"{distance(band.contact_miles):>10} {band.contacts:>9,}")
+                  f"{distance(band.contact_miles):>10} {band.contacts:>9,} {answered(band):>10}")
     if thin := thin_line(result):
         print("", thin, sep="\n")
     if ranked:
