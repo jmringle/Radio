@@ -324,7 +324,7 @@ def test_forecast_prints_the_best_bet_and_table(setup, db, capsys):
     code, out, err = forecast_run(capsys, db)
     assert (code, err) == (0, "")
     lines = out.splitlines()
-    assert lines[:7] == ["FT8 forecast for 15:00-15:59 UTC (your last 30 days, through 2026-10-25 15:30 UTC, 2 days ago)", "",
+    assert lines[:7] == ["FT8 forecast for 15:00-15:59 UTC, 11 am EDT (your last 30 days, through 2026-10-25 15:30 UTC, 2 days ago)", "",
                          "Best bet (busiest): 20m - about 1 station on a typical day",
                          "This is 20m's busiest hour", "",
                          HEADER, lines[6]]
@@ -379,7 +379,7 @@ def test_summary_under_the_best_bet(summary_db, db, capsys):
     lines = forecast_run(capsys, db, "--hour", "15")[1].splitlines()
     assert lines[2:7] == ["Best bet (busiest): 40m - about 2 stations on a typical day; worked out to 138 mi",
                           "Next: 20m - about 1 station on a typical day",
-                          "40m is busiest at 14 UTC: about 3 stations on a typical day",
+                          "40m is busiest at 14 UTC (10 am EDT): about 3 stations on a typical day",
                           "Farthest contact at this hour: 138 mi on 40m",
                           ""]
 
@@ -452,7 +452,7 @@ def test_bad_rank_is_a_usage_error(setup, db, capsys, rank):
 def test_forecast_uses_the_current_utc_hour_by_default(setup, db, capsys, monkeypatch):
     monkeypatch.setattr(cli, "_now", lambda: NOW.replace(hour=3))
     out = forecast_run(capsys, db)[1]
-    assert out.startswith("FT8 forecast for 03:00-03:59 UTC")
+    assert out.startswith("FT8 forecast for 03:00-03:59 UTC, 11 pm EDT")
 
 
 def test_forecast_hour_option(setup, db, capsys, monkeypatch):
@@ -517,12 +517,12 @@ def test_overview_prints_an_hour_by_band_grid(overview_db, db, capsys):
     assert (code, err) == (0, "")
     assert out.splitlines() == [
         "24-hour overview (your last 30 days, through 2026-10-25 15:30 UTC, 2 days ago)",
-        "Typical-day stations; * = best bet (busiest); . = too little data", "",
-        "UTC   40m    20m",
-        "15      2*     1", "",
+        "Typical-day stations; * = best bet (busiest); . = too little data; Local = EDT", "",
+        "UTC Local   40m    20m",
+        "15  11 am     2*     1", "",
         # Rows and columns that would be all dots are summed up instead.
-        "Too little data on every band: 03",
-        "Hours with no listening: 00-02, 04-14, 16-23",
+        "Too little data on every band: 03 UTC (11 pm EDT)",
+        "Hours with no listening: 00-02 UTC (8 pm-10 pm EDT), 04-14 UTC (12 am-10 am EDT), 16-23 UTC (12 pm-7 pm EDT)",
         "Too little data at every hour: 160m 80m 30m 17m 15m 12m 10m"]
 
 
@@ -532,7 +532,7 @@ def test_overview_keeps_a_dot_for_a_band_with_data_at_other_hours(overview_db, d
                                "CQ N0CALL") for n in range(4)])
     conn.close()
     lines = overview_run(capsys, db)[1].splitlines()
-    assert lines[3:6] == ["UTC   40m    20m", "03      .      1*", "15      2*     1"]
+    assert lines[3:6] == ["UTC Local   40m    20m", "03  11 pm     .      1*", "15  11 am     2*     1"]
     assert not any(line.startswith("Too little data on every band") for line in lines)
 
 
@@ -543,13 +543,32 @@ def test_overview_with_no_band_ready_at_any_hour(setup, db, capsys):
     conn.close()
     lines = overview_run(capsys, db)[1].splitlines()
     assert lines[2:] == ["", "No band has 5 days of listening at any hour yet.", "",
-                         "Hours with no listening: 00-14, 16-23"]
+                         "Hours with no listening: 00-14 UTC (8 pm-10 am EDT), 16-23 UTC (12 pm-7 pm EDT)"]
+
+
+def test_overview_rank_contacts_moves_the_star(overview_db, db, capsys):
+    # Restored 2026-10-29: lost by mistake in the round-3 rewrite of these tests.
+    lines = overview_run(capsys, db, "--rank", "contacts")[1].splitlines()
+    assert lines[1] == "Typical-day stations; * = best bet (most contacts); . = too little data; Local = EDT"
+    assert lines[4] == "15  11 am     2      1*"  # 20m has the 2 contacts at 15 UTC
+
+
+def test_overview_on_a_utc_computer_has_no_local_column(overview_db, db, capsys, monkeypatch):
+    import time
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    lines = overview_run(capsys, db)[1].splitlines()
+    assert lines[1] == "Typical-day stations; * = best bet (busiest); . = too little data"
+    assert lines[3:5] == ["UTC   40m    20m", "15      2*     1"]
+    assert "Hours with no listening: 00-02, 04-14, 16-23" in lines  # UTC only
+    assert forecast_run(capsys, db, "--hour", "15")[1].startswith("FT8 forecast for 15:00-15:59 UTC (your last")
 
 
 def test_overview_matches_the_forecast_for_each_hour(overview_db, db, capsys):
     grid = overview_run(capsys, db)[1].splitlines()[4].split()
     forecast_lines = forecast_run(capsys, db, "--hour", "15")[1].splitlines()
-    assert grid[1] == row(forecast_lines, "40m")[1] + "*" and grid[2] == row(forecast_lines, "20m")[1]
+    assert grid[:3] == ["15", "11", "am"]  # UTC, then local
+    assert grid[3] == row(forecast_lines, "40m")[1] + "*" and grid[4] == row(forecast_lines, "20m")[1]
     assert forecast_lines[2].startswith("Best bet (busiest): 40m")
 
 
@@ -569,10 +588,32 @@ def test_overview_stale_data_gets_a_note(overview_db, db, capsys, monkeypatch):
     assert "Note: your newest data is 11 days old" in overview_run(capsys, db)[1]
 
 
+@pytest.mark.parametrize("hour, now, text", [
+    (17, datetime(2026, 10, 29, 17, 49, tzinfo=UTC), "1 pm EDT"),  # UTC-4 until DST ends 2026-11-01
+    (17, datetime(2026, 11, 2, 17, 0, tzinfo=UTC), "12 pm EST"),  # UTC-5 after; today's offset counts
+    (16, datetime(2026, 10, 29, 9, 0, tzinfo=UTC), "12 pm EDT"),  # noon
+    (4, datetime(2026, 10, 29, 9, 0, tzinfo=UTC), "12 am EDT"),  # midnight
+    (3, datetime(2026, 10, 29, 9, 0, tzinfo=UTC), "11 pm EDT"),  # the evening before, locally
+])
+def test_local_hour(hour, now, text):
+    assert cli.local_hour(hour, now) == text
+
+
+def test_no_local_hour_on_a_utc_computer(monkeypatch):
+    import time
+    monkeypatch.setenv("TZ", "UTC")
+    time.tzset()
+    assert cli.local_hour(17, NOW) is None
+
+
 @pytest.mark.parametrize("newest, text", [("2026-10-27 00:01", "today"), ("2026-10-26 23:59", "yesterday"),
                                           ("2026-10-25 15:30", "2 days ago"), ("2026-09-27 15:30", "30 days ago")])
 def test_data_age_counts_calendar_days(newest, text):
     assert cli.data_age(datetime.strptime(newest, "%Y-%m-%d %H:%M"), NOW) == text
+
+
+def test_hour_ranges_with_local_times():
+    assert cli.hour_ranges([0, 1, 2, 9], NOW) == "00-02 UTC (8 pm-10 pm EDT), 09 UTC (5 am EDT)"
 
 
 @pytest.mark.parametrize("hours, text", [([0, 1, 2, 3, 22, 23], "00-03, 22-23"), ([5], "05"), ([1, 3], "01, 03"),

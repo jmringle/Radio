@@ -85,7 +85,7 @@ def test_page_shows_the_best_bet_and_forecast_for_the_current_utc_hour(client, d
     conn.close()
     response, page = get(client)
     assert response.status_code == 200
-    assert "FT8 forecast for 15:00-15:59 UTC" in page
+    assert "FT8 forecast for 15:00-15:59 UTC, 11 am EDT" in page
     assert "Your last 30 days, through 2026-10-25 15:30 UTC" in page
     assert '<p class="verdict">Best bet (busiest): 20m - about 1 station on a typical day</p>' in page
     head = re.search(r"<thead>(.*?)</thead>", page, re.S).group(1)
@@ -204,17 +204,20 @@ def test_page_shows_the_24_hour_overview_like_the_terminal(client, db, five_days
     _, page = get(client, query_string={"rank": "busiest"})
     table = re.search(r'<table class="overview"[^>]*>(.*?)</table>', page, re.S).group(1)
     head = re.findall(r"<th[^>]*>(.*?)</th>", re.search(r"<thead>(.*?)</thead>", table, re.S).group(1))
-    assert head == ["UTC", "40m", "20m"]  # all-dot columns and rows are summed up instead
+    assert head == ["UTC", "Local", "40m", "20m"]  # all-dot columns and rows are summed up instead
     rows = re.findall(r"<tr[^>]*>(.*?)</tr>", re.search(r"<tbody>(.*?)</tbody>", table, re.S).group(1), re.S)
     assert len(rows) == 1
     # Each hour links to its forecast, keeping the ranking; the hour on show is marked.
     assert '<tr class="current"><th scope="row"><a href="/?hour=15&amp;rank=busiest" aria-current="true">15</a></th>' in table
-    assert re.findall(r"<td[^>]*>(.*?)</td>", rows[0]) == ["2*", "1"]
+    assert re.findall(r"<td[^>]*>(.*?)</td>", rows[0]) == ["11 am", "2*", "1"]
+    assert '<td class="local">11 am</td>' in rows[0]
     assert '<td class="best">2*</td>' in rows[0]
     main(["overview", "--db", str(db)])
     out = capsys.readouterr().out.splitlines()
     assert out[1] in page  # the key
-    assert out[-3:] == ["Too little data on every band: 03", "Hours with no listening: 00-02, 04-14, 16-23",
+    assert out[-3:] == ["Too little data on every band: 03 UTC (11 pm EDT)",
+                        "Hours with no listening: 00-02 UTC (8 pm-10 pm EDT), 04-14 UTC (12 am-10 am EDT), "
+                        "16-23 UTC (12 pm-7 pm EDT)",
                         "Too little data at every hour: 160m 80m 30m 17m 15m 12m 10m"]
     for line in out[-3:]:
         assert line in page
@@ -387,8 +390,9 @@ def test_an_all_txt_uploaded_as_adi_says_how_it_was_read(client, db):
 
 def test_hour_list_marks_the_current_utc_hour(client, five_days):
     _, page = get(client, query_string={"hour": "9"})
-    assert '<option value="15">15:00 (now)</option>' in page
-    assert '<option value="9" selected>09:00</option>' in page
+    assert '<option value="15">15:00 (11 am, now)</option>' in page
+    assert '<option value="9" selected>09:00 (5 am)</option>' in page
+    assert '<option value="all">All hours</option>' in page
 
 
 def test_data_age_is_shown(client, five_days):

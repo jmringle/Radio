@@ -162,7 +162,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
             if result is not None:  # about 0.3 s for a year of listening
                 hours = [forecast.compute(conn, h, my_grid, now) for h in range(24)]
                 overview = cli.overview(hours, by)
-                summary = cli.summary_lines(result, by, hours if hour is not None else None)
+                summary = cli.summary_lines(result, by, hours if hour is not None else None, now)
         finally:
             conn.close()
         if result is None:
@@ -173,11 +173,13 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         "page.html", hour=hour, hours=range(24), result=result, message=message, imported=imported,
         stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
         env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS,
-        show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour),
+        show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour, now),
         all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by, log_dir=cli._log_dir(),
         now_hour=now.hour, summary=summary, tab_title=_tab_title(result, hour, by), age_text=result and cli.data_age(result.newest, now), kind_for_name=folder.kind_for_name,
         best_bet=result and cli.best_bet_line(result, by), ranked=result and forecast.rank(result.bands, by),
-        thin=result and cli.thin_line(result), overview=overview, overview_key=cli.overview_key(by),
+        thin=result and cli.thin_line(result), overview=overview, overview_key=cli.overview_key(by, now),
+        local_short=lambda h: cli.local_short(h, now),
+        overview_notes=overview.notes(now) if overview else [],
         overview_empty=cli.OVERVIEW_EMPTY,
     )
 

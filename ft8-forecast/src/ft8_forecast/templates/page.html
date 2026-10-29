@@ -50,7 +50,7 @@
     <select id="hour" name="hour">
       <option value="{{ all_hours }}"{% if hour is none %} selected{% endif %}>All hours</option>
     {% for h in hours %}
-      <option value="{{ h }}"{% if h == hour %} selected{% endif %}>{{ "%02d:00" % h }}{% if h == now_hour %} (now){% endif %}</option>
+      <option value="{{ h }}"{% if h == hour %} selected{% endif %}>{{ "%02d:00" % h }}{% set local = local_short(h) if local_short else none %}{% if local or h == now_hour %} ({{ local or "" }}{% if local and h == now_hour %}, {% endif %}{% if h == now_hour %}now{% endif %}){% endif %}</option>
     {% endfor %}
     </select>
     <label for="rank">Best bet by</label>
@@ -119,11 +119,11 @@
   <div class="scroll">
   <table class="overview">
     <thead>
-      <tr><th scope="col">UTC</th>{% for name in overview.bands %}<th scope="col">{{ name }}</th>{% endfor %}</tr>
+      <tr><th scope="col">UTC</th>{% if local_short(0) %}<th scope="col">Local</th>{% endif %}{% for name in overview.bands %}<th scope="col">{{ name }}</th>{% endfor %}</tr>
     </thead>
     <tbody>
     {% for h, cells in overview.rows %}
-      <tr{% if h == hour %} class="current"{% endif %}><th scope="row"><a href="/?hour={{ h }}&amp;rank={{ rank }}"{% if h == hour %} aria-current="true"{% endif %}>{{ "%02d" % h }}</a></th>{% for text, best in cells %}<td{% if best %} class="best"{% elif text == "." %} class="thin"{% endif %}>{{ text }}{% if best %}*{% endif %}</td>{% endfor %}</tr>
+      <tr{% if h == hour %} class="current"{% endif %}><th scope="row"><a href="/?hour={{ h }}&amp;rank={{ rank }}"{% if h == hour %} aria-current="true"{% endif %}>{{ "%02d" % h }}</a></th>{% if local_short(h) %}<td class="local">{{ local_short(h) }}</td>{% endif %}{% for text, best in cells %}<td{% if best %} class="best"{% elif text == "." %} class="thin"{% endif %}>{{ text }}{% if best %}*{% endif %}</td>{% endfor %}</tr>
     {% endfor %}
     </tbody>
   </table>
@@ -131,8 +131,8 @@
   {% else %}
   <p>{{ overview_empty }}</p>
   {% endif %}
-  {% if overview.notes() %}
-    <p class="muted">{% for note in overview.notes() %}{{ note }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
+  {% if overview_notes %}
+    <p class="muted">{% for note in overview_notes %}{{ note }}{% if not loop.last %}<br>{% endif %}{% endfor %}</p>
   {% endif %}
 </section>
 {% endif %}
