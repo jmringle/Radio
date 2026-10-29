@@ -32,6 +32,8 @@ If this is the radio computer, you can import straight from WSJT-X's folder inst
 
 `cp .env.example .env` and set `MY_GRID` to your grid square (4, 6 or 8 characters; only the first 4 are used). `.env` is gitignored. Without it the forecast works but can't show distances; an invalid value is an error.
 
+Optional: `LOG_DIR` is the folder holding your `ALL.TXT` and `wsjtx_log.adi`, so you don't have to copy them (see [Importing from a folder](#importing-from-a-folder)). `~` works, and a relative path is relative to `.env`.
+
 ## Your data
 
 Copy files from the radio computer into `data/` (gitignored, along with any `*.adi`, `*.adif`, `ALL.TXT` and `*.sqlite` anywhere in this folder: they hold other operators' callsigns and locations):
@@ -50,6 +52,30 @@ wsjtx_log.adi (ADIF): 827 FT8 contacts, 827 new, 0 already stored
 Skipped: 3 other modes
 Problems: 0
 ```
+
+### Importing from a folder
+
+Instead of copying files into `data/`, point at the folder WSJT-X writes to:
+
+```
+$ ft8cast import --dir "/Volumes/WSJT-X"      # or set LOG_DIR in .env and run: ft8cast import
+ALL.TXT (ALL.TXT): 422,114 FT8 lines, 1,203 new, 420,911 already stored
+...
+wsjtx_log.adi (ADIF): 827 FT8 contacts, 2 new, 825 already stored
+...
+$ ft8cast watch                               # LOG_DIR, or --dir PATH
+Watching /Volumes/WSJT-X every 60 s; Ctrl+C stops.
+16:42 UTC  ALL.TXT: 37 new
+16:43 UTC  ALL.TXT: 41 new
+^C
+Stopped.
+```
+
+- `import` with a folder reads `ALL.TXT` and every `.adi`/`.adif` directly in it (not subfolders), one summary each. Symlinks are skipped, and the folder is never written to. One bad file is reported and the rest still import (exit code 2).
+- `watch` imports everything once, then checks every 60 seconds (`--every 10` to `3600`) and imports only what changed: the new complete lines of `ALL.TXT` (a line WSJT-X is still writing waits for the next check), or a changed `.adi` whole. It prints only when something new arrives. It runs only while you leave it running: no background service, nothing at login. If the folder goes away (a share coming unmounted), it says so once and keeps checking. It checks by polling rather than waiting for macOS change alerts, because those often don't arrive for network shares.
+- On the web page, **Import from folder** (shown when `LOG_DIR` is set) does what `ft8cast import` with no file does. The page never takes a folder from the browser, only `LOG_DIR`.
+
+**WSJT-X on another computer:** in WSJT-X, File > Open log directory shows the folder. Share it on that computer, read-only if you can (this tool never writes to it), then on the Mac use Finder > Go > Connect to Server to mount it; it appears under `/Volumes/`, and that path goes in `LOG_DIR`. Copying the files over and pointing `LOG_DIR` at the copy works too.
 
 The file type is detected from its content, not its name. Import as often as you like: copying a newer `ALL.TXT` over and importing again adds only the new lines. Problems are listed on stderr with line numbers (the first 10, then a count); the rest of the file still imports. The database is `data/ft8cast.sqlite`; `--db PATH` uses another one.
 
@@ -148,8 +174,10 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
   - Column names (2026-10-29): Typical day, Total heard, Signal (median SNR), Heard out to, Worked out to, Contacts. The terminal shows miles only (fits 80 columns); the page adds grid squares.
   - Only bands where General may operate data, via `band-privileges`.
 - `ft8cast overview [--rank busiest|contacts]` (added 2026-10-29): one row per UTC hour with any listening, one column per band; a cell is the typical-day stations (as `forecast --hour HH` computes them) or `.` below 5 listening days; `*` marks the hour's best bet by the same rule (no star when there's none). Hours with no listening are listed as ranges (`00-09, 22-23`). Changed 2026-10-29: hours with too little data on every band, and bands with too little data at every hour, get no row or column, only a line each under the grid; with no band ready at any hour, one sentence instead of a grid. Same header, stale note and errors as `forecast`.
+- `ft8cast import [FILE] [--dir PATH]` from a folder (added 2026-10-29): with `--dir`, or with no file and `LOG_DIR` set in `.env`, imports `ALL.TXT` and `*.adi`/`*.adif` directly in the folder (names in any case; content still decides the type). Symlinks, subfolders and other files are skipped; the folder is never written. A missing folder or one with no logs is an error that stores nothing. One summary per file; a bad file is reported and the rest import; exit 2 if any file failed. A file and `--dir` together, or neither with no `LOG_DIR`, is an error saying what to do.
+- `ft8cast watch [--dir PATH] [--every SECONDS]` (added 2026-10-29): user-started, runs until Ctrl+C ("Stopped.", exit 0). Imports the folder, then every `--every` seconds (default 60, allowed 10-3600) re-reads files whose inode, size or modified time changed: for `ALL.TXT` only the complete lines after the last read (a half-written line waits; a smaller or replaced file is read from the start), for ADIF the whole file. New files are picked up, deleted ones forgotten. Prints `HH:MM UTC  name: N new` and problems (with the file's line numbers) only when something happens. Folder missing at start: error. Folder unreachable later: one message, keeps checking, says when it's back. A file it can't read: a message, tried again next check. An ADIF with no FT8 records or over 100 MB: reported once until it changes.
 - `ft8cast serve [--port N]` (added 2026-10-28): a web page on `127.0.0.1` only, default port 8074.
-  - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason. A "Best bet by" list does what `--rank` does; a bad value is a 400. On screens narrower than the forecast table (44rem), it scrolls in its own box with "Scroll the table sideways for more" under it; the page itself never scrolls sideways. Below it, the 24-hour overview (added 2026-10-29), following "Best bet by", each hour linking to its forecast.
+  - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason. An "Import from folder" button (only with `LOG_DIR` set) imports like `ft8cast import` with no file, one summary per file; the folder comes only from `LOG_DIR`, never the request. No `LOG_DIR` or a missing folder is a 400 that stores nothing; it needs the same Origin as uploads. A "Best bet by" list does what `--rank` does; a bad value is a 400. On screens narrower than the forecast table (44rem), it scrolls in its own box with "Scroll the table sideways for more" under it; the page itself never scrolls sideways. Below it, the 24-hour overview (added 2026-10-29), following "Best bet by", each hour linking to its forecast.
   - Uploading `ALL.TXT` or ADIF imports it exactly like `ft8cast import` (same detection, de-duplication and problem reporting) and shows the summary; the file isn't kept. No file, a file with no FT8 records, or an ADIF over 100 MB is a 400 that stores nothing; an upload over 500 MB is a 413.
   - No database yet: the page says to upload, and creates nothing until you do. A database that isn't ft8cast's, or an invalid `MY_GRID`, shows the reason (500) and changes nothing.
   - Unexpected errors show "Something went wrong; see the terminal" and never a traceback; debug mode can't be switched on (not even by `FLASK_DEBUG`).
@@ -186,7 +214,7 @@ The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FR
 
 ### Threat model
 
-Personal tool, local files only, no network. `serve` adds a local web server, so T5-T9 cover it.
+Personal tool, local files only, no network. `serve` adds a local web server, so T5-T9 cover it; reading a folder (`LOG_DIR`, `--dir`, `watch`) adds T10-T12.
 
 | ID | Threat | OWASP 2025 | Mitigation | Test |
 |---|---|---|---|---|
@@ -199,6 +227,9 @@ Personal tool, local files only, no network. `serve` adds a local web server, so
 | T7 | DNS rebinding: an attacker's domain is pointed at 127.0.0.1, so their page counts as "same site" and can read yours | A01 Broken Access Control | Only `Host: 127.0.0.1` or `localhost` is answered | `test_other_host_names_are_refused` |
 | T8 | A crafted `ALL.TXT` line or file name, echoed in the problem list, runs as script in the page (XSS, cross-site scripting) | A05 Injection | Jinja auto-escaping; CSP with no `script-src`, so even injected script wouldn't run; names cut to 80 characters | `test_on_air_text_and_file_names_are_escaped`, `test_security_headers_on_every_response` |
 | T9 | Werkzeug's debugger gets switched on: its in-browser console runs any Python typed into it | A02 Security Misconfiguration | `debug=False` and no `.env` loading, so `FLASK_DEBUG` is ignored; errors show no traceback | `test_serve_listens_only_on_this_machine_with_debug_off`, `test_errors_show_no_traceback` |
+| T10 | A website open in your browser makes the page import from some other folder on your disk | A01 Broken Access Control | The folder comes only from `LOG_DIR` in `.env`; the page has no folder field and ignores any sent | `test_page_never_takes_a_folder_path` |
+| T11 | A symlink in the log folder (on a share, someone else may control it) points at a private file, which then gets parsed and bits of it echoed in problem messages | A01 Broken Access Control | Symlinks and subfolders are skipped; only `ALL.TXT` and `.adi`/`.adif` names are read | `test_skips_symlinks_and_subfolders` |
+| T12 | A website open in your browser presses "Import from folder" (CSRF) | A01 Broken Access Control | Same exact-`Origin` check as uploads | `test_import_folder_from_any_other_origin_is_refused` |
 
 **Accepted risks:** a huge garbage file passed to `import` would collect one problem per line in memory. It's a personal tool reading your own files, so there's no cap beyond ADIF's 100 MB (and 500 MB for uploads). Werkzeug's development server is used rather than a production server (one more dependency): it serves one person on one machine, and T5-T9 cover what a production server wouldn't add. Mutation-checked 2026-10-28: removing each control above makes a test fail.
 

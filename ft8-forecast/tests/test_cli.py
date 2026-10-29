@@ -153,7 +153,7 @@ def test_unreadable_file_is_an_error(tmp_path, db, capsys):
     assert "Permission denied" in err
 
 
-@pytest.mark.parametrize("argv", [[], ["import"], ["frobnicate"]])
+@pytest.mark.parametrize("argv", [[], ["frobnicate"], ["watch", "--every"]])
 def test_usage_errors_exit_2(argv, capsys):
     assert main(argv) == 2
     assert "usage: ft8cast" in capsys.readouterr().err
@@ -162,6 +162,123 @@ def test_usage_errors_exit_2(argv, capsys):
 def test_help_exits_0(capsys):
     assert main(["import", "--help"]) == 0
     assert "never changed" in capsys.readouterr().out
+
+
+# --- ft8cast import from a folder (--dir or LOG_DIR) ---
+
+@pytest.fixture
+def logdir(tmp_path, monkeypatch):
+    """A folder with ALL.TXT and an ADIF log, and an empty .env next to it."""
+    monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
+    folder = tmp_path / "wsjt x"  # a space, like "/Volumes/WSJT-X share"
+    folder.mkdir()
+    (folder / "ALL.TXT").write_bytes(RX + RX2)
+    (folder / "wsjtx_log.adi").write_bytes(ADIF)
+    return folder
+
+
+def test_import_dir_imports_every_log(logdir, db, capsys):
+    code, out, err = run(capsys, "--dir", logdir, "--db", db)
+    assert (code, err) == (0, "")
+    assert "ALL.TXT (ALL.TXT): 2 FT8 lines, 2 new, 0 already stored" in out
+    assert "wsjtx_log.adi (ADIF): 1 FT8 contacts, 1 new, 0 already stored" in out
+
+
+@pytest.mark.parametrize("value", ["{dir}", '"{dir}"', "{dir}  # the share", "wsjt x"])
+def test_import_with_no_file_uses_log_dir(logdir, db, capsys, value):
+    cli.ENV_FILE.write_text("MY_GRID=JJ00\nLOG_DIR=" + value.format(dir=logdir) + "\n")  # relative: next to .env
+    code, out, _ = run(capsys, "--db", db)
+    assert code == 0 and "2 new" in out and "1 new" in out
+
+
+def test_log_dir_expands_home(logdir, db, capsys, monkeypatch):
+    monkeypatch.setenv("HOME", str(logdir.parent))
+    cli.ENV_FILE.write_text("LOG_DIR=~/wsjt x\n")
+    assert run(capsys, "--db", db)[0] == 0
+
+
+def test_import_with_nothing_to_import_says_how(logdir, db, capsys):
+    code, _, err = run(capsys, "--db", db)
+    assert code == 2 and "give a file or --dir, or set LOG_DIR in .env" in err
+
+
+def test_file_and_dir_together_is_a_usage_error(logdir, db, capsys):
+    code, _, err = run(capsys, logdir / "ALL.TXT", "--dir", logdir, "--db", db)
+    assert code == 2 and "not both" in err
+
+
+def test_import_dir_that_isnt_there_is_an_error_and_stores_nothing(logdir, db, capsys):
+    code, _, err = run(capsys, "--dir", logdir / "nope", "--db", db)
+    assert code == 2 and "isn't a folder" in err and not db.exists()
+
+
+def test_import_dir_with_a_bad_file_imports_the_rest_and_exits_2(logdir, db, capsys):
+    (logdir / "broken.adi").write_bytes(b"<call:6>N0CALL <mode:3>FT4 <eor>")
+    code, out, err = run(capsys, "--dir", logdir, "--db", db)
+    assert code == 2
+    assert "ft8cast: error: broken.adi: no FT8 records found (read as ADIF)" in err
+    assert "ALL.TXT (ALL.TXT): 2 FT8 lines, 2 new" in out
+
+
+# --- ft8cast watch ---
+
+def watch_run(capsys, monkeypatch, *args, changes=()):
+    """Run watch; each sleep applies the next change, and the sleep after the last is Ctrl+C."""
+    sleeps = []
+    pending = list(changes)
+
+    def sleep(seconds):
+        sleeps.append(seconds)
+        if not pending:
+            raise KeyboardInterrupt
+        pending.pop(0)()
+    monkeypatch.setattr(cli, "_sleep", sleep)
+    monkeypatch.setattr(cli, "_now", lambda: datetime(2026, 10, 29, 16, 42, tzinfo=UTC))
+    code = main(["watch", *map(str, args)])
+    out, err = capsys.readouterr()
+    return code, out, err, sleeps
+
+
+def test_watch_imports_then_checks_until_ctrl_c(logdir, db, capsys, monkeypatch):
+    def more():
+        with (logdir / "ALL.TXT").open("ab") as file:
+            file.write(RX.replace(b"143015", b"143030"))
+    code, out, err, sleeps = watch_run(capsys, monkeypatch, "--dir", logdir, "--db", db, changes=[more])
+    assert (code, err) == (0, "")
+    assert out.splitlines() == [f"Watching {logdir} every 60 s; Ctrl+C stops.",
+                                "16:42 UTC  ALL.TXT: 2 new", "16:42 UTC  wsjtx_log.adi: 1 new",
+                                "16:42 UTC  ALL.TXT: 1 new", "Stopped."]
+    assert sleeps == [60, 60]
+
+
+def test_watch_uses_log_dir_and_every(logdir, db, capsys, monkeypatch):
+    cli.ENV_FILE.write_text(f"LOG_DIR={logdir}\n")
+    code, out, _, sleeps = watch_run(capsys, monkeypatch, "--every", "10", "--db", db)
+    assert code == 0 and out.startswith(f"Watching {logdir} every 10 s") and sleeps == [10]
+
+
+@pytest.mark.parametrize("every", ["9", "3601", "abc", "", "1.5", "-60"])
+def test_watch_every_must_be_10_to_3600(logdir, db, capsys, monkeypatch, every):
+    code, _, err, _ = watch_run(capsys, monkeypatch, "--dir", logdir, "--every", every, "--db", db)
+    assert code == 2 and "must be 10 to 3600 seconds" in err
+
+
+def test_watch_needs_a_folder_that_exists_at_start(logdir, db, capsys, monkeypatch):
+    code, _, err, sleeps = watch_run(capsys, monkeypatch, "--dir", logdir / "nope", "--db", db)
+    assert code == 2 and "isn't a folder" in err and sleeps == []
+    code, _, err, _ = watch_run(capsys, monkeypatch, "--db", db)  # no --dir, no LOG_DIR
+    assert code == 2 and "give --dir or set LOG_DIR in .env" in err
+
+
+def test_watch_keeps_going_when_the_folder_goes_away(logdir, db, capsys, monkeypatch, tmp_path):
+    def unmount():
+        logdir.rename(tmp_path / "away")
+    def remount():
+        (tmp_path / "away").rename(logdir)
+    code, out, _, _ = watch_run(capsys, monkeypatch, "--dir", logdir, "--db", db, changes=[unmount, remount])
+    lines = out.splitlines()
+    assert code == 0 and lines[-1] == "Stopped."
+    assert lines[3].startswith("16:42 UTC  folder not reachable") and lines[4] == "16:42 UTC  folder is reachable again"
 
 
 # --- ft8cast forecast ---
@@ -478,3 +595,9 @@ def test_commands_never_use_the_network(setup, db, tmp_path, capsys, monkeypatch
     assert run(capsys, write(tmp_path, "ALL.TXT", RX), "--db", db)[0] == 0
     assert run(capsys, write(tmp_path, "log.adi", ADIF), "--db", db)[0] == 0
     assert forecast_run(capsys, db)[0] == 0
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "ALL.TXT").write_bytes(RX)
+    assert run(capsys, "--dir", logs, "--db", db)[0] == 0
+    monkeypatch.setattr(cli, "_sleep", lambda seconds: (_ for _ in ()).throw(KeyboardInterrupt))
+    assert main(["watch", "--dir", str(logs), "--db", str(db)]) == 0

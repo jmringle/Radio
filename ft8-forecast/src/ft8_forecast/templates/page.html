@@ -18,14 +18,20 @@
 
 {% if imported %}
   <section class="imported" aria-labelledby="imported-title">
-    {% set log = imported.log %}
     <h2 id="imported-title">Imported</h2>
+  {% for item in imported %}
+    {% set log = item.log %}
+    {% if item.error %}
+    <p class="error">{{ item.name }}: {{ item.error }}</p>
+    {% else %}
     {% set total = log.records|length %}
-    <p>{{ imported.name }} (read as {{ log.kind }}): {{ "{:,}".format(total) }} FT8 {{ log.noun }}, {{ "{:,}".format(imported.new) }} new, {{ "{:,}".format(total - imported.new) }} already stored</p>
+    <p>{{ item.name }} (read as {{ log.kind }}): {{ "{:,}".format(total) }} FT8 {{ log.noun }}, {{ "{:,}".format(item.new) }} new, {{ "{:,}".format(total - item.new) }} already stored</p>
     {% set skips = log.skipped|selectattr(0)|list %}
     {% if skips %}
       <p>Skipped: {% for count, why in skips %}{{ "{:,}".format(count) }} {{ why }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
     {% endif %}
+    {% endif %}
+    {% if log %}
     <p>Problems: {{ "{:,}".format(log.problems|length) }}</p>
     {% if log.problems %}
       <ul class="problems">
@@ -37,6 +43,8 @@
       {% endif %}
       </ul>
     {% endif %}
+    {% endif %}
+  {% endfor %}
   </section>
 {% endif %}
 
@@ -160,6 +168,12 @@
     <button type="submit">Import</button>
   </form>
   <p class="muted">Re-importing is safe: lines already stored are skipped. The file itself isn't kept.</p>
+  {% if log_dir %}
+  <form method="post" action="/import-folder" class="upload">
+    <button type="submit">Import from folder</button>
+    <span class="muted">From {{ log_dir }} (LOG_DIR in {{ env_name }})</span>
+  </form>
+  {% endif %}
 </section>
 </main>
 </body>
