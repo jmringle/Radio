@@ -72,34 +72,63 @@ def stored(db, table="decodes"):
 
 # --- the forecast page ---
 
-def test_page_shows_the_forecast_for_the_current_utc_hour(client, db, five_days, env):
+def cells(page, band):
+    row = re.search(rf"<tr>\s*<th[^>]*>{band}</th>(.*?)</tr>", page, re.S).group(1)
+    return re.findall(r"<td[^>]*>(.*?)</td>", row)
+
+
+def test_page_shows_the_best_bet_and_forecast_for_the_current_utc_hour(client, db, five_days, env):
     env.write_text("MY_GRID=JJ00\n")
-    conn = open_db(db)  # N0CALL on a second day, so its grid can set Farthest
+    conn = open_db(db)  # N0CALL on a second day, so its grid can set Heard out to
     save_decodes(conn, [Decode(datetime(2026, 10, 24, 15, 30, tzinfo=UTC), 14_074_000, False, -12, "N0CALL",
                                "JJ01", "CQ N0CALL JJ01")])
     conn.close()
     response, page = get(client)
     assert response.status_code == 200
     assert "FT8 forecast for 15:00-15:59 UTC" in page
-    assert "30 days through 2026-10-25 15:30 UTC" in page
-    row = re.search(r"<tr>\s*<th[^>]*>20m</th>(.*?)</tr>", page, re.S).group(1)
-    assert re.findall(r"<td[^>]*>(.*?)</td>", row) == ["1", "5", "-12 dB", "69 mi (JJ01)", "-", "0"]
-    assert "not enough data (0 days listening; need 5)" in page
-    assert "needs your grid" not in page
+    assert "Your last 30 days, through 2026-10-25 15:30 UTC" in page
+    assert '<p class="verdict">Best bet (busiest): 20m - about 1 station on a typical day</p>' in page
+    head = re.search(r"<thead>(.*?)</thead>", page, re.S).group(1)
+    assert re.findall(r"<th[^>]*>(.*?)</th>", head) == ["Band", "Typical day", "Total heard", "Signal",
+                                                         "Heard out to", "Worked out to", "Contacts"]
+    assert cells(page, "20m") == ["1", "5", "-12 dB", "69 mi (JJ01)", "-", "0"]  # the page keeps grids
+    assert "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)" in page
+    assert "need your grid" not in page
 
 
-def test_station_columns_are_grouped_and_explained(client, five_days):
+def test_columns_are_explained_like_the_terminal(client, five_days):
     _, page = get(client)
-    assert '<th scope="colgroup" colspan="2">Stations heard</th>' in page
-    assert '<th scope="col">Typical day</th><th scope="col">30-day total</th>' in page
-    assert '<th scope="col" rowspan="2">30-day contacts</th>' in page  # a total, not per day
-    assert '<th scope="col" rowspan="2">Farthest heard</th>' in page  # heard, not worked
-    assert '<th scope="col" rowspan="2">Farthest contact</th>' in page  # worked
     assert "Nothing leaves this machine." in page
-    assert "Typical day: stations heard on the median day you listened at this hour." in page
-    assert "30-day total: different stations heard over the whole 30 days." in page
-    assert "Farthest heard: a station heard with the same grid square on 2+ days at this hour" in page
-    assert "Farthest contact: your farthest logged contact with a grid square at this hour" in page
+    for line in cli.LEGEND:
+        assert line in page
+
+
+def test_rank_by_contacts(client, db, five_days, env):
+    env.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)  # 40m: 5 days of 1 station, and 2 contacts at 15 UTC
+    save_decodes(conn, [Decode(datetime(2026, 10, 25 - n, 15, 0, tzinfo=UTC), 7_074_000, False, -5, f"N{n}CALL/P",
+                               None, f"CQ N{n}CALL/P") for n in range(5)])
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25 - n, 15, 0, tzinfo=UTC), 7_074_000, "JJ01")
+                         for n in range(2)])
+    conn.close()
+    _, page = get(client, query_string={"rank": "contacts"})
+    assert "Best bet (most contacts): 40m - 2 contacts in 30 days; worked out to 69 mi" in page
+    assert '<option value="contacts" selected>Most contacts</option>' in page
+    assert re.findall(r"<tbody>\s*<tr>\s*<th[^>]*>(\w+)</th>", page) == ["40m"]  # first row
+    _, page = get(client, query_string={"rank": "contacts", "hour": "9"})
+    assert '<option value="9" selected>' in page and '<option value="contacts" selected>' in page
+
+
+def test_busiest_is_selected_by_default(client, five_days):
+    _, page = get(client)
+    assert '<option value="busiest" selected>Busiest typical day</option>' in page
+
+
+@pytest.mark.parametrize("rank", ["", "Busiest", "most", "contacts "])
+def test_bad_rank_is_a_400(client, five_days, rank):
+    response, page = get(client, query_string={"rank": rank})
+    assert response.status_code == 400
+    assert "Best bet must be &#39;busiest&#39; or &#39;contacts&#39;" in page  # escaped, like all text
 
 
 def test_page_shows_farthest_contacts_like_the_terminal(client, db, five_days, env, capsys):
@@ -113,19 +142,19 @@ def test_page_shows_farthest_contacts_like_the_terminal(client, db, five_days, e
     ])
     conn.close()
     _, page = get(client)
-    row = re.search(r"<tr>\s*<th[^>]*>20m</th>(.*?)</tr>", page, re.S).group(1)
-    assert re.findall(r"<td[^>]*>(.*?)</td>", row)[3:] == ["-", "69 mi (JJ01)", "2"]
+    assert cells(page, "20m")[3:] == ["-", "69 mi (JJ01)", "2"]
     assert "Farthest contact ever: 415 mi (JJ30) on 20m, 2026-04-08" in page
     assert "Farthest contact by day (30 days, any hour)" in page
     days = re.search(r'<table class="daily"[^>]*>.*?<tbody>(.*?)</tbody>', page, re.S).group(1)
     assert [re.findall(r"<t[hd][^>]*>(.*?)</t[hd]>", r) for r in re.findall(r"<tr>(.*?)</tr>", days, re.S)] == [
         ["2026-10-25", "40m", "138 mi (JJ10)"], ["2026-10-23", "-", "-"]]
     assert "N0CALL" not in page  # grids only, never callsigns
-    # The terminal shows the same.
+    # The terminal shows the same lines, without the grids.
     main(["forecast", "--db", str(db)])
-    out = capsys.readouterr().out
-    assert "Farthest contact ever: 415 mi (JJ30) on 20m, 2026-04-08" in out
-    assert "2026-10-25  40m       138 mi (JJ10)" in out and "2026-10-23  -                     -" in out
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[2] in page  # the best bet
+    assert next(line for line in lines if line.startswith("Too little data")) in page
+    assert "Farthest contact ever: 415 mi on 20m, 2026-04-08" in lines
 
 
 def test_without_my_grid_no_farthest_contact_sections(client, db, five_days):
@@ -140,14 +169,16 @@ def test_hour_option(client, five_days):
     _, page = get(client, query_string={"hour": "9"})
     assert "FT8 forecast for 09:00-09:59 UTC" in page
     assert '<option value="9" selected>' in page
-    assert "not enough data (0 days listening; need 5)" in page
+    assert "Best bet (busiest): none - no listening at this hour in these 30 days" in page
+    assert "<thead>" not in page and cli.LEGEND[0] not in page  # no band to list or explain
+    assert "Too little data" not in page
 
 
 def test_all_hours_option(client, five_days):
     _, page = get(client, query_string={"hour": "all"})
     assert "FT8 forecast for all hours (00:00-23:59 UTC)" in page
     assert '<option value="all" selected>All hours</option>' in page
-    assert "at any hour" in page and "at this hour" not in page
+    assert "at this hour" not in page
 
 
 def test_current_hour_is_selected_by_default_not_all(client, five_days):
@@ -165,7 +196,7 @@ def test_bad_hour_is_a_400(client, five_days, hour):
 
 def test_without_my_grid_farthest_is_blank_and_explained(client, five_days):
     _, page = get(client)
-    assert "Farthest heard and contacts need your grid: set MY_GRID in .env" in page
+    assert "Heard out to and Worked out to need your grid: set MY_GRID in .env" in page
 
 
 def test_invalid_my_grid_is_explained(client, five_days, env):

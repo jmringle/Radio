@@ -54,41 +54,37 @@ Problems: 0
 The file type is detected from its content, not its name. Import as often as you like: copying a newer `ALL.TXT` over and importing again adds only the new lines. Problems are listed on stderr with line numbers (the first 10, then a count); the rest of the file still imports. The database is `data/ft8cast.sqlite`; `--db PATH` uses another one.
 
 ```
-$ ft8cast forecast --hour 15
-FT8 forecast for 15:00-15:59 UTC (your data: 30 days through 2026-10-25 19:48 UTC)
+$ ft8cast forecast --hour 16
+FT8 forecast for 16:00-16:59 UTC (your last 30 days, through 2026-10-25 19:48 UTC)
 
-      ----- Stations heard -----
-Band   Typical day  30-day total  Median SNR    Farthest heard  Farthest contact  30-day contacts
-160m  not enough data (0 days listening; need 5)
-80m   not enough data (0 days listening; need 5)
-40m             24           111       -9 dB                 -                 -                1
-30m   not enough data (2 days listening; need 5)
-20m             96           668      -13 dB                 -                 -                8
-17m   not enough data (4 days listening; need 5)
-15m             30           318      -14 dB                 -                 -                3
-12m   not enough data (1 day listening; need 5)
-10m             12           128      -14 dB                 -                 -                1
+Best bet (busiest): 20m - about 50 stations on a typical day; worked out to 1,739 mi
 
-Typical day: stations heard on the median day you listened at this hour.
-30-day total: different stations heard over the whole 30 days.
-Farthest heard: a station heard with the same grid square on 2+ days at this hour; the square is theirs.
-Farthest contact: your farthest logged contact with a grid square at this hour; the square is theirs.
+Band  Typical day  Total heard  Signal  Heard out to  Worked out to  Contacts
+20m            50          573  -13 dB      4,884 mi       1,739 mi        11
+15m            45          460  -15 dB      5,155 mi       1,629 mi         5
+10m            18          234  -14 dB      8,499 mi       5,306 mi         6
+40m             5           23  -10 dB        737 mi         125 mi         1
 
-Farthest heard and contacts need your grid: set MY_GRID in .env (see .env.example).
+Too little data at this hour (need 5 days): 160m 80m 12m (0 days), 17m (1 day), 30m (3 days)
+
+Typical day: median stations per day you listened. Total heard: over 30 days.
+Signal: median SNR. Heard out to: same station and grid on 2+ days.
 ```
 
-With `MY_GRID` set, two more parts follow the notes, from your ADIF log (grids only, never callsigns):
+The **Best bet** line answers "which band now?". `--rank busiest` (the default) picks the band with the most stations on a typical day; `--rank contacts` picks the one where you've completed the most contacts. The table follows the same order, best first; a tie goes to the other measure, then the lower band. When no band qualifies, the line says why instead of guessing. Bands with fewer than 5 days of listening share one line under the table, grouped by days. Distances are miles only here; the web page adds each grid square.
+
+From your ADIF log (never callsigns), two more parts follow:
 
 ```
-Farthest contact ever: 4,321 mi (JN58) on 20m, 2026-08-14
+Farthest contact ever: 4,321 mi on 20m, 2026-08-14
 
 Farthest contact by day (30 days, any hour):
-Date        Band           Farthest
-2026-10-25  15m     3,888 mi (JN58)
-2026-10-23  -                     -
+Date        Band  Farthest
+2026-10-25  15m   3,888 mi
+2026-10-23  -            -
 ```
 
-The daily list has a row for each day with contacts in the 30 days, newest first; `-` means none of that day's contacts logged a grid. It ignores `--hour`, since each row is a whole day. The all-time line counts every imported contact.
+The daily list has a row for each day with contacts in the 30 days, newest first; `-` means none of that day's contacts logged a grid. It ignores `--hour`, since each row is a whole day. The all-time line counts every imported contact. Without `MY_GRID` in `.env`, the distances are `-` and these two parts are left out.
 
 Without `--hour` it uses the current UTC hour; `--hour all` counts the whole day instead of one hour (on the page: "All hours" in the hour list). The 30 days end at your newest imported decode, not today, so an older copy of `ALL.TXT` still gives a full window; if that's more than 7 days ago, a note says to copy a fresh one over.
 
@@ -117,15 +113,17 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
 
 **Acceptance criteria** (settled 2026-10-28). Every command is manual; nothing runs on a schedule.
 - `ft8cast import <file>`: reads an `ALL.TXT` or ADIF file into a local SQLite database (`data/`, gitignored). Re-importing the same file doesn't duplicate. Never modifies the source file. Bad lines are skipped and reported with line numbers; a file with no valid lines is an error.
-- `ft8cast forecast [--hour HH|all]`: per band, for the current UTC hour, the one given, or all hours (added 2026-10-28: the same rules with no hour limit, so a listening day is a day with any line on that band, and Farthest heard's 2 days can be at different hours):
-  - **stations per day**, shown as "Typical day" under "Stations heard" (renamed 2026-10-28, with "30-day total" for distinct stations, so the two read differently; changed 2026-10-28; replaced "open on X of Y days"): the median number of distinct stations decoded per listening day at that hour. A listening day is any day `ALL.TXT` shows you on that band at that hour (a decode or your own Tx); a day with only your Tx counts as 0. Window: the last 30 days.
-  - distinct stations heard, median SNR, farthest station heard with its grid square (messages often carry the sender's grid). Farthest heard counts a station only if it was decoded with the same grid on 2+ days at that hour on that band (decided 2026-10-28);
+- `ft8cast forecast [--hour HH|all] [--rank busiest|contacts]`: per band, for the current UTC hour, the one given, or all hours (added 2026-10-28: the same rules with no hour limit, so a listening day is a day with any line on that band, and Farthest heard's 2 days can be at different hours):
+  - **stations per day**, shown as "Typical day" (replaced "open on X of Y days" 2026-10-28): the median number of distinct stations decoded per listening day at that hour. A listening day is any day `ALL.TXT` shows you on that band at that hour (a decode or your own Tx); a day with only your Tx counts as 0. Window: the last 30 days.
+  - distinct stations heard ("Total heard"), median SNR ("Signal"), farthest station heard with its grid square ("Heard out to"; messages often carry the sender's grid). It counts a station only if it was decoded with the same grid on 2+ days at that hour on that band (decided 2026-10-28);
   - confirmed contacts from ADIF, shown separately (proven two-way paths).
-  - **Farthest contact** (added 2026-10-29): the farthest ADIF contact with a logged grid, on that band at that hour in the window, as miles and the other station's square; `-` without one or without `MY_GRID`. No 2-day rule. Under the table: **Farthest contact ever** (every imported contact, any hour or date, with band and date) and **Farthest contact by day** (one row per day with contacts in the window, any hour, newest first; `-` for a day with no logged grid). Ties go to the earlier contact. Only bands with General data privileges count. No callsigns are shown. Both parts are left out without `MY_GRID`.
-  - Fewer than 5 listening days on a band at that hour: "not enough data", never a score.
+  - **Farthest contact** ("Worked out to", added 2026-10-29): the farthest ADIF contact with a logged grid, on that band at that hour in the window, as miles and the other station's square; `-` without one or without `MY_GRID`. No 2-day rule. Under the table: **Farthest contact ever** (every imported contact, any hour or date, with band and date) and **Farthest contact by day** (one row per day with contacts in the window, any hour, newest first; `-` for a day with no logged grid). Ties go to the earlier contact. Only bands with General data privileges count. No callsigns are shown. Both parts are left out without `MY_GRID`.
+  - Fewer than 5 listening days on a band at that hour: "not enough data", never a score; these bands share one line ("Too little data"), grouped by days listened.
+  - **Best bet** (added 2026-10-29): one line above the table naming the top band by `--rank`: `busiest` (default; stations per day, then contacts) or `contacts` (contacts, then stations per day); a full tie goes to the lower band. The table lists only bands with enough data, in that order. No band with enough data, or none scoring above 0: the line says "none" and why. No listening at all at that hour: one sentence, no table, no legend.
+  - Column names (2026-10-29): Typical day, Total heard, Signal (median SNR), Heard out to, Worked out to, Contacts. The terminal shows miles only (fits 80 columns); the page adds grid squares.
   - Only bands where General may operate data, via `band-privileges`.
 - `ft8cast serve [--port N]` (added 2026-10-28): a web page on `127.0.0.1` only, default port 8074.
-  - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason.
+  - Shows the forecast for the current UTC hour, or one picked from a list that also has "All hours"; a bad hour is a 400 with the reason. A "Best bet by" list does what `--rank` does; a bad value is a 400.
   - Uploading `ALL.TXT` or ADIF imports it exactly like `ft8cast import` (same detection, de-duplication and problem reporting) and shows the summary; the file isn't kept. No file, a file with no FT8 records, or an ADIF over 100 MB is a 400 that stores nothing; an upload over 500 MB is a 413.
   - No database yet: the page says to upload, and creates nothing until you do. A database that isn't ft8cast's, or an invalid `MY_GRID`, shows the reason (500) and changes nothing.
   - Unexpected errors show "Something went wrong; see the terminal" and never a traceback; debug mode can't be switched on (not even by `FLASK_DEBUG`).

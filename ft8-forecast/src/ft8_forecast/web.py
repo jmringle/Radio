@@ -67,7 +67,11 @@ def create_app(db: Path) -> Flask:
             hour = None if text is None else cli._hour(text)
         except argparse.ArgumentTypeError as error:
             raise PageError(400, f"Hour {error}.") from None
-        return _render(db, hour)  # None: now; cli.ALL_HOURS: the whole day
+        try:
+            by = cli._rank(request.args.get("rank", "busiest"))
+        except argparse.ArgumentTypeError as error:
+            raise PageError(400, f"Best bet {error}.") from None
+        return _render(db, hour, by)  # hour None: now; cli.ALL_HOURS: the whole day
 
     @app.post("/import")
     def upload():
@@ -86,7 +90,7 @@ def create_app(db: Path) -> Flask:
             new = save_log(conn, log)
         finally:
             conn.close()
-        return _render(db, None, imported={"name": name, "log": log, "new": new})
+        return _render(db, None, "busiest", imported={"name": name, "log": log, "new": new})
 
     @app.errorhandler(PageError)
     def page_error(error):
@@ -116,7 +120,7 @@ def _open(db: Path):
         raise PageError(500, str(error)) from None
 
 
-def _render(db: Path, hour: int | str | None, imported: dict | None = None) -> str:
+def _render(db: Path, hour: int | str | None, by: str, imported: dict | None = None) -> str:
     try:
         my_grid = cli._my_grid()  # the same .env and clock as the CLI
     except ValueError as error:
@@ -139,7 +143,9 @@ def _render(db: Path, hour: int | str | None, imported: dict | None = None) -> s
     return render_template(
         "page.html", hour=hour, hours=range(24), result=result, message=message, imported=imported,
         stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
-        env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS, min_days=forecast.MIN_DAYS,
-        show_problems=cli.SHOW_PROBLEMS, station_notes=cli.station_notes(hour), title=cli.hour_title(hour),
-        all_hours=cli.ALL_HOURS, distance=cli.distance,
+        env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS,
+        show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour),
+        all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by,
+        best_bet=result and cli.best_bet_line(result, by), ranked=result and forecast.rank(result.bands, by),
+        thin=result and cli.thin_line(result),
     )

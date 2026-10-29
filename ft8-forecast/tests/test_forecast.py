@@ -363,3 +363,47 @@ def test_no_farthest_contact_ever_without_a_gridded_contact_or_my_grid(conn):
     assert forecast.compute(conn, 15, "JJ00").best_ever is None
     save_contacts(conn, [contact(grid="JJ01", call="N0CALL/P")])
     assert forecast.compute(conn, 15, None).best_ever is None
+
+
+# --- ranking: best bet and table order ---
+
+def stats(name, per_day=10.0, contacts=0, days=MIN_DAYS):
+    return forecast.BandStats(name, days, per_day, 0, None, None, None, None, None, contacts)
+
+
+def test_rank_busiest_lists_enough_data_bands_busiest_first():
+    bands = [stats("40m", 5), stats("20m", 50), stats("17m", 99, days=MIN_DAYS - 1), stats("10m", 18)]
+    assert [b.band for b in forecast.rank(bands, "busiest")] == ["20m", "10m", "40m"]
+
+
+def test_rank_contacts_lists_most_contacts_first():
+    bands = [stats("40m", 5, contacts=1), stats("20m", 50, contacts=11), stats("10m", 18, contacts=12)]
+    assert [b.band for b in forecast.rank(bands, "contacts")] == ["10m", "20m", "40m"]
+
+
+@pytest.mark.parametrize("by, order", [("busiest", ["15m", "20m", "40m"]), ("contacts", ["40m", "15m", "20m"])])
+def test_rank_ties_use_the_other_measure(by, order):
+    # Busiest: 20m and 15m tie on stations, so 15m's extra contact puts it first.
+    bands = [stats("40m", 5, contacts=9), stats("20m", 50, contacts=3), stats("15m", 50, contacts=4)]
+    assert [b.band for b in forecast.rank(bands, by)] == order
+
+
+def test_rank_full_tie_keeps_band_order():
+    bands = [stats("20m", 50, contacts=3), stats("15m", 50, contacts=3)]
+    assert [b.band for b in forecast.rank(bands, "busiest")] == ["20m", "15m"]
+    assert [b.band for b in forecast.rank(bands, "contacts")] == ["20m", "15m"]
+
+
+def test_best_bet_is_the_top_band():
+    bands = [stats("40m", 5, contacts=1), stats("20m", 50, contacts=11)]
+    assert forecast.best_bet(bands, "busiest").band == "20m"
+
+
+@pytest.mark.parametrize("bands, by", [
+    ([], "busiest"),  # no band with enough data
+    ([stats("20m", 0)], "busiest"),  # only your own Tx heard
+    ([stats("20m", 50, contacts=0)], "contacts"),  # no contacts at this hour
+    ([stats("20m", 50, contacts=9, days=MIN_DAYS - 1)], "contacts"),  # not enough data
+])
+def test_no_best_bet_without_a_band_scoring_above_zero(bands, by):
+    assert forecast.best_bet(bands, by) is None
