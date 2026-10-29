@@ -1,6 +1,6 @@
 """ft8cast serve: the forecast and file import as a local web page.
 
-Only this Mac can reach it: `ft8cast serve` binds to 127.0.0.1. Any site open in
+Only this machine can reach it: `ft8cast serve` binds to 127.0.0.1. Any site open in
 your browser can still send requests to localhost, so every request must name
 this server in its Host header (stops DNS rebinding) and every upload must come
 from this page's own Origin (stops cross-site request forgery). The page has no

@@ -94,6 +94,7 @@ def test_station_columns_are_grouped_and_explained(client, five_days):
     assert '<th scope="col">Typical day</th><th scope="col">30-day total</th>' in page
     assert '<th scope="col" rowspan="2">30-day contacts</th>' in page  # a total, not per day
     assert '<th scope="col" rowspan="2">Farthest heard</th>' in page  # heard, not worked
+    assert "Nothing leaves this machine." in page
     assert "Typical day: stations heard on the median day you listened at this hour." in page
     assert "30-day total: different stations heard over the whole 30 days." in page
     assert "Farthest heard: a station heard with the same grid square on 2+ days at this hour" in page
@@ -249,7 +250,7 @@ def test_no_copy_of_the_upload_is_kept(client, db, tmp_path):
     assert not list(tmp_path.rglob("kept.txt"))
 
 
-# --- abuse cases: only this page, on this Mac, can use the server ---
+# --- abuse cases: only this page, on this machine, can use the server ---
 
 @pytest.mark.parametrize("host", ["evil.example.com", "evil.example.com:8074", "192.0.2.1:8074", "[::1]:8074",
                                   "127.0.0.1.example.com:8074"])
@@ -341,7 +342,7 @@ def served(monkeypatch):
     return calls
 
 
-def test_serve_listens_only_on_this_mac_with_debug_off(served, db, monkeypatch, capsys):
+def test_serve_listens_only_on_this_machine_with_debug_off(served, db, monkeypatch, capsys):
     monkeypatch.setenv("FLASK_DEBUG", "1")  # must not switch the debugger on
     assert main(["serve", "--db", str(db)]) == 0
     host, port, options = served[0]
