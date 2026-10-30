@@ -197,6 +197,7 @@ def test_import_with_no_file_uses_log_dir(logdir, db, capsys, value):
 
 def test_log_dir_expands_home(logdir, db, capsys, monkeypatch):
     monkeypatch.setenv("HOME", str(logdir.parent))
+    monkeypatch.setenv("USERPROFILE", str(logdir.parent))  # what ~ means on Windows
     cli.ENV_FILE.write_text("LOG_DIR=~/wsjt x\n")
     assert run(capsys, "--db", db)[0] == 0
 
