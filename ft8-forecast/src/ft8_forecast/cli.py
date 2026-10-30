@@ -25,9 +25,10 @@ ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
 
 # Under the table, here and on the web page: what the less obvious columns mean.
 LEGEND = ("Stations per day: the median (middle value) over the days you listened.",
-          "Signal: median signal-to-noise ratio; higher is stronger.",
-          f"Farthest heard: same station and grid on {forecast.FARTHEST_MIN_DAYS}+ days.",
-          f"Answered: your CQs and calls that got a reply to you within {forecast.REPLY_SECONDS} s.")
+          "Median SNR: middle signal-to-noise ratio of all decodes; higher is stronger.",
+          f"Farthest heard: same station and grid on {forecast.FARTHEST_MIN_DAYS}+ days.")
+ANSWERED_NOTES = (f"Replies to you: a decode addressed to you within {forecast.REPLY_SECONDS} s.",
+                  "Answering CQs: you calling a station (usually answering its CQ).")
 RANK_LABELS = {"busiest": "busiest", "contacts": "most contacts"}
 
 
@@ -38,9 +39,28 @@ def distance(miles: int | None, grid: str | None = None) -> str:
     return f"{miles:,} mi" + (f" ({grid})" if grid else "")
 
 
-def answered(band: forecast.BandStats) -> str:
-    """'12 of 95': both numbers, so the reader can see how much it rests on; '-' with no calls."""
-    return f"{band.answered:,} of {band.calls:,}" if band.calls else "-"
+def answered(done: int, made: int) -> str:
+    """'12 of 95 (13%)': both numbers, so the reader can see how much it rests on; '-' with no calls."""
+    return f"{done:,} of {made:,} ({100 * done / made:.0f}%)" if made else "-"
+
+
+def fit(line: str, width: int = 80) -> list[str]:
+    """A terminal line over `width`, broken after a ", " or "; " that isn't inside brackets
+    (so "15m (6 a day, up from 2)" stays whole); later lines are indented 2."""
+    pieces, depth, start = [], 0, 0
+    for i, char in enumerate(line):
+        depth += (char == "(") - (char == ")")
+        if char in ",;" and depth == 0 and line[i + 1:i + 2] == " ":
+            pieces.append(line[start:i + 1])
+            start = i + 2
+    pieces.append(line[start:])
+    lines = [pieces[0]]
+    for piece in pieces[1:]:
+        if len(lines[-1]) + 1 + len(piece) <= width:
+            lines[-1] += " " + piece
+        else:
+            lines.append("  " + piece)
+    return lines
 
 
 def best_bet_line(result: forecast.Forecast, by: str) -> str:
@@ -202,14 +222,22 @@ def data_age(newest: datetime, now: datetime) -> str:
     return "today" if days == 0 else "yesterday" if days == 1 else f"{days} days ago"
 
 
+def _local_zone():
+    """The zone local times are shown in: None is this computer's own. Tests pin one here."""
+    return None
+
+
 def local_hour(hour: int, now: datetime) -> str | None:
     """A UTC hour as this computer's local time, using today's offset: '1 pm EDT'. None when
     the computer is on UTC (it would only repeat the UTC hour)."""
-    local = now.astimezone(UTC).replace(hour=hour, minute=0, second=0, microsecond=0).astimezone()
+    local = now.astimezone(UTC).replace(hour=hour, minute=0, second=0, microsecond=0).astimezone(_local_zone())
     if not local.utcoffset():
         return None
+    zone = local.tzname()
+    if " " in zone:  # Windows names zones in full: "Eastern Daylight Time" -> "EDT"
+        zone = "".join(word[0] for word in zone.split())
     # Not strftime's %-I: Windows doesn't have it.
-    return f"{local.hour % 12 or 12} {'am' if local.hour < 12 else 'pm'} {local.tzname()}"
+    return f"{local.hour % 12 or 12} {'am' if local.hour < 12 else 'pm'} {zone}"
 
 
 def local_short(hour: int, now: datetime) -> str | None:
@@ -438,22 +466,29 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
     age = (now.replace(tzinfo=None) - result.newest).days
     if age > STALE_DAYS:
         print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
-    print("", best_bet_line(result, by), *summary_lines(result, by, hours, now), sep="\n")
+    print("", *[part for line in [best_bet_line(result, by), *summary_lines(result, by, hours, now)]
+                for part in fit(line)], sep="\n")
     ranked = forecast.rank(result.bands, by)
     if ranked:
         print()
         span = f"{forecast.WINDOW_DAYS} days"
-        print(f"{'':<4} {'Stations':>9} {'Stations':>9} {'Signal':>7} {'Farthest':>10} {'Farthest':>10} {'Contacts':>9} {'Answered':>13}")
-        print(f"{'Band':<4} {'per day':>9} {span:>9} {'dB SNR':>7} {'heard':>10} {'worked':>10} {span:>9} {'of calls':>13}")
+        print(f"{'':<4} {'Stations':>9} {'Stations':>9} {'Median':>7} {'Farthest':>10} {'Farthest':>10} {'Contacts':>9}")
+        print(f"{'Band':<4} {'per day':>9} {span:>9} {'SNR dB':>7} {'heard':>10} {'worked':>10} {span:>9}")
         for band in ranked:
             snr = "-" if band.median_snr is None else f"{band.median_snr:.0f}"
             per_day = f"{band.stations_per_day:,.0f}"
             print(f"{band.band:<4} {per_day:>9} {band.stations:>9,} {snr:>7} {distance(band.farthest_miles):>10} "
-                  f"{distance(band.contact_miles):>10} {band.contacts:>9,} {answered(band):>13}")
+                  f"{distance(band.contact_miles):>10} {band.contacts:>9,}")
+    transmitted = any(band.cqs or band.calls for band in ranked)
+    if transmitted:
+        print(f"\n{'Replies to you':<14} {'Calling CQ':>21} {'Answering CQs':>21}")
+        for band in ranked:
+            print(f"{band.band:<14} {answered(band.cqs_answered, band.cqs):>21} "
+                  f"{answered(band.calls_answered, band.calls):>21}")
     if thin := thin_line(result):
-        print("", thin, sep="\n")
+        print("", *fit(thin), sep="\n")
     if ranked:
-        print("", *LEGEND, sep="\n")
+        print("", *LEGEND, *(ANSWERED_NOTES if transmitted else ()), sep="\n")
     print("", "Every hour at a glance: ft8cast overview", sep="\n")
     if result.best_ever:
         best = result.best_ever

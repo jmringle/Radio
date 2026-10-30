@@ -9,7 +9,13 @@ permissions:
   contents: read
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Windows too (added 2026-10-30): the README has Windows setup steps, and paths, file
+    # locking and time zones differ there.
+    strategy:
+      fail-fast: false  # one OS failing still shows the other's result
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: ft8-forecast
@@ -19,7 +25,7 @@ jobs:
         with:
           python-version: "3.15"
       - run: pip install -r requirements-dev.txt
-      # The browser tests' Chromium (headless only) and the Linux libraries it needs.
+      # The browser tests' Chromium (headless only) and, on Linux, the libraries it needs.
       - run: playwright install --with-deps --only-shell chromium
       - run: pytest
       # Audits the installed environment; -r can't resolve the local -e ../band-privileges line.

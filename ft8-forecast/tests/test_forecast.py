@@ -395,7 +395,7 @@ def test_no_farthest_contact_ever_without_a_gridded_contact_or_my_grid(conn):
 # --- ranking: best bet and table order ---
 
 def stats(name, per_day=10.0, contacts=0, days=MIN_DAYS):
-    return forecast.BandStats(name, days, per_day, 0, None, None, None, None, None, contacts, 0, 0, None, None)
+    return forecast.BandStats(name, days, per_day, 0, None, None, None, None, None, contacts, 0, 0, 0, 0, None, None)
 
 
 def test_rank_busiest_lists_enough_data_bands_busiest_first():
@@ -453,8 +453,17 @@ def at(seconds):
 
 
 def answered(conn, **kwargs):
+    """(answered, calls) for CQs and calls to stations together: the counting rules are the same."""
     stats = band(conn, **kwargs)
-    return stats.answered, stats.calls
+    return stats.cqs_answered + stats.calls_answered, stats.cqs + stats.calls
+
+
+def test_cqs_and_calls_to_stations_are_counted_apart(conn):
+    save_decodes(conn, [call(at(0)), reply(at(15)), call(at(30)),
+                        call(at(60), message="N1CALL N0CALL AA00"), reply(at(75)),
+                        call(at(90), message="N2CALL N0CALL AA00"), call(at(120), message="N3CALL N0CALL AA00")])
+    stats = band(conn)
+    assert (stats.cqs_answered, stats.cqs, stats.calls_answered, stats.calls) == (1, 2, 1, 3)
 
 
 def test_answered_counts_calls_with_a_reply_to_you_in_the_next_30_s(conn):
@@ -548,7 +557,7 @@ def test_trend_needs_3_listening_days_in_each_half(conn):
 
 
 def trend_of(earlier, recent):
-    return forecast.trend(forecast.BandStats("20m", MIN_DAYS, 10.0, 0, None, None, None, None, None, 0, 0, 0,
+    return forecast.trend(forecast.BandStats("20m", MIN_DAYS, 10.0, 0, None, None, None, None, None, 0, 0, 0, 0, 0,
                                              recent, earlier))
 
 

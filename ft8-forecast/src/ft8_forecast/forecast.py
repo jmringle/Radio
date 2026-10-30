@@ -71,8 +71,12 @@ class BandStats:
     contact_miles: int | None  # farthest logged contact with a grid; None without MY_GRID or one
     contact_grid: str | None
     contacts: int  # completed contacts from the ADIF log
-    calls: int  # your opening calls: a CQ, or a call to a station with your grid
-    answered: int  # calls followed within REPLY_SECONDS by a decode addressed to you on this band
+    # Your opening calls and how many were followed within REPLY_SECONDS by a decode addressed
+    # to you on this band: CQs, and calls to a station (they carry your grid).
+    cqs: int
+    cqs_answered: int
+    calls: int
+    calls_answered: int
     recent_per_day: float | None  # stations_per_day over the last TREND_DAYS; None under TREND_MIN_DAYS days
     earlier_per_day: float | None  # the same for the TREND_DAYS before
 
@@ -158,7 +162,8 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
     listening: dict[str, dict[str, set[str]]] = {}
     snrs: dict[str, list[int]] = {}
     grid_days: dict[str, dict[tuple[str, str], set[str]]] = {}  # band -> (sender, grid) -> days heard
-    calls: dict[str, list[str]] = {}  # band -> times of your opening calls
+    cqs: dict[str, list[str]] = {}  # band -> times of your CQs
+    calls: dict[str, list[str]] = {}  # band -> times of your calls to a station
     for time, dial_hz, transmit, snr, sender, grid, message in conn.execute(
         f"SELECT time, dial_hz, transmit, snr_db, sender, grid, message FROM decodes WHERE {where}", window
     ):
@@ -170,7 +175,9 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
         if transmit:
             # Your own Tx: proves you were there, isn't a station heard. Reports and
             # sign-offs carry no grid, so only the opening call of a contact counts.
-            if message.startswith("CQ ") or grid:
+            if message.startswith("CQ "):
+                cqs.setdefault(band, []).append(time)
+            elif grid:
                 calls.setdefault(band, []).append(time)
             continue
         snrs.setdefault(band, []).append(snr)
@@ -207,7 +214,8 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
         contacts[band] = contacts.get(band, 0) + 1
         contact_far[band] = _farther(contact_far.get(band), far)
 
-    answered = _answered(conn, calls, window[1])
+    cqs_answered = _answered(conn, cqs, window[1])
+    calls_answered = _answered(conn, calls, window[1])
     split = (newest - timedelta(days=TREND_DAYS)).strftime("%Y-%m-%d")  # later dates: the recent half
 
     bands = []
@@ -224,8 +232,10 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
             contact_miles=contact_far[name].miles if contact_far.get(name) else None,
             contact_grid=contact_far[name].grid if contact_far.get(name) else None,
             contacts=contacts.get(name, 0),
+            cqs=len(cqs.get(name, [])),
+            cqs_answered=cqs_answered.get(name, 0),
             calls=len(calls.get(name, [])),
-            answered=answered.get(name, 0),
+            calls_answered=calls_answered.get(name, 0),
             recent_per_day=_median_day([heard for day, heard in days.items() if day > split]),
             earlier_per_day=_median_day([heard for day, heard in days.items() if day <= split]),
         ))

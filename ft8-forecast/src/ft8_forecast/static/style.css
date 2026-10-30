@@ -60,7 +60,9 @@ button {
 }
 .problems { font: 0.9rem ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
 h3 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0; }
-table.daily { width: auto; }
+table.daily, table.answered { width: auto; }
+table.answered { margin: 1.25rem 0 0.75rem; }
+table.answered caption { text-align: left; font-weight: 600; padding-bottom: 0.25rem; }
 .verdict { font-size: 1.1rem; font-weight: 600; border-left: 3px solid var(--accent); padding-left: 0.75rem; }
 table.overview td.best { color: var(--accent); font-weight: 700; }
 table.overview a { color: inherit; }

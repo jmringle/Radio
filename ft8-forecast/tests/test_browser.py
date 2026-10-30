@@ -24,7 +24,7 @@ HINT = "Scroll the table sideways for more"
 def server(tmp_path, monkeypatch):
     """The real app on a free 127.0.0.1 port; yields its URL. 5 days of 20 m at 15 UTC, and the
     widest cells the author's real data gives (all hours, 2026-10-29): 5-digit distances with
-    grids in both Farthest columns, 3-digit contacts and "269 of 1,959" Answered."""
+    grids in both Farthest columns, 3-digit contacts and "269 of 1,959" Calling CQ."""
     monkeypatch.setattr(cli, "_now", lambda: NOW)
     monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
     (tmp_path / ".env").write_text("MY_GRID=FN31\n")
@@ -70,11 +70,12 @@ def test_the_scroll_hint_shows_whenever_the_table_overflows(page, server, width)
 def test_on_a_computer_the_widest_table_fits_without_scrolling(page, server, width):
     page.set_viewport_size({"width": width, "height": 800})
     page.goto(server + "?hour=all")
-    # The forecast table is the one with an Answered column; the overview and daily tables repeat values.
-    table = page.get_by_role("table").filter(has=page.get_by_role("columnheader", name=re.compile("Answered")))
-    expect(table.get_by_role("cell", name="269 of 1,959")).to_be_visible()  # the widest data is there
+    # The forecast table is the one with a Contacts column; the overview and daily tables repeat values.
+    table = page.get_by_role("table").filter(has=page.get_by_role("columnheader", name=re.compile("Contacts")))
     expect(table.get_by_role("cell", name=re.compile(r"10,\d{3} mi"))).to_have_count(2)  # in both Farthest columns
+    expect(page.locator("table.answered").get_by_role("cell", name="269 of 1,959 (14%)")).to_be_visible()
     assert not overflows(page, "div.scroll")
+    assert not overflows(page, "html")  # the Answered table doesn't push the page sideways either
     expect(page.get_by_text(HINT)).to_be_hidden()
 
 
@@ -83,7 +84,7 @@ def test_on_a_phone_the_table_scrolls_not_the_page(page, server):
     page.goto(server)
     assert overflows(page, "div.scroll")
     assert not overflows(page, "html")  # no sideways scrolling of the whole page
-    last = page.get_by_role("columnheader", name=re.compile("Answered"))
+    last = page.get_by_role("columnheader", name=re.compile("Contacts"))
     last.scroll_into_view_if_needed()
     expect(last).to_be_in_viewport()
 
