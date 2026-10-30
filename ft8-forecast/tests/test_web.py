@@ -90,10 +90,9 @@ def test_page_shows_the_best_bet_and_forecast_for_the_current_utc_hour(client, d
     assert '<p class="verdict">Best bet (busiest): 20m - about 1 station on a typical day</p>' in page
     head = re.search(r"<thead>(.*?)</thead>", page, re.S).group(1)
     assert re.findall(r"<th[^>]*>(.*?)</th>", head) == ["Band", "Stations<br>per day", "Stations<br>30 days",
-                                                         "Signal<br>dB SNR", "Farthest<br>heard",
-                                                         "Farthest<br>worked", "Contacts<br>30 days",
-                                                         "Answered<br>of calls"]
-    assert cells(page, "20m") == ["1", "5", "-12", "69 mi<br><span class=\"grid\">JJ01</span>", "-", "0", "-"]  # the page keeps grids
+                                                         "Median<br>SNR dB", "Farthest<br>heard",
+                                                         "Farthest<br>worked", "Contacts<br>30 days"]
+    assert cells(page, "20m") == ["1", "5", "-12", "69 mi<br><span class=\"grid\">JJ01</span>", "-", "0"]  # the page keeps grids
     assert "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)" in page
     assert "need your grid" not in page
 
@@ -109,6 +108,25 @@ def test_summary_lines_match_the_terminal(client, db, five_days, env, capsys):
     lines = capsys.readouterr().out.splitlines()
     assert lines[3:5] == ["Next: 20m - about 1 station on a typical day", "This is 40m's busiest hour"]
     assert '<p class="summary">Next: 20m - about 1 station on a typical day<br>This is 40m&#39;s busiest hour</p>' in page
+
+
+def test_answered_table_shows_cqs_and_calls_apart(client, db, five_days):
+    conn = open_db(db)
+    cq = datetime(2026, 10, 24, 15, 10, tzinfo=UTC)
+    save_decodes(conn, [Decode(cq, 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00"),
+                        Decode(cq + timedelta(seconds=15), 14_074_000, False, -9, "N1CALL", "FN31", "N0CALL/P N1CALL FN31")])
+    conn.close()
+    _, page = get(client)
+    table = re.search(r'<table class="answered">(.*?)</table>', page, re.S).group(1)
+    assert "<caption>Replies to you</caption>" in table
+    assert re.findall(r"<th\b[^>]*>(.*?)</th>", table) == ["Band", "Calling CQ", "Answering CQs", "20m"]
+    assert re.findall(r"<td[^>]*>(.*?)</td>", table) == ["1 of 1 (100%)", "-"]
+    assert "<br>".join(cli.ANSWERED_NOTES) in page
+
+
+def test_no_answered_table_without_your_tx(client, five_days):
+    _, page = get(client)
+    assert 'class="answered"' not in page and cli.ANSWERED_NOTES[0] not in page
 
 
 def test_columns_are_explained_like_the_terminal(client, five_days):
@@ -157,7 +175,7 @@ def test_page_shows_farthest_contacts_like_the_terminal(client, db, five_days, e
     ])
     conn.close()
     _, page = get(client)
-    assert cells(page, "20m")[3:] == ["-", "69 mi<br><span class=\"grid\">JJ01</span>", "2", "-"]
+    assert cells(page, "20m")[3:] == ["-", "69 mi<br><span class=\"grid\">JJ01</span>", "2"]
     assert "Farthest contact ever: 415 mi (JJ30) on 20m, 2026-04-08" in page
     assert "Farthest contact by day (30 days, any hour)" in page
     days = re.search(r'<table class="daily"[^>]*>.*?<tbody>(.*?)</tbody>', page, re.S).group(1)
@@ -651,6 +669,7 @@ def test_bad_port_is_a_usage_error(served, port, capsys):
     assert served == []
 
 
+@pytest.mark.skipif(not hasattr(signal, "SIGALRM"), reason="needs SIGALRM, which Windows lacks")
 def test_port_in_use_is_an_error(db, capsys):
     def started(*args):
         raise AssertionError("a server started; it should have found the port taken")

@@ -1,7 +1,10 @@
 """ft8cast import and forecast: output, exit codes and file handling (README acceptance criteria)."""
 
 import os
-from datetime import UTC, datetime, timedelta
+import re
+import sys
+from datetime import UTC, datetime, timedelta, tzinfo
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -142,6 +145,7 @@ def test_oversized_adif_is_refused(tmp_path, db, capsys, monkeypatch):
     assert "not an ADIF log?" in err
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows ignores chmod's read permission bits")
 def test_unreadable_file_is_an_error(tmp_path, db, capsys):
     path = write(tmp_path, "ALL.TXT", RX)
     path.chmod(0)
@@ -307,12 +311,25 @@ def forecast_run(capsys, db, *args):
     return code, out, err
 
 
-HEADER = ["      Stations  Stations  Signal   Farthest   Farthest  Contacts      Answered",
-          "Band   per day   30 days  dB SNR      heard     worked   30 days      of calls"]
+HEADER = ["      Stations  Stations  Median   Farthest   Farthest  Contacts",
+          "Band   per day   30 days  SNR dB      heard     worked   30 days"]
 LEGEND = ["Stations per day: the median (middle value) over the days you listened.",
-          "Signal: median signal-to-noise ratio; higher is stronger.",
-          "Farthest heard: same station and grid on 2+ days.",
-          "Answered: your CQs and calls that got a reply to you within 30 s."]
+          "Median SNR: middle signal-to-noise ratio of all decodes; higher is stronger.",
+          "Farthest heard: same station and grid on 2+ days."]
+ANSWERED = "Replies to you" + " " * 12 + "Calling CQ" + " " * 9 + "Answering CQs"
+ANSWERED_NOTES = ["Replies to you: a decode addressed to you within 30 s.",
+                  "Answering CQs: you calling a station (usually answering its CQ)."]
+
+
+def unwrap(out):
+    """Output lines with fit()'s wrapped continuations (2-space indent) joined back on."""
+    lines = []
+    for line in out.splitlines():
+        if re.match(r"  \S", line) and lines:
+            lines[-1] += " " + line[2:]
+        else:
+            lines.append(line)
+    return lines
 
 
 def row(lines, band):
@@ -331,7 +348,7 @@ def test_forecast_prints_the_best_bet_and_table(setup, db, capsys):
                          "Best bet (busiest): 20m - about 1 station on a typical day",
                          "This is 20m's busiest hour", "",
                          *HEADER, lines[7]]
-    assert row(lines, "20m") == ["20m", "1", "5", "-12", "69", "mi", "-", "0", "-"]  # miles only, no grid
+    assert row(lines, "20m") == ["20m", "1", "5", "-12", "69", "mi", "-", "0"]  # miles only, no grid
     assert lines[8:] == ["", "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)",
                          "", *LEGEND, "", "Every hour at a glance: ft8cast overview"]
     assert "Note:" not in out and "MY_GRID" not in out and "JJ" not in out
@@ -342,13 +359,23 @@ def test_forecast_shows_how_many_calls_were_answered(setup, db, capsys):
     cq = datetime(2026, 10, 24, 15, 10, tzinfo=UTC)
     save_decodes(conn, [Decode(cq, 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00"),
                         Decode(cq + timedelta(seconds=15), 14_074_000, False, -9, "N1CALL", "FN31", "N0CALL/P N1CALL FN31"),
-                        Decode(cq + timedelta(seconds=30), 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00")])
+                        Decode(cq + timedelta(seconds=30), 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00"),
+                        Decode(cq + timedelta(seconds=60), 14_074_000, True, 0, "N0CALL/P", "AA00", "N2CALL N0CALL/P AA00")])
     conn.close()
-    assert row(forecast_run(capsys, db)[1].splitlines(), "20m")[-3:] == ["1", "of", "2"]
+    lines = forecast_run(capsys, db)[1].splitlines()
+    top = lines.index(ANSWERED)
+    assert lines[top - 1:top + 3] == ["", ANSWERED, "20m" + " " * 21 + "1 of 2 (50%)" + " " * 11 + "0 of 1 (0%)", ""]
+    legend = lines.index(LEGEND[-1])
+    assert lines[legend + 1:legend + 3] == ANSWERED_NOTES
 
 
-def test_four_digit_call_counts_still_line_up(setup, db, capsys):
-    """Real all-hours data reaches "269 of 1,959" (2026-10-29), which once ran into Contacts."""
+def test_no_answered_table_without_your_tx(setup, db, capsys):
+    out = forecast_run(capsys, db)[1]
+    assert ANSWERED not in out and ANSWERED_NOTES[0] not in out
+
+
+def test_four_digit_call_counts_line_up(setup, db, capsys):
+    """Real all-hours data reaches "269 of 1,959" (2026-10-29)."""
     conn = open_db(db)
     start = datetime(2026, 10, 23, 0, 0, tzinfo=UTC)
     cqs = [start + timedelta(seconds=30 * n) for n in range(1959)]
@@ -357,9 +384,9 @@ def test_four_digit_call_counts_still_line_up(setup, db, capsys):
                         for when in cqs[:269]])
     conn.close()
     lines = forecast_run(capsys, db, "--hour", "all")[1].splitlines()
-    assert row(lines, "20m")[-3:] == ["269", "of", "1,959"]  # row() also checks it lines up with the header
-    assert "  269 of 1,959" in next(line for line in lines if line.startswith("20m "))  # not run into Contacts
-    assert max(len(line) for line in lines[lines.index(HEADER[0]):lines.index(HEADER[0]) + 3]) <= 80
+    found = lines[lines.index(ANSWERED) + 1]
+    assert found == "20m" + " " * 15 + "269 of 1,959 (14%)" + " " * 21 + "-"
+    assert len(found) == len(ANSWERED)
 
 
 def test_forecast_says_which_bands_got_busier_or_quieter(setup, db, capsys):
@@ -374,6 +401,21 @@ def test_forecast_says_which_bands_got_busier_or_quieter(setup, db, capsys):
     lines = forecast_run(capsys, db)[1].splitlines()
     assert "Busier in the last 15 days: 15m (6 a day, up from 2)" in lines
     assert "Quieter in the last 15 days: 20m (1 a day, down from 4)" in lines
+
+
+def test_long_summary_lines_wrap_between_bands(setup, db, capsys):
+    """Over 80 characters, a line breaks after a comma between items, never inside brackets."""
+    newest = datetime(2026, 10, 25, 15, 30, tzinfo=UTC)
+    conn = open_db(db)  # 15m, 17m and 10m each went from 2 to 6 a day
+    save_decodes(conn, [Decode(newest - timedelta(days=n), dial, False, -10, f"N{i}CALL", None, f"CQ N{i}CALL")
+                        for dial in (18_100_000, 21_074_000, 28_074_000)
+                        for n, count in [(0, 6), (1, 6), (2, 6), (3, 6), (4, 6), (15, 2), (16, 2), (17, 2)]
+                        for i in range(count)])
+    conn.close()
+    lines = forecast_run(capsys, db)[1].splitlines()
+    top = next(i for i, line in enumerate(lines) if line.startswith("Busier"))
+    assert lines[top:top + 2] == ["Busier in the last 15 days: 17m (6 a day, up from 2), 15m (6 a day, up from 2),",
+                                  "  10m (6 a day, up from 2)"]
 
 
 def test_no_trend_line_without_a_clear_change(setup, db, capsys):
@@ -397,7 +439,7 @@ def test_forecast_shows_farthest_contacts_and_ranks_by_contacts(setup, db, capsy
     assert lines[2] == "Best bet (busiest): 40m - about 1 station on a typical day; worked out to 69 mi"
     top = lines.index(HEADER[1]) + 1
     assert [line.split()[0] for line in lines[top:top + 2]] == ["40m", "20m"]
-    assert row(lines, "40m") == ["40m", "1", "5", "-5", "-", "69", "mi", "2", "-"]
+    assert row(lines, "40m") == ["40m", "1", "5", "-5", "-", "69", "mi", "2"]
     assert lines[-7:] == ["", "Farthest contact ever: 415 mi on 20m, 2026-04-08",
                           "", "Farthest contact by day (30 days, any hour):",
                           "Date        Band  Farthest",
@@ -422,7 +464,7 @@ def summary_db(setup, db):
 
 
 def test_summary_under_the_best_bet(summary_db, db, capsys):
-    lines = forecast_run(capsys, db, "--hour", "15")[1].splitlines()
+    lines = unwrap(forecast_run(capsys, db, "--hour", "15")[1])
     assert lines[2:7] == ["Best bet (busiest): 40m - about 2 stations on a typical day; worked out to 138 mi",
                           "Next: 20m - about 1 station on a typical day",
                           "40m is busiest at 14 UTC (10 am EDT): about 3 stations on a typical day",
@@ -446,7 +488,7 @@ def test_summary_by_contacts(summary_db, db, capsys):
 
 
 def test_summary_for_all_hours_has_no_peak_line(summary_db, db, capsys):
-    lines = forecast_run(capsys, db, "--hour", "all")[1].splitlines()
+    lines = unwrap(forecast_run(capsys, db, "--hour", "all")[1])
     assert lines[2:6] == ["Best bet (busiest): 40m - about 3 stations on a typical day; worked out to 138 mi",
                           "Next: 20m - about 1 station on a typical day",
                           "Farthest contact in these 30 days: 138 mi on 40m", ""]
@@ -474,7 +516,7 @@ def test_no_band_with_enough_data_has_no_table_or_legend(setup, db, capsys):
     conn.execute("INSERT INTO decodes VALUES ('2026-10-25 15:59:00', 14074000, 1, 0, 'N0CALL', NULL, 'CQ')")
     conn.commit()
     conn.close()
-    lines = forecast_run(capsys, db, "--hour", "15")[1].splitlines()
+    lines = unwrap(forecast_run(capsys, db, "--hour", "15")[1])
     assert lines[2] == "Best bet (busiest): none yet - no band has 5 days of listening at this hour"
     assert HEADER[1] not in lines and LEGEND[0] not in lines
     assert "Too little data at this hour (need 5 days): 160m 80m 30m 17m 15m 12m 10m (0 days), 40m 20m (1 day)" in lines
@@ -526,13 +568,13 @@ def test_thin_bands_are_grouped_by_days_and_one_day_is_singular(setup, db, capsy
                                "CQ N0CALL") for dial, days in [(7_074_000, 1), (28_074_000, 3), (21_074_000, 3)]
                         for n in range(days)])
     conn.close()
-    out = forecast_run(capsys, db)[1]
-    assert "Too little data at this hour (need 5 days): 160m 80m 30m 17m 12m (0 days), 40m (1 day), 15m 10m (3 days)" in out
+    lines = unwrap(forecast_run(capsys, db)[1])
+    assert "Too little data at this hour (need 5 days): 160m 80m 30m 17m 12m (0 days), 40m (1 day), 15m 10m (3 days)" in lines
 
 
 def test_without_my_grid_distances_are_blank_and_explained(setup, db, capsys):
     lines = forecast_run(capsys, db)[1].splitlines()
-    assert row(lines, "20m") == ["20m", "1", "5", "-12", "-", "-", "0", "-"]
+    assert row(lines, "20m") == ["20m", "1", "5", "-12", "-", "-", "0"]
     assert lines[-1] == "Farthest heard and worked need your grid: set MY_GRID in .env (see .env.example)."
     assert not any("Farthest contact" in line for line in lines)
 
@@ -600,9 +642,7 @@ def test_overview_rank_contacts_moves_the_star(overview_db, db, capsys):
 
 
 def test_overview_on_a_utc_computer_has_no_local_column(overview_db, db, capsys, monkeypatch):
-    import time
-    monkeypatch.setenv("TZ", "UTC")
-    time.tzset()
+    monkeypatch.setattr(cli, "_local_zone", lambda: ZoneInfo("UTC"))
     lines = overview_run(capsys, db)[1].splitlines()
     assert lines[1] == "Typical-day stations; * = best bet (busiest); . = too little data"
     assert lines[3:5] == ["UTC   40m    20m", "15      2*     1"]
@@ -646,10 +686,20 @@ def test_local_hour(hour, now, text):
 
 
 def test_no_local_hour_on_a_utc_computer(monkeypatch):
-    import time
-    monkeypatch.setenv("TZ", "UTC")
-    time.tzset()
+    monkeypatch.setattr(cli, "_local_zone", lambda: ZoneInfo("UTC"))
     assert cli.local_hour(17, NOW) is None
+
+
+class WindowsEastern(tzinfo):
+    """Eastern time named the way Windows names it."""
+    def utcoffset(self, dt): return timedelta(hours=-4)
+    def dst(self, dt): return timedelta(hours=1)
+    def tzname(self, dt): return "Eastern Daylight Time"
+
+
+def test_a_long_windows_zone_name_is_shortened(monkeypatch):
+    monkeypatch.setattr(cli, "_local_zone", WindowsEastern)
+    assert cli.local_hour(17, NOW) == "1 pm EDT"
 
 
 @pytest.mark.parametrize("newest, text", [("2026-10-27 00:01", "today"), ("2026-10-26 23:59", "yesterday"),

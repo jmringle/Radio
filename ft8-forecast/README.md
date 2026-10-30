@@ -89,19 +89,26 @@ Next: 15m - about 45 stations on a typical day
 Farthest contact at this hour: 5,306 mi on 10m
 Busier in the last 15 days: 10m (24 a day, up from 12)
 
-      Stations  Stations  Signal   Farthest   Farthest  Contacts   Answered
-Band   per day   30 days  dB SNR      heard     worked   30 days   of calls
-20m         50       573     -13   4,884 mi   1,739 mi        11  15 of 232
-15m         45       460     -15   5,155 mi   1,629 mi         5   4 of 155
-10m         18       234     -14   8,499 mi   5,306 mi         6    3 of 58
-40m          5        23     -10     737 mi     125 mi         1    6 of 49
+      Stations  Stations  Median   Farthest   Farthest  Contacts
+Band   per day   30 days  SNR dB      heard     worked   30 days
+20m         50       573     -13   4,884 mi   1,739 mi        11
+15m         45       460     -15   5,155 mi   1,629 mi         5
+10m         18       234     -14   8,499 mi   5,306 mi         6
+40m          5        23     -10     737 mi     125 mi         1
+
+Replies to you            Calling CQ         Answering CQs
+20m                   12 of 197 (6%)          3 of 35 (9%)
+15m                    2 of 133 (2%)          2 of 22 (9%)
+10m                     1 of 42 (2%)         2 of 16 (12%)
+40m                    6 of 43 (14%)           0 of 6 (0%)
 
 Too little data at this hour (need 5 days): 160m 80m 12m (0 days), 17m (1 day), 30m (3 days)
 
 Stations per day: the median (middle value) over the days you listened.
-Signal: median signal-to-noise ratio; higher is stronger.
+Median SNR: middle signal-to-noise ratio of all decodes; higher is stronger.
 Farthest heard: same station and grid on 2+ days.
-Answered: your CQs and calls that got a reply to you within 30 s.
+Replies to you: a decode addressed to you within 30 s.
+Answering CQs: you calling a station (usually answering its CQ).
 ```
 
 The **Best bet** line answers "which band now?". `--rank busiest` (the default) picks the band with the most stations on a typical day; `--rank contacts` picks the one where you've completed the most contacts. The table follows the same order, best first; a tie goes to the other measure, then the lower band. When no band qualifies, the line says why instead of guessing. Bands with fewer than 5 days of listening share one line under the table, grouped by days. Distances are miles only here; the web page adds each grid square.
@@ -160,7 +167,7 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
 
 ## Running tests
 
-`pytest` from `ft8-forecast/` runs everything. No network beyond 127.0.0.1, no radio, no real logs. The web page is tested two ways: `test_web.py` checks the HTML through Flask's test client; `test_browser.py` (added 2026-10-29) runs the real server on a free local port and drives headless Chromium with Playwright, for what only a browser can show: the table scrolling in its own box on a phone, the scroll hint appearing whenever the table overflows, dark mode, the hour form, and the CSP blocking an injected script. Either way tests build made-up ADIF records and `ALL.TXT` lines (in the real file's exact layout) with `N0CALL`. CI runs the same command on every push that touches this folder or `band-privileges`, then `pip-audit`.
+`pytest` from `ft8-forecast/` runs everything. No network beyond 127.0.0.1, no radio, no real logs. The web page is tested two ways: `test_web.py` checks the HTML through Flask's test client; `test_browser.py` (added 2026-10-29) runs the real server on a free local port and drives headless Chromium with Playwright, for what only a browser can show: the table scrolling in its own box on a phone, the scroll hint appearing whenever the table overflows, dark mode, the hour form, and the CSP blocking an injected script. Either way tests build made-up ADIF records and `ALL.TXT` lines (in the real file's exact layout) with `N0CALL`. CI runs the same command on Linux and Windows (Windows added 2026-10-30) on every push that touches this folder or `band-privileges`, then `pip-audit`. Local times are pinned to US Eastern through `cli._local_zone` (`tests/conftest.py`), so tests read the same in any time zone; `tzdata` supplies the zone on Windows. A few tests skip on Windows, each with its reason: unreadable-file tests (Windows ignores `chmod`'s read bits) and the port-in-use test (needs `SIGALRM`). Unverified: whether a second `ft8cast serve` on Windows is refused a port already in use, as on macOS and Linux.
 
 ## Design notes
 
@@ -177,13 +184,14 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
   - distinct stations heard ("Stations 30 days"), median SNR ("Signal dB SNR"), farthest station heard with its grid square ("Farthest heard"; messages often carry the sender's grid). It counts a station only if it was decoded with the same grid on 2+ days at that hour on that band (decided 2026-10-28);
   - confirmed contacts from ADIF, shown separately (proven two-way paths).
   - **Farthest contact** ("Farthest worked", added 2026-10-29): the farthest ADIF contact with a logged grid, on that band at that hour in the window, as miles and the other station's square; `-` without one or without `MY_GRID`. No 2-day rule. Under the table: **Farthest contact ever** (every imported contact, any hour or date, with band and date) and **Farthest contact by day** (one row per day with contacts in the window, any hour, newest first; `-` for a day with no logged grid). Ties go to the earlier contact. Only bands with General data privileges count. No callsigns are shown. Both parts are left out without `MY_GRID`.
-  - **Answered** ("Answered of calls", added 2026-10-29): of your opening calls on that band at that hour (a Tx line that's a CQ, or that carries your grid, i.e. calling a station; reports and sign-offs don't count), how many were followed within 30 s by a decode addressed to you on the same band (`12 of 95`; `-` with no calls). WSJT-X stamps each line with its 15 s cycle's start, so a reply in the next cycle is 15 s later; in the author's file 1,171 of 11,448 CQs had a reply at exactly 15 s, about 60 a few seconds off, and 573 at 45 s, which belong to the next CQ. "You" is every sender of your own Tx lines (so /P counts). A reply just past the hour still counts. No callsigns are shown.
+  - **Answered** (added 2026-10-29; its own table under the forecast table since 2026-10-30): per band in the table, your opening calls on that band at that hour, titled "Replies to you" and split into **Calling CQ** (a Tx line starting `CQ`) and **Answering CQs** (renamed from "Your CQs"/"Your calls" 2026-10-30; a Tx line carrying your grid, i.e. calling a station, usually in answer to its CQ; reports and sign-offs don't count), and how many of each were followed within 30 s by a decode addressed to you on the same band (`12 of 197 (6%)`; `-` with none). Left out, with its legend line, when you didn't transmit. At 20 W, calling a station often beats calling CQ; the split shows whether it does for you. WSJT-X stamps each line with its 15 s cycle's start, so a reply in the next cycle is 15 s later; in the author's file 1,171 of 11,448 CQs had a reply at exactly 15 s, about 60 a few seconds off, and 573 at 45 s, which belong to the next CQ. "You" is every sender of your own Tx lines (so /P counts). A reply just past the hour still counts. No callsigns are shown.
   - Fewer than 5 listening days on a band at that hour: "not enough data", never a score; these bands share one line ("Too little data"), grouped by days listened.
   - **Best bet** (added 2026-10-29): one line above the table naming the top band by `--rank`: `busiest` (default; stations per day, then contacts) or `contacts` (contacts, then stations per day); a full tie goes to the lower band. The table lists only bands with enough data, in that order. No band with enough data, or none scoring above 0: the line says "none" and why. No listening at all at that hour: one sentence, no table, no legend.
   - **Summary** (added 2026-10-29): lines under the best bet, here and on the page. The first three use only numbers already shown: "Next:" the second-ranked band (if it scores above 0); when the best band peaks by the same ranking ("20m is busiest at 15 UTC: ...", or "This is 20m's busiest hour"; ties go to the earlier hour; left out for all hours); and the farthest contact at this hour (or in the 30 days for all hours; needs `MY_GRID`). Then **trend** lines (added 2026-10-29): "Busier in the last 15 days: 15m (45 a day, up from 30)" and "Quieter …", comparing stations per day in the window's last 15 days with the 15 before, for bands in the table. A band is listed only if each half has 3+ listening days and the change is at least 25% of the earlier figure and at least 2 stations a day. Caveat: stations per day also rises if you listened longer within the hour, and the tool can't tell that from the band opening up. Nothing without a best bet.
   - Ends with a pointer to `ft8cast overview` (2026-10-29), so the overview is easy to find.
   - The header says how old the newest data is in calendar days ("today", "yesterday", "4 days ago"; 2026-10-29), here, in `overview` and on the page; the >7-day note stays.
-  - Column names (two-line headers, 2026-10-29): Stations per day, Stations 30 days, Signal dB SNR, Farthest heard, Farthest worked, Contacts 30 days, Answered of calls. The second line carries the unit or time span, so cells are bare numbers (SNR without "dB"). Two lines let plain words fit 80 columns (the table is 75 wide). The terminal shows miles only; the page adds grid squares.
+  - Column names (two-line headers, 2026-10-29): Stations per day, Stations 30 days, Median SNR dB (the median of every decode's SNR; renamed from "Signal" 2026-10-30), Farthest heard, Farthest worked, Contacts 30 days. The second line carries the unit or time span, so cells are bare numbers (SNR without "dB"). Two lines let plain words fit 80 columns (the table is 64 wide). The terminal shows miles only; the page puts each grid on a line under its distance, so the widest real table fits a computer screen without scrolling.
+  - Terminal lines over 80 characters (2026-10-30) break after a comma or semicolon between items, never inside brackets, with the rest indented 2: "Busier in the last 15 days: 20m (104 a day, up from 70)," then "  15m (…)".
   - Only bands where General may operate data, via `band-privileges`.
 - `ft8cast overview [--rank busiest|contacts]` (added 2026-10-29): one row per UTC hour with any listening, one column per band; a cell is the typical-day stations (as `forecast --hour HH` computes them) or `.` below 5 listening days; `*` marks the hour's best bet by the same rule (no star when there's none). Hours with no listening are listed as ranges (`00-09, 22-23`). Changed 2026-10-29: hours with too little data on every band, and bands with too little data at every hour, get no row or column, only a line each under the grid; with no band ready at any hour, one sentence instead of a grid. Same header, stale note and errors as `forecast`.
 - `ft8cast import [FILE] [--dir PATH]` from a folder (added 2026-10-29): with `--dir`, or with no file and `LOG_DIR` set in `.env`, imports `ALL.TXT` and `*.adi`/`*.adif` directly in the folder (names in any case; content still decides the type). Symlinks, subfolders and other files are skipped; the folder is never written. A missing folder or one with no logs is an error that stores nothing. One summary per file; a bad file is reported and the rest import; exit 2 if any file failed. A file and `--dir` together, or neither with no `LOG_DIR`, is an error saying what to do.

@@ -1,6 +1,7 @@
 """Logs from a folder: finding them, importing them once, and watching for changes (README)."""
 
 import os
+import sys
 
 import pytest
 
@@ -50,7 +51,10 @@ def test_name_match_ignores_case(logs):
 def test_skips_symlinks_and_subfolders(logs, tmp_path):
     outside = tmp_path / "secret.adi"
     outside.write_bytes(ADIF)
-    (logs / "link.adi").symlink_to(outside)  # could point anywhere on disk
+    try:
+        (logs / "link.adi").symlink_to(outside)  # could point anywhere on disk
+    except OSError:
+        pass  # Windows without symlink rights: no symlink to skip, the subfolder part still runs
     (logs / "sub.adi").mkdir()
     (logs / "sub").mkdir()
     (logs / "sub" / "ALL.TXT").write_bytes(b"x")  # subfolders aren't searched
@@ -87,6 +91,7 @@ def test_a_bad_file_is_reported_and_the_rest_still_import(logs, conn):
     assert count(conn) == 1
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows ignores chmod's read permission bits")
 def test_an_unreadable_file_is_reported(logs, conn):
     (logs / "ALL.TXT").write_bytes(rx(1))
     (logs / "ALL.TXT").chmod(0)
@@ -214,6 +219,7 @@ def test_an_unreachable_folder_is_reported_once_and_its_return_too(logs, conn, t
     assert watcher.check(conn) == ["folder is reachable again", "ALL.TXT: 1 new"]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows ignores chmod's read permission bits")
 def test_an_unreadable_file_is_tried_again(logs, conn):
     path = logs / "ALL.TXT"
     path.write_bytes(rx(1))
@@ -253,6 +259,7 @@ def test_an_oversized_adif_is_reported_once(logs, conn, monkeypatch):
     assert watcher.check(conn) == []
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows ignores chmod's read permission bits")
 def test_an_unreadable_adif_is_tried_again(logs, conn):
     path = logs / "wsjtx_log.adi"
     path.write_bytes(ADIF)
