@@ -15,7 +15,7 @@ Requires Python 3.12 or newer (CI uses 3.15). Lives next to `band-privileges` in
 
 ### On Windows
 
-Not tested on Windows yet (written 2026-10-29; CI runs on Linux, the author on macOS). The commands are PowerShell.
+The tests run on Windows in CI (since 2026-10-30), but nobody has used the app on Windows by hand yet; the author uses macOS. The commands are PowerShell.
 
 1. Install Python 3.12 or newer from [python.org](https://www.python.org/downloads/windows/) and tick "Add python.exe to PATH". `py --version` checks it.
 2. Get the whole `Radio` repo, not just this folder: `band-privileges` must sit next to `ft8-forecast`.
