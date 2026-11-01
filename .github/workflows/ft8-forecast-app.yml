@@ -1,0 +1,61 @@
+name: ft8-forecast app
+on:
+  push:
+    paths:
+      - "ft8-forecast/src/**"
+      - "ft8-forecast/packaging/**"
+      - "ft8-forecast/requirements-*.txt"
+      - "band-privileges/src/**"
+      - ".github/workflows/ft8-forecast-app.yml"
+  workflow_dispatch:  # the Actions tab's "Run workflow" button
+permissions:
+  contents: read
+jobs:
+  build:
+    # PyInstaller only builds for the system it runs on, so each OS gets its own runner.
+    strategy:
+      fail-fast: false  # one OS failing still shows the other's result
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ft8-forecast
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.15"
+      - run: pip install -r requirements-app.txt
+      - run: pyinstaller --noconfirm packaging/ft8forecast.spec
+      # A clean checkout has no logs or .env; this proves none got in (T15).
+      - run: python packaging/check_build.py dist
+
+      - name: Start the built app (macOS)
+        if: runner.os == 'macOS'
+        run: '"dist/FT8 Forecast.app/Contents/MacOS/FT8 Forecast" --self-test'
+      - name: Start the built app (Windows)
+        if: runner.os == 'Windows'
+        # A windowed Windows app doesn't report an exit code to the shell unless waited on.
+        run: |
+          $app = Start-Process -FilePath "dist\FT8 Forecast\FT8 Forecast.exe" -ArgumentList "--self-test" -Wait -PassThru
+          if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil create -volname "FT8 Forecast" -srcfolder "dist/FT8 Forecast.app" -format UDZO dist/FT8-Forecast-macOS.dmg
+          shasum -a 256 dist/FT8-Forecast-macOS.dmg > dist/FT8-Forecast-macOS.dmg.sha256
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Compress-Archive -Path "dist\FT8 Forecast" -DestinationPath dist\FT8-Forecast-Windows.zip
+          (Get-FileHash dist\FT8-Forecast-Windows.zip -Algorithm SHA256).Hash | Out-File -Encoding ascii dist\FT8-Forecast-Windows.zip.sha256
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ft8-forecast-${{ runner.os }}
+          path: |
+            ft8-forecast/dist/FT8-Forecast-*
+          if-no-files-found: error
+          retention-days: 14

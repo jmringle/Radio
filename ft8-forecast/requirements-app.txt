@@ -2,4 +2,6 @@
 # pywebview 6.2.1 released 2026-04-15, pyinstaller 6.22.3 released 2026-09-12 (checked on PyPI 2026-11-01).
 -r requirements-dev.txt
 pywebview==6.2.1
+# pywebview's Windows bridge to .NET, which it doesn't pin. 3.2.1 released 2026-10-08.
+pythonnet==3.2.1; sys_platform == "win32"
 pyinstaller==6.22.3
