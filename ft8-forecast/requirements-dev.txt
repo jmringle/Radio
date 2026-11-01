@@ -8,6 +8,6 @@ playwright==1.64.0
 pytest-playwright==0.10.0
 # Time zones for tests (tests/conftest.py pins America/New_York): Windows has no zone database
 # of its own. 2026.5, released 2026-10-03; 2026.6 was 2 days old (checked 2026-10-30).
-tzdata==2026.5
+tzdata==2026.6
 # Sibling project in this repo (frequency parsing, and General privileges later).
 -e ../band-privileges
