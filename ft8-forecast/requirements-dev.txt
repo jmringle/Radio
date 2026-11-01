@@ -4,7 +4,7 @@ pip-audit==2.10.1
 # Browser tests (tests/test_browser.py). playwright 1.64.0, not 1.64.1: released 2026-10-13,
 # so it has had 2+ weeks for problems to surface (1.64.1 was a week old, checked 2026-10-29).
 # Both use Chromium build 1248. After installing: playwright install chromium
-playwright==1.64.0
+playwright==1.64.1
 pytest-playwright==0.10.0
 # Time zones for tests (tests/conftest.py pins America/New_York): Windows has no zone database
 # of its own. 2026.5, released 2026-10-03; 2026.6 was 2 days old (checked 2026-10-30).
