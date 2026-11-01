@@ -318,14 +318,14 @@ def test_bad_hour_is_a_400(client, five_days, hour):
 
 def test_without_my_grid_farthest_is_blank_and_explained(client, five_days):
     _, page = get(client)
-    assert "Farthest heard and worked need your grid: set MY_GRID in .env" in page
+    assert "Farthest heard and worked need your grid: set it in Settings below." in page
 
 
 def test_invalid_my_grid_is_explained(client, five_days, env):
     env.write_text("MY_GRID=FN3\n")
     response, page = get(client)
     assert response.status_code == 500
-    assert "MY_GRID in .env: &#39;FN3&#39; isn&#39;t a grid square like FN31" in page
+    assert "Grid square in Settings: &#39;FN3&#39; isn&#39;t a grid square like FN31" in page
 
 
 def test_stale_data_gets_a_note(client, five_days, monkeypatch):
@@ -337,7 +337,7 @@ def test_no_database_invites_an_upload_and_creates_none(client, db):
     response, page = get(client)
     assert response.status_code == 200
     assert ("No data yet. Import your WSJT-X ALL.TXT below; add wsjtx_log.adi too for your contacts. "
-            "To import from a folder instead, set LOG_DIR in .env.") in page
+            "To import from a folder instead, set the log folder in Settings.") in page
     assert 'name="log"' in page
     assert 'name="hour"' not in page and 'name="rank"' not in page  # nothing to pick until there's data
     assert not db.exists()
@@ -535,7 +535,7 @@ def test_import_folder_reports_a_bad_file_and_imports_the_rest(client, db, logdi
 
 def test_import_folder_without_log_dir_is_a_400(client, db, env):
     response, page = import_folder(client)
-    assert response.status_code == 400 and "Set LOG_DIR in .env" in page and not db.exists()
+    assert response.status_code == 400 and "Set the log folder in Settings" in page and not db.exists()
 
 
 def test_import_folder_that_isnt_there_is_a_400_and_stores_nothing(client, db, logdir, tmp_path):
@@ -688,3 +688,90 @@ def test_port_in_use_is_an_error(db, capsys):
         signal.signal(signal.SIGALRM, previous)
         taken.close()
     assert "in use" in capsys.readouterr().err
+
+
+# --- settings (README: standalone app; T13, T14) ---
+
+def save(client, grid="", log_dir="", license_class="general", headers=None, base_url=BASE):
+    response = client.post("/settings", base_url=base_url, headers={"Origin": BASE} if headers is None else headers,
+                           data={"my_grid": grid, "log_dir": log_dir, "license_class": license_class})
+    return response, response.get_data(as_text=True)
+
+
+def test_saved_settings_are_used_and_shown(client, env, five_days):
+    response, page = save(client, grid="fn31pr", log_dir="/logs/wsjt x", license_class="extra")
+    assert response.status_code == 200 and "Settings saved." in page
+    assert 'name="my_grid" value="FN31"' in page  # 6 characters are cut to 4: keeps your location coarse
+    assert 'name="log_dir" value="/logs/wsjt x"' in page
+    assert '<option value="extra" selected>' in page
+    assert env.read_text() == "MY_GRID=FN31\nLOG_DIR=/logs/wsjt x\nLICENSE_CLASS=extra\n"
+
+
+def test_saving_changes_only_the_settings_lines(client, env):
+    env.write_text("# my notes\nOTHER=1\nMY_GRID=JJ00\n")
+    save(client, grid="FN31")
+    assert env.read_text() == "# my notes\nOTHER=1\nMY_GRID=FN31\nLICENSE_CLASS=general\n"
+
+
+def test_an_empty_value_clears_the_setting(client, env):
+    env.write_text("MY_GRID=FN31\nLOG_DIR=/logs\n")
+    save(client)
+    assert env.read_text() == "LICENSE_CLASS=general\n"
+
+
+@pytest.mark.parametrize("fields, reason", [
+    ({"grid": "ZZ99"}, "grid square"),
+    ({"grid": "FN31\nLOG_DIR=/etc"}, "grid square"),
+    ({"log_dir": "/logs\nMY_GRID=JJ00"}, "line break"),
+    ({"log_dir": "/logs\rMY_GRID=JJ00"}, "line break"),
+    ({"log_dir": "/logs\x00"}, "line break"),
+    ({"log_dir": "/logs # old"}, "#"),
+    ({"log_dir": "/" + "x" * 1001}, "too long"),
+    ({"license_class": "novice"}, "license class"),
+    ({"license_class": ""}, "license class"),
+])
+def test_a_bad_setting_saves_nothing_and_says_why(client, env, fields, reason):
+    env.write_text("MY_GRID=JJ00\n")
+    response, page = save(client, **({"grid": "FN31"} | fields))
+    assert response.status_code == 400 and reason in page
+    assert env.read_text() == "MY_GRID=JJ00\n"
+
+
+@pytest.mark.parametrize("headers", [{"Origin": "https://evil.example"}, {"Origin": "null"}, {}])
+def test_settings_from_any_other_origin_are_refused(client, env, headers):
+    response, _ = save(client, log_dir="/somewhere/else", headers=headers)
+    assert response.status_code == 403 and not env.exists()
+
+
+def test_saved_folder_text_is_escaped(client, env):
+    _, page = save(client, log_dir='"><script>alert(1)</script>')
+    assert "<script>" not in page
+
+
+def test_license_class_changes_the_page_but_not_the_data(client, env, db, five_days):
+    before = stored(db)
+    _, page = save(client, license_class="technician")
+    _, page = get(client, "/?hour=15")
+    assert "Stations<br>per day" not in page
+    assert stored(db) == before
+    _, page = save(client, license_class="general")
+    _, page = get(client, "/?hour=15")
+    assert "Stations<br>per day" in page
+
+
+def test_the_page_says_the_bands_follow_us_rules(client):
+    _, page = get(client)
+    assert "US amateur rules" in page
+
+
+def test_a_bad_grid_in_the_file_can_be_fixed_from_the_page(client, env):
+    env.write_text("MY_GRID=ZZ99\n")
+    response, page = get(client)
+    assert response.status_code == 500 and 'name="my_grid" value="ZZ99"' in page
+    response, page = save(client, grid="FN31")
+    assert response.status_code == 200
+
+
+def test_messages_point_to_settings_not_a_file(client, env, five_days):
+    _, page = get(client, "/?hour=15")
+    assert "in Settings" in page and ".env" not in page

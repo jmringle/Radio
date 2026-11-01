@@ -165,6 +165,21 @@ Open that address in your browser. The page shows the same forecast as `ft8cast 
 
 Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `2` bad input (missing or unreadable file, no FT8 records in it, a database that isn't ft8cast's, no database or no `ALL.TXT` data yet for a forecast, an invalid `MY_GRID`, usage errors such as `--hour 24` or `--port 80`; for `serve`, the port already in use).
 
+### The standalone app
+
+A double-clickable app for macOS and Windows: the same page in its own window, with no terminal or Python needed. It keeps its database, settings and error log in `~/Library/Application Support/FT8 Forecast` (macOS) or `%APPDATA%\FT8 Forecast` (Windows), separate from `data/` and `.env`, so importing into one doesn't change the other. Set your grid, log folder and license class under **Settings** on the page.
+
+To build it on the system you want it for:
+
+```sh
+pip install -r requirements-app.txt
+pyinstaller --noconfirm packaging/ft8forecast.spec
+python packaging/check_build.py dist          # fails if a log, database or .env got in
+"dist/FT8 Forecast.app/Contents/MacOS/FT8 Forecast" --self-test   # macOS; exit 0 means it works
+```
+
+To run it from source without building: `python -m ft8_forecast.desktop`.
+
 ## Running tests
 
 `pytest` from `ft8-forecast/` runs everything. No network beyond 127.0.0.1, no radio, no real logs. The web page is tested two ways: `test_web.py` checks the HTML through Flask's test client; `test_browser.py` (added 2026-10-29) runs the real server on a free local port and drives headless Chromium with Playwright, for what only a browser can show: the table scrolling in its own box on a phone, the scroll hint appearing whenever the table overflows, dark mode, the hour form, and the CSP blocking an injected script. Either way tests build made-up ADIF records and `ALL.TXT` lines (in the real file's exact layout) with `N0CALL`. CI runs the same command on Linux and Windows (Windows added 2026-10-30) on every push that touches this folder or `band-privileges`, then `pip-audit`. Local times are pinned to US Eastern through `cli._local_zone` (`tests/conftest.py`), so tests read the same in any time zone; `tzdata` supplies the zone on Windows. A few tests skip on Windows, each with its reason: unreadable-file tests (Windows ignores `chmod`'s read bits) and the port-in-use test (needs `SIGALRM`). Unverified: whether a second `ft8cast serve` on Windows is refused a port already in use, as on macOS and Linux.
@@ -228,13 +243,21 @@ The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FR
 
 **Why Python:** your strongest language; it can import the `band-privileges` engine directly; pytest's parametrize suits the many malformed-input cases. TypeScript lost because it would mean reimplementing the privileges engine.
 
+**Standalone app: acceptance criteria** (settled 2026-11-01). A double-clickable Mac and Windows app for people without Python or a terminal. It's the existing page in a native window (pywebview), bundled with PyInstaller; `ft8cast` keeps working as it does now.
+- **Starting:** opens one window showing the same page as `ft8cast serve`. Needs no Python, no terminal and no network. The server listens on `127.0.0.1` only, on a free port chosen at start, so a second app or `serve` on 8074 can't block it. Closing the window stops the server. A startup failure shows a readable message, not a silent exit.
+- **Where data lives:** the app keeps its database and settings in the user's own folder (macOS `~/Library/Application Support/FT8 Forecast`, Windows `%APPDATA%\FT8 Forecast`), created on first use. It never writes beside the app. Run from source, `ft8cast` keeps using `data/` and `.env`.
+- **Settings:** a Settings section on the page sets the grid square, log folder and license class, for the app and `serve` alike. They're saved in the same `.env` format, changing only those lines. A bad grid, a folder value containing a line break, or an unknown class is a 400 that saves nothing and says why. Empty clears the value. Saving needs the same `Origin` as uploads. "Set MY_GRID in .env" messages point to Settings.
+- **License class:** Technician, General (default) or Extra, US rules, applied through `band-privileges`. It decides which decodes and contacts count, in the page and the terminal. Changing it never alters stored data. The page says the bands follow US rules.
+- **Errors:** unexpected errors say where the log file is, not "see the terminal", and the log holds no callsigns or grids. Still no traceback on the page.
+- **Offline:** no update checks, analytics or web calls; a test fails on any connection except to the app's own local server.
+- **Builds:** GitHub Actions builds on macOS and Windows, because PyInstaller only builds for the system it runs on. Each build must start and answer a local request before it counts. Builds are unsigned for now, and the README explains the macOS and Windows warnings. Nothing from `data/` or `.env` may be in a build; a test checks.
+
 **Next:**
-- Phase 2, if wanted: a standalone app (a native window around the same page).
 - Possible later: solar values typed in by hand (`--k`, `--flux`; no network).
 
 ### Threat model
 
-Personal tool, local files only, no network. `serve` adds a local web server, so T5-T9 cover it; reading a folder (`LOG_DIR`, `--dir`, `watch`) adds T10-T12.
+Personal tool, local files only, no network. `serve` adds a local web server, so T5-T9 cover it; reading a folder (`LOG_DIR`, `--dir`, `watch`) adds T10-T12; the standalone app (2026-11-01) adds T13-T17.
 
 | ID | Threat | OWASP 2025 | Mitigation | Test |
 |---|---|---|---|---|
@@ -250,6 +273,11 @@ Personal tool, local files only, no network. `serve` adds a local web server, so
 | T10 | A website open in your browser makes the page import from some other folder on your disk | A01 Broken Access Control | The folder comes only from `LOG_DIR` in `.env`; the page has no folder field and ignores any sent | `test_page_never_takes_a_folder_path` |
 | T11 | A symlink in the log folder (on a share, someone else may control it) points at a private file, which then gets parsed and bits of it echoed in problem messages | A01 Broken Access Control | Symlinks and subfolders are skipped; only `ALL.TXT` and `.adi`/`.adif` names are read | `test_skips_symlinks_and_subfolders` |
 | T12 | A website open in your browser presses "Import from folder" (CSRF) | A01 Broken Access Control | Same exact-`Origin` check as uploads | `test_import_folder_from_any_other_origin_is_refused` |
+| T13 | A website open in your browser changes the log folder through Settings (CSRF), then triggers an import. This replaces T10's "no folder field" safeguard for the Settings form | A01 Broken Access Control | Same exact-`Origin` check on saving settings; imports still read only the saved folder | `test_settings_from_any_other_origin_are_refused` |
+| T14 | A value with a line break writes extra settings into `.env` | A05 Injection | Every value validated before saving; line breaks refused | `test_a_bad_setting_saves_nothing_and_says_why` |
+| T15 | Someone's real logs or `.env` get bundled into a public build | none (privacy mistake, not a code flaw) | Builds run from a clean CI checkout; a test inspects the build | `packaging/check_build.py`, `test_private_files_are_found_at_any_depth` |
+| T16 | A tampered download or a changed dependency reaches users | A03 Software Supply Chain Failures | Exact version pins, `pip-audit` in CI, builds only from GitHub Actions, SHA-256 checksums published with each release. Unsigned builds can't prove who made them (accepted for now) | planned |
+| T17 | The error log leaks other operators' callsigns or the user's grid into bug reports | A09 Security Logging and Alerting Failures | Logs record the error type and location, never log contents | `test_unexpected_errors_name_the_log_and_keep_log_contents_out_of_it` |
 
 **Accepted risks:** a huge garbage file passed to `import` would collect one problem per line in memory. It's a personal tool reading your own files, so there's no cap beyond ADIF's 100 MB (and 500 MB for uploads). Werkzeug's development server is used rather than a production server (one more dependency): it serves one person on one machine, and T5-T9 cover what a production server wouldn't add. Mutation-checked 2026-10-28: removing each control above makes a test fail.
 

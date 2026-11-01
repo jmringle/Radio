@@ -9,8 +9,11 @@ Jinja escapes everything inserted into the page, including text from your files.
 """
 
 import argparse
+import traceback
+from datetime import UTC, datetime
 from pathlib import Path
 
+from band_privileges import LicenseClass
 from flask import Flask, render_template, request
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
@@ -41,8 +44,21 @@ class PageError(Exception):
         self.status = status
 
 
-def create_app(db: Path) -> Flask:
+def log_failure(log: Path, error: BaseException) -> None:
+    """One line: the error's type and where. Never its message, which can quote your logs."""
+    frames = traceback.extract_tb(error.__traceback__)
+    where = f" at {Path(frames[-1].filename).name}:{frames[-1].lineno}" if frames else ""
+    try:
+        with log.open("a", encoding="utf-8") as file:
+            file.write(f"{datetime.now(UTC):%Y-%m-%d %H:%M:%S} UTC {type(error).__name__}{where}\n")
+    except OSError:
+        pass  # nothing can be done, and this already runs while reporting an error
+
+
+def create_app(db: Path, log_file: Path | None = None) -> Flask:
+    """log_file: for the standalone app, which has no terminal. Without it, errors go to the terminal."""
     app = Flask(__name__)
+    app.config["DB"] = db
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
     @app.before_request
@@ -59,6 +75,13 @@ def create_app(db: Path) -> Flask:
     def security_headers(response):
         response.headers.update(_HEADERS)
         return response
+
+    @app.context_processor
+    def settings_form():
+        # Raw values, so a bad one can be seen and fixed even on the page showing its error.
+        return {"settings": {"my_grid": cli._env("MY_GRID") or "", "log_dir": cli._env("LOG_DIR") or "",
+                             "license_class": (cli._env("LICENSE_CLASS") or "general").lower()},
+                "license_classes": [c.value for c in LicenseClass]}
 
     @app.get("/")
     def page():
@@ -94,13 +117,13 @@ def create_app(db: Path) -> Flask:
 
     @app.post("/import-folder")
     def import_from_folder():
-        # The folder comes only from LOG_DIR in .env, never from the request.
+        # The folder comes only from the saved LOG_DIR, never from this request.
         try:
             logs = cli._log_dir()
         except ValueError as error:
-            raise PageError(500, f"LOG_DIR in {cli.ENV_FILE.name}: {error}") from None
+            raise PageError(500, f"Log folder in Settings: {error}") from None
         if logs is None:
-            raise PageError(400, f"Set LOG_DIR in {cli.ENV_FILE.name} to import from a folder.")
+            raise PageError(400, "Set the log folder in Settings to import from a folder.")
         try:
             folder.find_logs(logs)  # check before creating a database
             conn = _open(db)
@@ -114,6 +137,17 @@ def create_app(db: Path) -> Flask:
             conn.close()
         return _render(db, None, "busiest", imported=[
             {"name": r.path.name[:MAX_NAME], "log": r.log, "new": r.new, "error": r.error} for r in results])
+
+    @app.post("/settings")
+    def save_settings():
+        try:
+            cli.save_settings(request.form.get("my_grid", ""), request.form.get("log_dir", ""),
+                              request.form.get("license_class", ""))
+        except ValueError as error:
+            raise PageError(400, str(error)) from None
+        except OSError as error:
+            raise PageError(500, f"Couldn't save settings: {error.strerror}") from None
+        return _render(db, None, "busiest", saved=True)
 
     @app.errorhandler(PageError)
     def page_error(error):
@@ -129,9 +163,14 @@ def create_app(db: Path) -> Flask:
 
     @app.errorhandler(Exception)
     def unexpected(error):
-        # Details go to the terminal running the server, never to the page.
-        app.logger.exception("unexpected error")
-        return render_template("page.html", error="Something went wrong; see the terminal.", hours=range(24)), 500
+        # Details go to the terminal or log file, never to the page.
+        if log_file is None:
+            app.logger.exception("unexpected error")
+            message = "Something went wrong; see the terminal."
+        else:
+            log_failure(log_file, error)
+            message = f"Something went wrong; details are in {log_file}."
+        return render_template("page.html", error=message, hours=range(24)), 500
 
     return app
 
@@ -143,24 +182,28 @@ def _open(db: Path):
         raise PageError(500, str(error)) from None
 
 
-def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | None = None) -> str:
+def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | None = None, saved: bool = False) -> str:
     try:
         my_grid = cli._my_grid()  # the same .env and clock as the CLI
     except ValueError as error:
-        raise PageError(500, f"MY_GRID in {cli.ENV_FILE.name}: {error}") from None
+        raise PageError(500, f"Grid square in Settings: {error}") from None
+    try:
+        license_class = cli._license_class()
+    except ValueError as error:
+        raise PageError(500, f"License class in Settings: {error}") from None
     now = cli._now()
     hour = now.hour if hour is None else None if hour == cli.ALL_HOURS else hour
     result, age, message, overview, summary = None, None, None, None, []
     if not db.is_file():
         message = ("No data yet. Import your WSJT-X ALL.TXT below, or press Import from folder." if cli._log_dir() else
                    "No data yet. Import your WSJT-X ALL.TXT below; add wsjtx_log.adi too for your contacts. "
-                   f"To import from a folder instead, set LOG_DIR in {cli.ENV_FILE.name}.")
+                   "To import from a folder instead, set the log folder in Settings.")
     else:
         conn = _open(db)
         try:
-            result = forecast.compute(conn, hour, my_grid, now)
+            result = forecast.compute(conn, hour, my_grid, now, license_class)
             if result is not None:  # about 0.3 s for a year of listening
-                hours = [forecast.compute(conn, h, my_grid, now) for h in range(24)]
+                hours = [forecast.compute(conn, h, my_grid, now, license_class) for h in range(24)]
                 overview = cli.overview(hours, by)
                 summary = cli.summary_lines(result, by, hours if hour is not None else None, now)
         finally:
@@ -172,7 +215,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
     return render_template(
         "page.html", hour=hour, hours=range(24), result=result, message=message, imported=imported,
         stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
-        env_name=cli.ENV_FILE.name, window_days=forecast.WINDOW_DAYS, answered=cli.answered, answered_notes=cli.ANSWERED_NOTES,
+        saved=saved, window_days=forecast.WINDOW_DAYS, answered=cli.answered, answered_notes=cli.ANSWERED_NOTES,
         show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour, now),
         all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by, log_dir=cli._log_dir(),
         now_hour=now.hour, summary=summary, tab_title=_tab_title(result, hour, by), age_text=result and cli.data_age(result.newest, now), kind_for_name=folder.kind_for_name,

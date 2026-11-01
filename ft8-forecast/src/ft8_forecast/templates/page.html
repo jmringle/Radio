@@ -116,7 +116,7 @@
       <p class="muted">{% for line in legend %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if transmitted %}{% for line in answered_notes %}<br>{{ line }}{% endfor %}{% endif %}</p>
     {% endif %}
     {% if my_grid is none %}
-      <p class="note">Farthest heard and worked need your grid: set MY_GRID in {{ env_name }} (see .env.example).</p>
+      <p class="note">Farthest heard and worked need your grid: set it in Settings below.</p>
     {% endif %}
   {% elif message %}
     <h2 id="forecast-title">Forecast</h2>
@@ -184,9 +184,30 @@
   {% if log_dir %}
   <form method="post" action="/import-folder" class="upload">
     <button type="submit">Import from folder</button>
-    <span class="muted">From {{ log_dir }} (LOG_DIR in {{ env_name }})</span>
+    <span class="muted">From {{ log_dir }} (set in Settings)</span>
   </form>
   {% endif %}
+</section>
+
+<section aria-labelledby="settings-title">
+  <h2 id="settings-title">Settings</h2>
+  {% if saved %}
+  <p class="note" role="status">Settings saved.</p>
+  {% endif %}
+  <form method="post" action="/settings" class="settings">
+    <label for="my_grid">Grid square</label>
+    <input id="my_grid" name="my_grid" value="{{ settings.my_grid }}" maxlength="20" autocomplete="off" placeholder="FN31">
+    <label for="log_dir">Log folder</label>
+    <input id="log_dir" name="log_dir" value="{{ settings.log_dir }}" autocomplete="off">
+    <label for="license_class">License class</label>
+    <select id="license_class" name="license_class">
+    {% for value in license_classes %}
+      <option value="{{ value }}"{% if value == settings.license_class %} selected{% endif %}>{{ value|capitalize }}</option>
+    {% endfor %}
+    </select>
+    <button type="submit">Save settings</button>
+  </form>
+  <p class="muted">The grid is kept to 4 characters, about 140 x 70 miles. The log folder is the one with ALL.TXT and wsjtx_log.adi; in WSJT-X, File &gt; Open log directory shows it. Bands follow US amateur rules (FCC Part 97) for your license class.</p>
 </section>
 </main>
 </body>

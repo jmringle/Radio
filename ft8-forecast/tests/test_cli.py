@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from band_privileges import LicenseClass
 from ft8_forecast import Contact, Decode, cli, logs
 from ft8_forecast.cli import main
 from ft8_forecast.store import open_db, save_contacts, save_decodes
@@ -796,3 +797,21 @@ def test_commands_never_use_the_network(setup, db, tmp_path, capsys, monkeypatch
     assert run(capsys, "--dir", logs, "--db", db)[0] == 0
     monkeypatch.setattr(cli, "_sleep", lambda seconds: (_ for _ in ()).throw(KeyboardInterrupt))
     assert main(["watch", "--dir", str(logs), "--db", str(db)]) == 0
+
+
+# --- license class (LICENSE_CLASS in .env) ---
+
+def test_license_class_setting_reaches_the_terminal(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
+    (tmp_path / ".env").write_text("LICENSE_CLASS=Technician\n")
+    assert cli._license_class() is LicenseClass.TECHNICIAN
+    (tmp_path / ".env").write_text("")
+    assert cli._license_class() is LicenseClass.GENERAL
+
+
+@pytest.mark.parametrize("command", ["forecast", "overview"])
+def test_a_bad_license_class_is_an_error(tmp_path, monkeypatch, capsys, command):
+    monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
+    (tmp_path / ".env").write_text("LICENSE_CLASS=novice\n")
+    code = main([command, "--db", str(tmp_path / "none.sqlite")])
+    assert code == 2 and "LICENSE_CLASS in .env" in capsys.readouterr().err
