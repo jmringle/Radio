@@ -1,14 +1,18 @@
 # PyInstaller build. Run from this folder's parent: pyinstaller --noconfirm packaging/ft8forecast.spec
 # A folder, not one file: it starts faster, and one-file builds trip more antivirus tools.
+import os
 import sys
 
-source = "../src/ft8_forecast"
+# SPECPATH (this folder), so it works from any folder and without ft8_forecast installed, as in CI.
+src = os.path.join(SPECPATH, "..", "src")
+source = os.path.join(src, "ft8_forecast")
 analysis = Analysis(
     ["app_entry.py"],
-    pathex=["../src"],
+    pathex=[src],
     # Named one by one, so nothing else in the project (data/, .env) can come along.
     datas=[(f"{source}/templates/page.html", "ft8_forecast/templates"),
            (f"{source}/static/style.css", "ft8_forecast/static")],
+    hiddenimports=["ft8_forecast.desktop"],
     excludes=["pytest", "playwright", "pip_audit", "PyInstaller"],
 )
 archive = PYZ(analysis.pure)

@@ -34,12 +34,16 @@ jobs:
 
       - name: Start the built app (macOS)
         if: runner.os == 'macOS'
+        timeout-minutes: 2
         run: '"dist/FT8 Forecast.app/Contents/MacOS/FT8 Forecast" --self-test'
       - name: Start the built app (Windows)
         if: runner.os == 'Windows'
-        # A windowed Windows app doesn't report an exit code to the shell unless waited on.
+        # A windowed app reports its exit code only if waited on. The time limit is because a
+        # crash can open an error dialog that nobody on a runner can dismiss.
         run: |
-          $app = Start-Process -FilePath "dist\FT8 Forecast\FT8 Forecast.exe" -ArgumentList "--self-test" -Wait -PassThru
+          $app = Start-Process -FilePath "dist\FT8 Forecast\FT8 Forecast.exe" -ArgumentList "--self-test" -PassThru
+          $handle = $app.Handle  # without this, ExitCode stays empty
+          if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "self-test still running after 60 s, probably an error dialog" }
           if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
 
       - name: Package (macOS)
