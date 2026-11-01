@@ -577,3 +577,35 @@ def trend_of(earlier, recent):
 ])
 def test_trend_needs_25_percent_and_2_stations_a_day(earlier, recent, word):
     assert trend_of(earlier, recent) == word
+
+
+# --- license class ---
+
+def test_technician_counts_only_10m_of_these_bands(conn):
+    # 47 CFR 97.301(e) and 97.305: Technicians have data on 28.0-28.3 MHz, none on the others here.
+    save_decodes(conn, [rx(), rx(dial=28_074_000, sender="N0CALL/P")])
+    result = forecast.compute(conn, 15, None, license_class=LicenseClass.TECHNICIAN)
+    stations = {b.band: b.stations for b in result.bands}
+    assert (stations["20m"], stations["10m"]) == (0, 1)
+
+
+def test_technician_contacts_on_other_bands_are_left_out(conn):
+    save_decodes(conn, [rx()])
+    save_contacts(conn, [Contact("N0CALL", NEWEST, TWENTY, None)])
+    result = forecast.compute(conn, 15, None, license_class=LicenseClass.TECHNICIAN)
+    assert sum(b.contacts for b in result.bands) == 0
+
+
+def test_extra_counts_the_bottom_of_20m_that_general_does_not(conn):
+    # 14.000-14.025 MHz is Extra only (97.301(b), (d)).
+    save_decodes(conn, [rx(dial=14_010_000)])
+    assert band(conn).stations == 0
+    result = forecast.compute(conn, 15, None, license_class=LicenseClass.EXTRA)
+    assert next(b for b in result.bands if b.band == "20m").stations == 1
+
+
+def test_the_default_license_class_is_general(conn):
+    save_decodes(conn, [rx(dial=14_010_000), rx(sender="N0CALL/P")])
+    default = forecast.compute(conn, 15, None)
+    general = forecast.compute(conn, 15, None, license_class=LicenseClass.GENERAL)
+    assert default == general

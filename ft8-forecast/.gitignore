@@ -4,3 +4,7 @@ data/
 *.adi
 *.adif
 ALL.TXT
+
+# PyInstaller output
+build/
+dist/
