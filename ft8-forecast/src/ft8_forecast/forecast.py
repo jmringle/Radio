@@ -54,6 +54,9 @@ TREND_DAYS = WINDOW_DAYS // 2
 TREND_MIN_DAYS = 3
 TREND_SHARE = 0.25
 TREND_STATIONS = 2
+# A difference between answering and calling CQ is shown only when Fisher's exact test puts
+# its chance below this: the usual 1 in 20.
+REPLY_P = 0.05
 
 # How to pick the best bet and order the table: --rank / the page's "Best bet by".
 RANKINGS = ("busiest", "contacts")
@@ -256,6 +259,29 @@ def trend(band: BandStats) -> str | None:
     if abs(change) < TREND_STATIONS or abs(change) < TREND_SHARE * band.earlier_per_day:
         return None
     return "busier" if change > 0 else "quieter"
+
+
+def fisher_exact(a: int, n: int, b: int, m: int) -> float:
+    """Two-sided Fisher's exact test: how likely a gap at least as big as a of n vs b of m is by
+    chance alone, if both really had the same rate. Exact for small counts, where 3 of 22 vs 0 of 25
+    looks like a big difference but isn't evidence of one."""
+    replies, total = a + b, n + m
+    def chance(x: int) -> float:  # x of the replies landing on the first side
+        return math.comb(n, x) * math.comb(m, replies - x) / math.comb(total, replies)
+    seen = chance(a)
+    # Every split as unlikely as the one seen, or more (the tolerance absorbs float rounding).
+    return min(1.0, sum(p for x in range(max(0, replies - m), min(replies, n) + 1)
+                        if (p := chance(x)) <= seen * (1 + 1e-9)))
+
+
+def better_opener(band: BandStats) -> str | None:
+    """'answering' or 'calling' when one way of starting a contact got you replies more often
+    than the other, by a gap unlikely to be chance (REPLY_P); None otherwise or without both."""
+    if not band.cqs or not band.calls:
+        return None
+    if fisher_exact(band.cqs_answered, band.cqs, band.calls_answered, band.calls) >= REPLY_P:
+        return None
+    return "answering" if band.calls_answered / band.calls > band.cqs_answered / band.cqs else "calling"
 
 
 def _answered(conn: sqlite3.Connection, calls: dict[str, list[str]], end: str) -> dict[str, int]:

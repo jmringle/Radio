@@ -33,7 +33,8 @@ LEGEND = ("Stations per day: the median (middle value) over the days you listene
           f"Farthest heard: same station and grid on {forecast.FARTHEST_MIN_DAYS}+ days.")
 DETAILS_HINT = "Column notes and farthest contacts: add --details"
 ANSWERED_NOTES = (f"Replies to you: a decode addressed to you within {forecast.REPLY_SECONDS} s.",
-                  "Answering CQs: you calling a station (usually answering its CQ).")
+                  "Answering CQs: you calling a station (usually answering its CQ).",
+                  "Got more replies: shown when chance alone would give that gap under 1 in 20.")
 RANK_LABELS = {"busiest": "busiest", "contacts": "most contacts"}
 
 
@@ -133,6 +134,27 @@ def summary_lines(result: forecast.Forecast, by: str, hours: list[forecast.Forec
                    for band in ranked if forecast.trend(band) == word]
         if changed:
             lines.append(f"{word.capitalize()} in the last {forecast.TREND_DAYS} days: {', '.join(changed)}")
+    return lines + opener_lines(ranked)
+
+
+def opener_lines(bands: list[forecast.BandStats]) -> list[str]:
+    """Which way of starting a contact got you replies more often, per band, in the order given;
+    only bands where the gap is unlikely to be chance (forecast.better_opener)."""
+    def pct(done: int, made: int) -> str:
+        return f"{100 * done / made:.0f}%"  # rounded as in the Replies to you table
+
+    lines = []
+    for word, way, other in (("answering", "Answering CQs", "calling CQ"), ("calling", "Calling CQ", "answering CQs")):
+        rates = []
+        for band in bands:
+            if forecast.better_opener(band) != word:
+                continue
+            better, worse = (band.calls_answered, band.calls), (band.cqs_answered, band.cqs)
+            if word == "calling":
+                better, worse = worse, better
+            rates.append(f"{band.band} ({pct(*better)} vs {pct(*worse)})")
+        if rates:
+            lines.append(f"{way} got more replies than {other}: {', '.join(rates)}")
     return lines
 
 

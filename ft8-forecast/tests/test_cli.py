@@ -319,7 +319,8 @@ LEGEND = ["Stations per day: the median (middle value) over the days you listene
           "Farthest heard: same station and grid on 2+ days."]
 ANSWERED = "Replies to you" + " " * 12 + "Calling CQ" + " " * 9 + "Answering CQs"
 ANSWERED_NOTES = ["Replies to you: a decode addressed to you within 30 s.",
-                  "Answering CQs: you calling a station (usually answering its CQ)."]
+                  "Answering CQs: you calling a station (usually answering its CQ).",
+                  "Got more replies: shown when chance alone would give that gap under 1 in 20."]
 
 
 def unwrap(out):
@@ -400,7 +401,7 @@ def test_forecast_shows_how_many_calls_were_answered(setup, db, capsys):
     top = lines.index(ANSWERED)
     assert lines[top - 1:top + 3] == ["", ANSWERED, "20m" + " " * 21 + "1 of 2 (50%)" + " " * 11 + "0 of 1 (0%)", ""]
     legend = lines.index(LEGEND[-1])
-    assert lines[legend + 1:legend + 3] == ANSWERED_NOTES
+    assert lines[legend + 1:legend + 4] == ANSWERED_NOTES
 
 
 def test_no_answered_table_without_your_tx(setup, db, capsys):
@@ -845,3 +846,45 @@ def test_an_old_license_class_line_is_ignored(setup, db, capsys, command):
     setup.write_text("LICENSE_CLASS=novice\n")  # even an invalid one, from before it was removed
     code, _, err = main([command, "--db", str(db)]), *capsys.readouterr()
     assert (code, err) == (0, "")
+
+
+# --- answering vs calling CQ in the summary (README: Replies to you) ---
+
+def opener_band(name, cqs_answered, cqs, calls_answered, calls):
+    from ft8_forecast import forecast
+    return forecast.BandStats(name, 5, 10.0, 0, None, None, None, None, None, 0,
+                              cqs, cqs_answered, calls, calls_answered, None, None)
+
+
+def test_opener_lines_name_each_band_with_a_real_difference():
+    bands = [opener_band("20m", 21, 240, 10, 42),  # answering: 9% vs 24%
+             opener_band("15m", 3, 22, 0, 25),  # 14% vs 0%, could be luck: left out
+             opener_band("10m", 3, 124, 8, 41),  # answering: 2% vs 20%
+             opener_band("40m", 20, 40, 1, 30)]  # calling: 50% vs 3%
+    assert cli.opener_lines(bands) == [
+        "Answering CQs got more replies than calling CQ: 20m (24% vs 9%), 10m (20% vs 2%)",
+        "Calling CQ got more replies than answering CQs: 40m (50% vs 3%)"]
+
+
+def test_no_opener_line_without_a_real_difference():
+    assert cli.opener_lines([opener_band("15m", 3, 22, 0, 25), opener_band("20m", 0, 0, 0, 0)]) == []
+
+
+def test_the_summary_says_when_answering_cqs_works_better(setup, db, capsys):
+    conn = open_db(db)
+    start = datetime(2026, 10, 24, 15, 0, tzinfo=UTC)
+    decodes = []
+    for n in range(10):  # 10 CQs, no replies
+        decodes.append(Decode(start + timedelta(minutes=n), 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00"))
+    for n in range(5):  # 5 calls to a station, each answered 15 s later
+        when = start + timedelta(minutes=20 + n)
+        decodes += [Decode(when, 14_074_000, True, 0, "N0CALL/P", "AA00", f"N{n}CALL N0CALL/P AA00"),
+                    Decode(when + timedelta(seconds=15), 14_074_000, False, -9, f"N{n}CALL", "FN31",
+                           f"N0CALL/P N{n}CALL -09")]
+    save_decodes(conn, decodes)
+    conn.close()
+    lines = unwrap(forecast_run(capsys, db)[1])
+    assert "Answering CQs got more replies than calling CQ: 20m (100% vs 0%)" in lines[:8]  # with the summary
+    assert "N0CALL" not in "\n".join(lines)  # still no callsigns
+    details = forecast_run(capsys, db, "--details")[1]
+    assert cli.ANSWERED_NOTES[-1] in details and "1 in 20" in cli.ANSWERED_NOTES[-1]

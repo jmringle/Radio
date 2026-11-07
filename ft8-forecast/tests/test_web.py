@@ -771,3 +771,19 @@ def test_a_bad_grid_in_the_file_can_be_fixed_from_the_page(client, env):
 def test_messages_point_to_settings_not_a_file(client, env, five_days):
     _, page = get(client, "/?hour=15")
     assert "in Settings" in page and ".env" not in page
+
+
+def test_the_summary_says_when_answering_cqs_works_better(client, db, five_days):
+    conn = open_db(db)
+    start = datetime(2026, 10, 24, 15, 0, tzinfo=UTC)
+    decodes = [Decode(start + timedelta(minutes=n), 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00")
+               for n in range(10)]  # 10 CQs, no replies
+    for n in range(5):  # 5 calls to a station, each answered 15 s later
+        when = start + timedelta(minutes=20 + n)
+        decodes += [Decode(when, 14_074_000, True, 0, "N0CALL/P", "AA00", f"N{n}CALL N0CALL/P AA00"),
+                    Decode(when + timedelta(seconds=15), 14_074_000, False, -9, f"N{n}CALL", "FN31",
+                           f"N0CALL/P N{n}CALL -09")]
+    save_decodes(conn, decodes)
+    conn.close()
+    summary = re.search(r'<p class="summary">(.*?)</p>', get(client)[1], re.S).group(1)
+    assert "Answering CQs got more replies than calling CQ: 20m (100% vs 0%)" in summary

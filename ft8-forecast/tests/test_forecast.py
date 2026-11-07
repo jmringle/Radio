@@ -585,3 +585,33 @@ def test_the_extra_only_bottom_of_20m_is_left_out(conn):
     # 14.000-14.025 MHz is Extra only (47 CFR 97.301(b), (d)), and no FT8 frequency is there.
     save_decodes(conn, [rx(dial=14_010_000)])
     assert band(conn).stations == 0
+
+
+# --- answering vs calling CQ (README: Replies to you) ---
+
+def opener_band(cqs_answered, cqs, calls_answered, calls):
+    return forecast.BandStats("20m", MIN_DAYS, 10.0, 0, None, None, None, None, None, 0,
+                              cqs, cqs_answered, calls, calls_answered, None, None)
+
+
+@pytest.mark.parametrize("a, n, b, m, p", [
+    (3, 4, 1, 4, 0.4857),  # Fisher's tea-tasting table [[3, 1], [1, 3]]: the textbook two-sided value
+    (1, 4, 3, 4, 0.4857),  # swapping the two sides gives the same answer
+    (0, 10, 0, 10, 1.0),  # no replies either way: no difference at all
+    (21, 240, 10, 42, 0.0126),  # the author's 20m at 17 UTC (2026-11-07)
+])
+def test_fisher_exact(a, n, b, m, p):
+    assert forecast.fisher_exact(a, n, b, m) == pytest.approx(p, abs=1e-4)
+
+
+@pytest.mark.parametrize("counts, verdict", [
+    ((21, 240, 10, 42), "answering"),  # 9% vs 24%: unlikely to be chance
+    ((10, 42, 21, 240), "calling"),  # the same the other way round
+    ((3, 22, 0, 25), None),  # 14% vs 0%, but 3 replies could be luck
+    ((2, 133, 2, 22), None),  # 2% vs 9%, too few replies too
+    ((0, 0, 5, 20), None),  # no CQs to compare with
+    ((5, 20, 0, 0), None),  # no calls to compare with
+    ((10, 100, 10, 100), None),  # the same rate
+])
+def test_better_opener_needs_a_difference_unlikely_to_be_chance(counts, verdict):
+    assert forecast.better_opener(opener_band(*counts)) == verdict
