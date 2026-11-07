@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from band_privileges import LicenseClass
 from ft8_forecast import Contact, Decode, cli, logs
 from ft8_forecast.cli import main
 from ft8_forecast.store import open_db, save_contacts, save_decodes
@@ -839,19 +838,10 @@ def test_commands_never_use_the_network(setup, db, tmp_path, capsys, monkeypatch
     assert main(["watch", "--dir", str(logs), "--db", str(db)]) == 0
 
 
-# --- license class (LICENSE_CLASS in .env) ---
-
-def test_license_class_setting_reaches_the_terminal(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
-    (tmp_path / ".env").write_text("LICENSE_CLASS=Technician\n")
-    assert cli._license_class() is LicenseClass.TECHNICIAN
-    (tmp_path / ".env").write_text("")
-    assert cli._license_class() is LicenseClass.GENERAL
-
+# --- LICENSE_CLASS (removed 2026-11-07) ---
 
 @pytest.mark.parametrize("command", ["forecast", "overview"])
-def test_a_bad_license_class_is_an_error(tmp_path, monkeypatch, capsys, command):
-    monkeypatch.setattr(cli, "ENV_FILE", tmp_path / ".env")
-    (tmp_path / ".env").write_text("LICENSE_CLASS=novice\n")
-    code = main([command, "--db", str(tmp_path / "none.sqlite")])
-    assert code == 2 and "LICENSE_CLASS in .env" in capsys.readouterr().err
+def test_an_old_license_class_line_is_ignored(setup, db, capsys, command):
+    setup.write_text("LICENSE_CLASS=novice\n")  # even an invalid one, from before it was removed
+    code, _, err = main([command, "--db", str(db)]), *capsys.readouterr()
+    assert (code, err) == (0, "")

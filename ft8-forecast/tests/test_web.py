@@ -706,31 +706,31 @@ def test_port_in_use_is_an_error(db, capsys):
 
 # --- settings (README: standalone app; T13, T14) ---
 
-def save(client, grid="", log_dir="", license_class="general", headers=None, base_url=BASE):
+def save(client, grid="", log_dir="", headers=None, base_url=BASE):
     response = client.post("/settings", base_url=base_url, headers={"Origin": BASE} if headers is None else headers,
-                           data={"my_grid": grid, "log_dir": log_dir, "license_class": license_class})
+                           data={"my_grid": grid, "log_dir": log_dir})
     return response, response.get_data(as_text=True)
 
 
 def test_saved_settings_are_used_and_shown(client, env, five_days):
-    response, page = save(client, grid="fn31pr", log_dir="/logs/wsjt x", license_class="extra")
+    response, page = save(client, grid="fn31pr", log_dir="/logs/wsjt x")
     assert response.status_code == 200 and "Settings saved." in page
     assert 'name="my_grid" value="FN31"' in page  # 6 characters are cut to 4: keeps your location coarse
     assert 'name="log_dir" value="/logs/wsjt x"' in page
-    assert '<option value="extra" selected>' in page
-    assert env.read_text() == "MY_GRID=FN31\nLOG_DIR=/logs/wsjt x\nLICENSE_CLASS=extra\n"
+    assert "License class" not in page
+    assert env.read_text() == "MY_GRID=FN31\nLOG_DIR=/logs/wsjt x\n"
 
 
 def test_saving_changes_only_the_settings_lines(client, env):
     env.write_text("# my notes\nOTHER=1\nMY_GRID=JJ00\n")
     save(client, grid="FN31")
-    assert env.read_text() == "# my notes\nOTHER=1\nMY_GRID=FN31\nLICENSE_CLASS=general\n"
+    assert env.read_text() == "# my notes\nOTHER=1\nMY_GRID=FN31\n"
 
 
 def test_an_empty_value_clears_the_setting(client, env):
     env.write_text("MY_GRID=FN31\nLOG_DIR=/logs\n")
     save(client)
-    assert env.read_text() == "LICENSE_CLASS=general\n"
+    assert env.read_text() == ""
 
 
 @pytest.mark.parametrize("fields, reason", [
@@ -741,8 +741,6 @@ def test_an_empty_value_clears_the_setting(client, env):
     ({"log_dir": "/logs\x00"}, "line break"),
     ({"log_dir": "/logs # old"}, "#"),
     ({"log_dir": "/" + "x" * 1001}, "too long"),
-    ({"license_class": "novice"}, "license class"),
-    ({"license_class": ""}, "license class"),
 ])
 def test_a_bad_setting_saves_nothing_and_says_why(client, env, fields, reason):
     env.write_text("MY_GRID=JJ00\n")
@@ -760,22 +758,6 @@ def test_settings_from_any_other_origin_are_refused(client, env, headers):
 def test_saved_folder_text_is_escaped(client, env):
     _, page = save(client, log_dir='"><script>alert(1)</script>')
     assert "<script>" not in page
-
-
-def test_license_class_changes_the_page_but_not_the_data(client, env, db, five_days):
-    before = stored(db)
-    _, page = save(client, license_class="technician")
-    _, page = get(client, "/?hour=15")
-    assert "Stations<br>per day" not in page
-    assert stored(db) == before
-    _, page = save(client, license_class="general")
-    _, page = get(client, "/?hour=15")
-    assert "Stations<br>per day" in page
-
-
-def test_the_page_says_the_bands_follow_us_rules(client):
-    _, page = get(client)
-    assert "US amateur rules" in page
 
 
 def test_a_bad_grid_in_the_file_can_be_fixed_from_the_page(client, env):

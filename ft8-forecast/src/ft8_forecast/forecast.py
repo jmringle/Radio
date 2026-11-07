@@ -130,15 +130,16 @@ def _center(grid: str) -> tuple[float, float]:
 
 
 @cache
-def band_for(freq_hz: int, license_class: LicenseClass = LicenseClass.GENERAL) -> str | None:
-    """The band name, if this class may operate data there (the forecast's scope)."""
-    if not check(freq_hz, Mode.DATA, license_class).allowed:
+def band_for(freq_hz: int) -> str | None:
+    """The band name, if General may operate data there (the forecast's scope). General's data
+    segments hold every HF FT8 frequency, so a license class setting changed nothing (removed 2026-11-07)."""
+    if not check(freq_hz, Mode.DATA, LicenseClass.GENERAL).allowed:
         return None
     return next((name for name, low, high in BANDS if low <= freq_hz <= high), None)
 
 
 def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
-            now: datetime | None = None, license_class: LicenseClass = LicenseClass.GENERAL) -> Forecast | None:
+            now: datetime | None = None) -> Forecast | None:
     """The forecast for `hour` (0-23 UTC; None for all hours), or None if no decodes are imported.
 
     `now` (UTC): contacts dated after it (a wrong clock on the radio computer) don't move
@@ -167,7 +168,7 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
     for time, dial_hz, transmit, snr, sender, grid, message in conn.execute(
         f"SELECT time, dial_hz, transmit, snr_db, sender, grid, message FROM decodes WHERE {where}", window
     ):
-        band = band_for(dial_hz, license_class)
+        band = band_for(dial_hz)
         if band is None:
             continue
         day = time[:10]
@@ -200,7 +201,7 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
     # No 2-day rule here: a contact is a completed exchange, and its grid came from it.
     # Oldest first, so a tie keeps the earlier contact.
     for time, freq_hz, grid in conn.execute("SELECT time, freq_hz, grid FROM contacts ORDER BY time"):
-        band = band_for(freq_hz, license_class)
+        band = band_for(freq_hz)
         if band is None:
             continue
         day = time[:10]
@@ -214,8 +215,8 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
         contacts[band] = contacts.get(band, 0) + 1
         contact_far[band] = _farther(contact_far.get(band), far)
 
-    cqs_answered = _answered(conn, cqs, window[1], license_class)
-    calls_answered = _answered(conn, calls, window[1], license_class)
+    cqs_answered = _answered(conn, cqs, window[1])
+    calls_answered = _answered(conn, calls, window[1])
     split = (newest - timedelta(days=TREND_DAYS)).strftime("%Y-%m-%d")  # later dates: the recent half
 
     bands = []
@@ -257,8 +258,7 @@ def trend(band: BandStats) -> str | None:
     return "busier" if change > 0 else "quieter"
 
 
-def _answered(conn: sqlite3.Connection, calls: dict[str, list[str]], end: str,
-              license_class: LicenseClass) -> dict[str, int]:
+def _answered(conn: sqlite3.Connection, calls: dict[str, list[str]], end: str) -> dict[str, int]:
     """Per band, how many of `calls` (times) a decode addressed to you followed within REPLY_SECONDS.
 
     You are every sender of your own Tx lines (more than one if you've used /P or a new call).
@@ -277,7 +277,7 @@ def _answered(conn: sqlite3.Connection, calls: dict[str, list[str]], end: str,
         f"SELECT time, dial_hz FROM decodes WHERE transmit = 0 AND time > ? AND time <= ? AND ({to_me}) ORDER BY time",
         (first, last, *[pattern for call in mine for pattern in (f"{call} %", f"<{call}> %")]),
     ):
-        if band := band_for(dial_hz, license_class):
+        if band := band_for(dial_hz):
             replies.setdefault(band, []).append(time)
     answered = {}
     for band, times in calls.items():

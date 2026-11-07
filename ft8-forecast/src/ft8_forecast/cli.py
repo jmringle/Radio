@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from band_privileges import LicenseClass
 
 from ft8_forecast import folder, forecast
 from ft8_forecast.adif import Problem
@@ -18,7 +17,7 @@ from ft8_forecast.store import StoreError, open_db
 # This project's folder. Assumes the editable install from the README.
 PROJECT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = PROJECT / "data" / "ft8cast.sqlite"  # gitignored
-ENV_FILE = PROJECT / ".env"  # gitignored; holds MY_GRID, LOG_DIR, LICENSE_CLASS. The app points this at its own folder
+ENV_FILE = PROJECT / ".env"  # gitignored; holds MY_GRID and LOG_DIR. The app points this at its own folder
 DEFAULT_PORT = 8074  # 14.074 MHz, the 20 m FT8 frequency
 DEFAULT_EVERY = 60  # seconds between `watch` checks; WSJT-X adds lines every 15 s
 STALE_DAYS = 7  # newer data than this needs no reminder to copy ALL.TXT over
@@ -457,10 +456,6 @@ def _forecast(hour: int | str | None, by: str, db: Path, details: bool = False) 
         my_grid = _my_grid()
     except ValueError as error:
         return _error(f"MY_GRID in {ENV_FILE.name}: {error}")
-    try:
-        license_class = _license_class()
-    except ValueError as error:
-        return _error(f"LICENSE_CLASS in {ENV_FILE.name}: {error}")
     if not db.is_file():
         return _error(f"no database at {db}; run `ft8cast import` first")
     try:
@@ -470,9 +465,9 @@ def _forecast(hour: int | str | None, by: str, db: Path, details: bool = False) 
     now = _now()
     hour = now.hour if hour is None else None if hour == ALL_HOURS else hour
     try:
-        result = forecast.compute(conn, hour, my_grid, now, license_class)
+        result = forecast.compute(conn, hour, my_grid, now)
         # The summary's peak line looks across the day (about 0.3 s for a year of listening).
-        hours = None if result is None or hour is None else [forecast.compute(conn, h, my_grid, now, license_class) for h in range(24)]
+        hours = None if result is None or hour is None else [forecast.compute(conn, h, my_grid, now) for h in range(24)]
     finally:
         conn.close()
     if result is None:
@@ -528,10 +523,6 @@ def _overview(by: str, db: Path) -> int:
         my_grid = _my_grid()
     except ValueError as error:
         return _error(f"MY_GRID in {ENV_FILE.name}: {error}")
-    try:
-        license_class = _license_class()
-    except ValueError as error:
-        return _error(f"LICENSE_CLASS in {ENV_FILE.name}: {error}")
     if not db.is_file():
         return _error(f"no database at {db}; run `ft8cast import` first")
     try:
@@ -540,7 +531,7 @@ def _overview(by: str, db: Path) -> int:
         return _error(str(error))
     try:
         now = _now()
-        results = [forecast.compute(conn, hour, my_grid, now, license_class) for hour in range(24)]
+        results = [forecast.compute(conn, hour, my_grid, now) for hour in range(24)]
     finally:
         conn.close()
     if results[0] is None:
@@ -604,20 +595,8 @@ def _log_dir() -> Path | None:
     return None if value is None else (ENV_FILE.parent / Path(value).expanduser())
 
 
-def _license_class() -> LicenseClass:
-    """LICENSE_CLASS from .env; General if not set. ValueError if invalid."""
-    return _parse_license(_env("LICENSE_CLASS") or LicenseClass.GENERAL.value)
-
-
-def _parse_license(text: str) -> LicenseClass:
-    try:
-        return LicenseClass(text.strip().lower())
-    except ValueError:
-        raise ValueError(f"{text.strip()[:12]!r} isn't a license class: use technician, general or extra") from None
-
-
-def save_settings(my_grid: str, log_dir: str, license_class: str) -> None:
-    """Check all three, then write them to .env, leaving its other lines alone. ValueError saves nothing.
+def save_settings(my_grid: str, log_dir: str) -> None:
+    """Check both, then write them to .env, leaving its other lines alone. ValueError saves nothing.
 
     Empty clears a value. A line break would write extra settings, and _env cuts values at #.
     """
@@ -628,8 +607,7 @@ def save_settings(my_grid: str, log_dir: str, license_class: str) -> None:
         raise ValueError("The log folder can't contain #: choose a folder without it.")
     if len(log_dir) > MAX_LOG_DIR:
         raise ValueError(f"The log folder is too long (over {MAX_LOG_DIR} characters).")
-    values = {"MY_GRID": forecast.parse_grid(my_grid) if my_grid.strip() else "", "LOG_DIR": log_dir,
-              "LICENSE_CLASS": _parse_license(license_class).value}
+    values = {"MY_GRID": forecast.parse_grid(my_grid) if my_grid.strip() else "", "LOG_DIR": log_dir}
     try:
         lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
     except FileNotFoundError:

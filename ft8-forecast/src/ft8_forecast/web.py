@@ -13,7 +13,6 @@ import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 
-from band_privileges import LicenseClass
 from flask import Flask, render_template, request
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
@@ -79,9 +78,7 @@ def create_app(db: Path, log_file: Path | None = None) -> Flask:
     @app.context_processor
     def settings_form():
         # Raw values, so a bad one can be seen and fixed even on the page showing its error.
-        return {"settings": {"my_grid": cli._env("MY_GRID") or "", "log_dir": cli._env("LOG_DIR") or "",
-                             "license_class": (cli._env("LICENSE_CLASS") or "general").lower()},
-                "license_classes": [c.value for c in LicenseClass]}
+        return {"settings": {"my_grid": cli._env("MY_GRID") or "", "log_dir": cli._env("LOG_DIR") or ""}}
 
     @app.get("/")
     def page():
@@ -141,8 +138,7 @@ def create_app(db: Path, log_file: Path | None = None) -> Flask:
     @app.post("/settings")
     def save_settings():
         try:
-            cli.save_settings(request.form.get("my_grid", ""), request.form.get("log_dir", ""),
-                              request.form.get("license_class", ""))
+            cli.save_settings(request.form.get("my_grid", ""), request.form.get("log_dir", ""))
         except ValueError as error:
             raise PageError(400, str(error)) from None
         except OSError as error:
@@ -187,10 +183,6 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         my_grid = cli._my_grid()  # the same .env and clock as the CLI
     except ValueError as error:
         raise PageError(500, f"Grid square in Settings: {error}") from None
-    try:
-        license_class = cli._license_class()
-    except ValueError as error:
-        raise PageError(500, f"License class in Settings: {error}") from None
     now = cli._now()
     hour = now.hour if hour is None else None if hour == cli.ALL_HOURS else hour
     result, age, message, overview, summary = None, None, None, None, []
@@ -201,9 +193,9 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
     else:
         conn = _open(db)
         try:
-            result = forecast.compute(conn, hour, my_grid, now, license_class)
+            result = forecast.compute(conn, hour, my_grid, now)
             if result is not None:  # about 0.3 s for a year of listening
-                hours = [forecast.compute(conn, h, my_grid, now, license_class) for h in range(24)]
+                hours = [forecast.compute(conn, h, my_grid, now) for h in range(24)]
                 overview = cli.overview(hours, by)
                 summary = cli.summary_lines(result, by, hours if hour is not None else None, now)
         finally:

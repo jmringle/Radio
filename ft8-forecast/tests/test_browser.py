@@ -125,11 +125,9 @@ def test_the_csp_blocks_an_injected_script(page, server):
 def test_settings_can_be_saved_from_the_page(page, server):
     page.goto(server)
     page.get_by_label("Grid square").fill("em79")
-    page.get_by_label("License class").select_option("extra")
     page.get_by_role("button", name="Save settings").click()
     expect(page.get_by_role("status")).to_have_text("Settings saved.")
     expect(page.get_by_label("Grid square")).to_have_value("EM79")
-    expect(page.get_by_label("License class")).to_have_value("extra")
 
 
 def test_settings_form_fits_a_phone(page, server):
