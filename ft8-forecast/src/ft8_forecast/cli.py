@@ -32,6 +32,7 @@ ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
 LEGEND = ("Stations per day: the median (middle value) over the days you listened.",
           "Median SNR: middle signal-to-noise ratio of all decodes; higher is stronger.",
           f"Farthest heard: same station and grid on {forecast.FARTHEST_MIN_DAYS}+ days.")
+DETAILS_HINT = "Column notes and farthest contacts: add --details"
 ANSWERED_NOTES = (f"Replies to you: a decode addressed to you within {forecast.REPLY_SECONDS} s.",
                   "Answering CQs: you calling a station (usually answering its CQ).")
 RANK_LABELS = {"busiest": "busiest", "contacts": "most contacts"}
@@ -289,6 +290,8 @@ def _parser() -> argparse.ArgumentParser:
     fc.add_argument("--hour", type=_hour, help=f"UTC hour 0-23, or {ALL_HOURS!r} for the whole day (default: now)")
     fc.add_argument("--rank", type=_rank, default="busiest",
                     help="pick the best bet and order bands by 'busiest' typical day or most 'contacts' (default: busiest)")
+    fc.add_argument("--details", action="store_true",
+                    help="also show what each column means and your farthest contacts")
     fc.add_argument("--db", type=Path, default=DEFAULT_DB, help=f"database file (default: {DEFAULT_DB})")
     ov = commands.add_parser("overview", help="every UTC hour at a glance: stations per band, best bet starred")
     ov.add_argument("--rank", type=_rank, default="busiest",
@@ -341,7 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         # argparse has printed usage and the error (code 2), or help (code 0).
         return int(exit_.code or 0)
     if args.command == "forecast":
-        return _forecast(args.hour, args.rank, args.db)
+        return _forecast(args.hour, args.rank, args.db, args.details)
     if args.command == "overview":
         return _overview(args.rank, args.db)
     if args.command == "serve":
@@ -449,7 +452,7 @@ def _watch(given: Path | None, every: int, db: Path) -> int:
         conn.close()
 
 
-def _forecast(hour: int | str | None, by: str, db: Path) -> int:
+def _forecast(hour: int | str | None, by: str, db: Path, details: bool = False) -> int:
     try:
         my_grid = _my_grid()
     except ValueError as error:
@@ -501,13 +504,16 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
                   f"{answered(band.calls_answered, band.calls):>21}")
     if thin := thin_line(result):
         print("", *fit(thin), sep="\n")
-    if ranked:
+    # The column notes and farthest contacts don't help pick a band, so they wait for --details.
+    has_details = bool(ranked or result.best_ever or result.daily)
+    if details and ranked:
         print("", *LEGEND, *(ANSWERED_NOTES if transmitted else ()), sep="\n")
-    print("", "Every hour at a glance: ft8cast overview", sep="\n")
-    if result.best_ever:
+    print("", *([DETAILS_HINT] if has_details and not details else []), "Every hour at a glance: ft8cast overview",
+          sep="\n")
+    if details and result.best_ever:
         best = result.best_ever
         print(f"\nFarthest contact ever: {distance(best.miles)} on {best.band}, {best.day}")
-    if result.daily:
+    if details and result.daily:
         print(f"\nFarthest contact by day ({forecast.WINDOW_DAYS} days, any hour):")
         print(f"{'Date':<10}  {'Band':<4} {'Farthest':>9}")
         for far in result.daily:

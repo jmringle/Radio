@@ -136,6 +136,20 @@ def test_columns_are_explained_like_the_terminal(client, five_days):
         assert line in page
 
 
+def test_column_notes_and_farthest_contacts_start_collapsed(client, db, five_days, env):
+    env.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 14_074_000, "JJ01")])
+    conn.close()
+    _, page = get(client)
+    notes = re.search(r"<details>\s*<summary>Column notes</summary>(.*?)</details>", page, re.S)
+    assert notes and cli.LEGEND[0] in notes.group(1)
+    farthest = re.search(r'<details>\s*<summary><h2 id="farthest-title">Farthest contacts</h2></summary>(.*?)</details>',
+                         page, re.S)
+    assert farthest and "Farthest contact ever" in farthest.group(1)
+    assert "<details open" not in page
+
+
 def test_rank_by_contacts(client, db, five_days, env):
     env.write_text("MY_GRID=JJ00\n")
     conn = open_db(db)  # 40m: 5 days of 1 station, and 2 contacts at 15 UTC
@@ -183,7 +197,7 @@ def test_page_shows_farthest_contacts_like_the_terminal(client, db, five_days, e
         ["2026-10-25", "40m", "138 mi (JJ10)"], ["2026-10-23", "-", "-"]]
     assert "N0CALL" not in page  # grids only, never callsigns
     # The terminal shows the same lines, without the grids.
-    main(["forecast", "--db", str(db)])
+    main(["forecast", "--db", str(db), "--details"])
     lines = capsys.readouterr().out.splitlines()
     assert lines[2] in page  # the best bet
     assert next(line for line in lines if line.startswith("Too little data")) in page

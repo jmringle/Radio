@@ -35,6 +35,8 @@ h1, h2 { font-weight: 600; letter-spacing: 0.01em; }
 h1 { margin: 0; font-size: 1.6rem; border-bottom: 3px solid var(--accent); display: inline-block; }
 h2 { font-size: 1.15rem; margin: 1.5rem 0 0.25rem; }
 section { margin-top: 2rem; }
+summary { cursor: pointer; color: var(--muted); }
+summary h2 { display: inline; color: var(--ink); }
 .muted { color: var(--muted); margin-top: 0.25rem; }
 .note { border-left: 3px solid var(--accent); padding-left: 0.75rem; }
 .error { color: var(--error); border: 1px solid var(--error); padding: 0.5rem 0.75rem; }

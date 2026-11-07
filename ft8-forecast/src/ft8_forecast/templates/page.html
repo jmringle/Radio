@@ -113,7 +113,10 @@
       <p class="muted">{{ thin }}</p>
     {% endif %}
     {% if ranked %}
-      <p class="muted">{% for line in legend %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if transmitted %}{% for line in answered_notes %}<br>{{ line }}{% endfor %}{% endif %}</p>
+      <details>
+        <summary>Column notes</summary>
+        <p class="muted">{% for line in legend %}{{ line }}{% if not loop.last %}<br>{% endif %}{% endfor %}{% if transmitted %}{% for line in answered_notes %}<br>{{ line }}{% endfor %}{% endif %}</p>
+      </details>
     {% endif %}
     {% if my_grid is none %}
       <p class="note">Farthest heard and worked need your grid: set it in Settings below.</p>
@@ -152,7 +155,8 @@
 
 {% if result and (result.best_ever or result.daily) %}
 <section aria-labelledby="farthest-title">
-  <h2 id="farthest-title">Farthest contacts</h2>
+  <details>
+  <summary><h2 id="farthest-title">Farthest contacts</h2></summary>
     {% if result.best_ever %}
       {% set best = result.best_ever %}
       <p>Farthest contact ever: {{ distance(best.miles, best.grid) }} on {{ best.band }}, {{ best.day }}</p>
@@ -170,6 +174,7 @@
       </table>
       </div>
     {% endif %}
+  </details>
 </section>
 {% endif %}
 

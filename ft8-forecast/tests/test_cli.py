@@ -352,8 +352,41 @@ def test_forecast_prints_the_best_bet_and_table(setup, db, capsys):
                          *HEADER, lines[7]]
     assert row(lines, "20m") == ["20m", "1", "5", "-12", "69", "mi", "-", "0"]  # miles only, no grid
     assert lines[8:] == ["", "Too little data at this hour (need 5 days): 160m 80m 40m 30m 17m 15m 12m 10m (0 days)",
-                         "", *LEGEND, "", "Every hour at a glance: ft8cast overview"]
+                         "", *DETAILS_HINT]
     assert "Note:" not in out and "MY_GRID" not in out and "JJ" not in out
+
+
+DETAILS_HINT = ["Column notes and farthest contacts: add --details", "Every hour at a glance: ft8cast overview"]
+
+
+def test_forecast_leaves_the_details_out_by_default(setup, db, capsys):
+    setup.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 14_074_000, "JJ01")])
+    conn.close()
+    lines = forecast_run(capsys, db)[1].splitlines()
+    assert LEGEND[0] not in lines
+    assert not any(line.startswith(("Farthest contact ever", "Farthest contact by day")) for line in lines)
+    assert "Farthest contact at this hour: 69 mi on 20m" in lines  # a summary line, so it stays
+    assert lines[-2:] == DETAILS_HINT
+
+
+def test_details_adds_the_notes_and_farthest_contacts(setup, db, capsys):
+    setup.write_text("MY_GRID=JJ00\n")
+    conn = open_db(db)
+    save_contacts(conn, [Contact("N0CALL", datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 14_074_000, "JJ01")])
+    conn.close()
+    lines = forecast_run(capsys, db, "--details")[1].splitlines()
+    assert LEGEND[0] in lines and DETAILS_HINT[0] not in lines
+    assert "Farthest contact ever: 69 mi on 20m, 2026-10-25" in lines
+    assert "Farthest contact by day (30 days, any hour):" in lines
+
+
+def test_no_details_hint_when_nothing_is_left_out(setup, db, capsys):
+    conn = open_db(db)  # no band with enough data at 03 UTC, no contacts
+    conn.close()
+    lines = forecast_run(capsys, db, "--hour", "3")[1].splitlines()
+    assert DETAILS_HINT[0] not in lines and DETAILS_HINT[1] in lines
 
 
 def test_forecast_shows_how_many_calls_were_answered(setup, db, capsys):
@@ -364,7 +397,7 @@ def test_forecast_shows_how_many_calls_were_answered(setup, db, capsys):
                         Decode(cq + timedelta(seconds=30), 14_074_000, True, 0, "N0CALL/P", "AA00", "CQ N0CALL/P AA00"),
                         Decode(cq + timedelta(seconds=60), 14_074_000, True, 0, "N0CALL/P", "AA00", "N2CALL N0CALL/P AA00")])
     conn.close()
-    lines = forecast_run(capsys, db)[1].splitlines()
+    lines = forecast_run(capsys, db, "--details")[1].splitlines()
     top = lines.index(ANSWERED)
     assert lines[top - 1:top + 3] == ["", ANSWERED, "20m" + " " * 21 + "1 of 2 (50%)" + " " * 11 + "0 of 1 (0%)", ""]
     legend = lines.index(LEGEND[-1])
@@ -372,7 +405,7 @@ def test_forecast_shows_how_many_calls_were_answered(setup, db, capsys):
 
 
 def test_no_answered_table_without_your_tx(setup, db, capsys):
-    out = forecast_run(capsys, db)[1]
+    out = forecast_run(capsys, db, "--details")[1]
     assert ANSWERED not in out and ANSWERED_NOTES[0] not in out
 
 
@@ -436,7 +469,7 @@ def test_forecast_shows_farthest_contacts_and_ranks_by_contacts(setup, db, capsy
         Contact("N0CALL/QRP", datetime(2026, 4, 8, 15, 0, tzinfo=UTC), 14_074_000, "JJ30"),  # before the window
     ])
     conn.close()
-    lines = forecast_run(capsys, db)[1].splitlines()
+    lines = forecast_run(capsys, db, "--details")[1].splitlines()
     # Busiest (default): 20m and 40m tie at 1 station a day; 40m's 2 contacts put it first.
     assert lines[2] == "Best bet (busiest): 40m - about 1 station on a typical day; worked out to 69 mi"
     top = lines.index(HEADER[1]) + 1
@@ -511,14 +544,14 @@ def test_no_band_with_enough_data_has_no_table_or_legend(setup, db, capsys):
     save_decodes(conn, [Decode(datetime(2026, 10, 25, 15, 0, tzinfo=UTC), 7_074_000, False, -5, "N0CALL", None,
                                "CQ N0CALL")])
     conn.close()
-    lines = forecast_run(capsys, db, "--hour", "15")[1].splitlines()
+    lines = forecast_run(capsys, db, "--hour", "15", "--details")[1].splitlines()
     assert LEGEND[0] in lines  # 20m has a table row
     conn = open_db(db)
     conn.execute("DELETE FROM decodes WHERE dial_hz = 14074000")
     conn.execute("INSERT INTO decodes VALUES ('2026-10-25 15:59:00', 14074000, 1, 0, 'N0CALL', NULL, 'CQ')")
     conn.commit()
     conn.close()
-    lines = unwrap(forecast_run(capsys, db, "--hour", "15")[1])
+    lines = unwrap(forecast_run(capsys, db, "--hour", "15", "--details")[1])
     assert lines[2] == "Best bet (busiest): none yet - no band has 5 days of listening at this hour"
     assert HEADER[1] not in lines and LEGEND[0] not in lines
     assert "Too little data at this hour (need 5 days): 160m 80m 30m 17m 15m 12m 10m (0 days), 40m 20m (1 day)" in lines
