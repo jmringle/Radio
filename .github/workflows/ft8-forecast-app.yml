@@ -50,12 +50,19 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           hdiutil create -volname "FT8 Forecast" -srcfolder "dist/FT8 Forecast.app" -format UDZO dist/FT8-Forecast-macOS.dmg
-          shasum -a 256 dist/FT8-Forecast-macOS.dmg > dist/FT8-Forecast-macOS.dmg.sha256
+          cd dist && shasum -a 256 FT8-Forecast-macOS.dmg > FT8-Forecast-macOS.dmg.sha256
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
           Compress-Archive -Path "dist\FT8 Forecast" -DestinationPath dist\FT8-Forecast-Windows.zip
-          (Get-FileHash dist\FT8-Forecast-Windows.zip -Algorithm SHA256).Hash | Out-File -Encoding ascii dist\FT8-Forecast-Windows.zip.sha256
+          # The standard "hash  name" line (lowercase, LF, no BOM), so `shasum -c` and `sha256sum -c` read it.
+          $hash = (Get-FileHash dist\FT8-Forecast-Windows.zip -Algorithm SHA256).Hash.ToLower()
+          [IO.File]::WriteAllText("$PWD\dist\FT8-Forecast-Windows.zip.sha256", "$hash  FT8-Forecast-Windows.zip`n")
+      - name: Check the checksum file reads with the standard tools
+        shell: bash  # Git Bash on Windows
+        run: |
+          cd dist
+          if command -v sha256sum >/dev/null; then sha256sum -c FT8-Forecast-*.sha256; else shasum -a 256 -c FT8-Forecast-*.sha256; fi
       - uses: actions/upload-artifact@v7
         with:
           name: ft8-forecast-${{ runner.os }}
