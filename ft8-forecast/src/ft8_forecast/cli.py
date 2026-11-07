@@ -22,6 +22,7 @@ ENV_FILE = PROJECT / ".env"  # gitignored; holds MY_GRID, LOG_DIR, LICENSE_CLASS
 DEFAULT_PORT = 8074  # 14.074 MHz, the 20 m FT8 frequency
 DEFAULT_EVERY = 60  # seconds between `watch` checks; WSJT-X adds lines every 15 s
 STALE_DAYS = 7  # newer data than this needs no reminder to copy ALL.TXT over
+STALE_NOTE = "Note: this data is over a week old; copy a fresh ALL.TXT over and import it."
 MAX_LOG_DIR = 1000  # characters
 SHOW_PROBLEMS = 10
 ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
@@ -220,9 +221,15 @@ def hour_ranges(hours: list[int], now: datetime | None = None) -> str:
     return ", ".join(parts)
 
 
+def age_days(newest: datetime, now: datetime) -> int:
+    """How old the newest decode is, in UTC calendar days. The heading and the stale note both
+    use this, so they can't disagree (they once did: '13 days ago' over '12 days old')."""
+    return max((now.date() - newest.date()).days, 0)
+
+
 def data_age(newest: datetime, now: datetime) -> str:
     """How old the newest decode is, in calendar days: 'today', 'yesterday', '3 days ago'."""
-    days = max((now.date() - newest.date()).days, 0)
+    days = age_days(newest, now)
     return "today" if days == 0 else "yesterday" if days == 1 else f"{days} days ago"
 
 
@@ -471,9 +478,8 @@ def _forecast(hour: int | str | None, by: str, db: Path) -> int:
     newest = result.newest.strftime("%Y-%m-%d %H:%M")
     print(f"FT8 forecast for {hour_title(hour, now)} (your last {forecast.WINDOW_DAYS} days, "
           f"through {newest} UTC, {data_age(result.newest, now)})")
-    age = (now.replace(tzinfo=None) - result.newest).days
-    if age > STALE_DAYS:
-        print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
+    if age_days(result.newest, now) > STALE_DAYS:
+        print(STALE_NOTE)
     print("", *[part for line in [best_bet_line(result, by), *summary_lines(result, by, hours, now)]
                 for part in fit(line)], sep="\n")
     ranked = forecast.rank(result.bands, by)
@@ -537,9 +543,8 @@ def _overview(by: str, db: Path) -> int:
     newest = results[0].newest
     print(f"24-hour overview (your last {forecast.WINDOW_DAYS} days, "
           f"through {newest:%Y-%m-%d %H:%M} UTC, {data_age(newest, now)})")
-    age = (now.replace(tzinfo=None) - newest).days
-    if age > STALE_DAYS:
-        print(f"Note: your newest data is {age} days old; copy a fresh ALL.TXT over and import it.")
+    if age_days(newest, now) > STALE_DAYS:
+        print(STALE_NOTE)
     print(overview_key(by, now), "", sep="\n")
     local = local_hour(0, now) is not None  # a Local column, unless this computer is on UTC
     grid = overview(results, by)

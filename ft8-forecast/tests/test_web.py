@@ -330,7 +330,7 @@ def test_invalid_my_grid_is_explained(client, five_days, env):
 
 def test_stale_data_gets_a_note(client, five_days, monkeypatch):
     monkeypatch.setattr(cli, "_now", lambda: datetime(2026, 11, 3, 15, 31, tzinfo=UTC))
-    assert "your newest data is 9 days old" in get(client)[1]
+    assert cli.STALE_NOTE in get(client)[1]
 
 
 def test_no_database_invites_an_upload_and_creates_none(client, db):

@@ -673,7 +673,7 @@ def test_overview_bad_rank_is_a_usage_error(overview_db, db, capsys):
 
 def test_overview_stale_data_gets_a_note(overview_db, db, capsys, monkeypatch):
     monkeypatch.setattr(cli, "_now", lambda: NOW + timedelta(days=10))
-    assert "Note: your newest data is 11 days old" in overview_run(capsys, db)[1]
+    assert cli.STALE_NOTE in overview_run(capsys, db)[1]
 
 
 @pytest.mark.parametrize("hour, now, text", [
@@ -743,8 +743,15 @@ def test_invalid_my_grid_is_an_error(setup, db, capsys, bad):
 
 def test_stale_data_gets_a_note(setup, db, capsys, monkeypatch):
     monkeypatch.setattr(cli, "_now", lambda: datetime(2026, 11, 2, 15, 31, tzinfo=UTC))  # 8 days on
-    assert "Note: your newest data is 8 days old; copy a fresh ALL.TXT over and import it." \
-        in forecast_run(capsys, db)[1]
+    assert cli.STALE_NOTE in forecast_run(capsys, db)[1]
+
+
+def test_stale_note_counts_calendar_days_like_the_heading(setup, db, capsys, monkeypatch):
+    # Newest decode 2026-10-25 15:30; 8 calendar days but under 8 full days later.
+    monkeypatch.setattr(cli, "_now", lambda: datetime(2026, 11, 2, 9, 0, tzinfo=UTC))
+    out = forecast_run(capsys, db)[1]
+    assert "8 days ago" in out.splitlines()[0]
+    assert "Note: this data is over a week old" in out
 
 
 def test_seven_day_old_data_gets_no_note(setup, db, capsys, monkeypatch):

@@ -67,7 +67,7 @@
     <h2 id="forecast-title">FT8 forecast for {{ title }}</h2>
     <p class="muted">Your last {{ window_days }} days, through {{ result.newest.strftime("%Y-%m-%d %H:%M") }} UTC, {{ age_text }}</p>
     {% if stale %}
-      <p class="note">Note: your newest data is {{ stale }} days old; import a fresh copy of ALL.TXT.</p>
+      <p class="note">{{ stale_note }}</p>
     {% endif %}
     <p class="verdict">{{ best_bet }}</p>
     {% if summary %}

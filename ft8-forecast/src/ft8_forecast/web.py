@@ -211,10 +211,10 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         if result is None:
             message = "No ALL.TXT data imported yet: the forecast is built from it. Import it below."
         else:
-            age = (now.replace(tzinfo=None) - result.newest).days
+            age = cli.age_days(result.newest, now)
     return render_template(
         "page.html", hour=hour, hours=range(24), result=result, message=message, imported=imported,
-        stale=age if age is not None and age > cli.STALE_DAYS else None, my_grid=my_grid,
+        stale=age is not None and age > cli.STALE_DAYS, stale_note=cli.STALE_NOTE, my_grid=my_grid,
         saved=saved, window_days=forecast.WINDOW_DAYS, answered=cli.answered, answered_notes=cli.ANSWERED_NOTES,
         show_problems=cli.SHOW_PROBLEMS, legend=cli.LEGEND, title=cli.hour_title(hour, now),
         all_hours=cli.ALL_HOURS, distance=cli.distance, rank=by, log_dir=cli._log_dir(),

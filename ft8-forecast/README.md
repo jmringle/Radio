@@ -128,7 +128,7 @@ The daily list has a row for each day with contacts in the 30 days, newest first
 
 **Local times** (added 2026-10-29) appear next to UTC: in the forecast heading, the summary's peak line, the overview's Local column and hour lines ("00-09 UTC (8 pm-5 am EDT)"), and the page's hour list ("17:00 (1 pm, now)"). They come from this computer's time zone at today's offset, so after a daylight-saving change the same UTC hour shows the new local time; the data stays in UTC, as WSJT-X logs it. On a computer set to UTC they're left out.
 
-Without `--hour` it uses the current UTC hour; `--hour all` counts the whole day instead of one hour (on the page: "All hours" in the hour list). The 30 days end at your newest imported decode or contact, whichever is later, not today: an older copy of `ALL.TXT` still gives a full window, and a fresher `wsjtx_log.adi` still counts (a contact dated in the future, from a wrong clock on the radio computer, is ignored for this); if that's more than 7 days ago, a note says to copy a fresh one over.
+Without `--hour` it uses the current UTC hour; `--hour all` counts the whole day instead of one hour (on the page: "All hours" in the hour list). The 30 days end at your newest imported decode or contact, whichever is later, not today: an older copy of `ALL.TXT` still gives a full window, and a fresher `wsjtx_log.adi` still counts (a contact dated in the future, from a wrong clock on the radio computer, is ignored for this); if that's more than 7 calendar days ago (UTC, the same count as the heading's "13 days ago"), a note says to copy a fresh one over.
 
 ```
 $ ft8cast overview
