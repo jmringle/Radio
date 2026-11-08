@@ -59,7 +59,7 @@ Runs everything: signal math, meter rules, the web server, and the page in headl
 - Recording: one JSON line per reading, written as it happens, so a crash loses at most the line being written. File names come from the time only, never from the request.
 - Every reading has `heading`, `lat`, `lon` and `node_id` fields (empty for now), for bearing capture and the receiver network later.
 
-**Next (later phases):** bearing capture (yagi heading from an ESP32 compass on the boom, or typed in), map and triangulation, a network of receiver nodes uploading readings to a server, the phone app, and a fox transmitter controller. Open question for bearing capture: which compass/IMU board to use (the XIAO boards' variant and the ESP32-WROOMs are candidates).
+**Next (later phases):** bearing capture (yagi heading from an ESP32 compass on the boom, or typed in), map and triangulation, a network of receiver nodes uploading readings to a server, the phone app, and a fox transmitter controller. Bearing capture will use a Seeed XIAO ESP32-C6 on the yagi boom (3.3 V logic; USB serial now, Bluetooth LE for the phone app later) plus a compass module, not chosen yet: a BNO085 (does its own sensor fusion and gives a tilt-compensated heading; about $20-25) or a bare QMC5883L-type magnetometer (a few dollars, but the firmware must do tilt compensation and calibration).
 
 ### Threat model
 
