@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from foxhunt.dsp import SAMPLE_RATE, measure
-from foxhunt.meter import Meter, parse_settings
+from foxhunt.meter import Meter, parse_heading, parse_settings
 from foxhunt.sources import SourceError
 
 STATIC = Path(__file__).parent / "static"
@@ -91,7 +91,7 @@ def create_app(source, meter: Meter, port: int, retry_s: float = 2.0) -> FastAPI
 
     def status() -> dict:
         return {"settings": settings_json(), "gain_used": state["gain"], "error": state["error"],
-                "recording": meter.recording.name if meter.recording else None}
+                "recording": meter.recording.name if meter.recording else None, "bearings": meter.bearings}
 
     async def body(request: Request) -> dict:
         try:
@@ -134,6 +134,14 @@ def create_app(source, meter: Meter, port: int, retry_s: float = 2.0) -> FastAPI
         except OSError as error:
             return JSONResponse({"error": f"Couldn't start recording: {error.strerror or error}"}, 500)
         return status()
+
+    @app.post("/bearing")
+    async def post_bearing(request: Request):
+        try:
+            bearing = meter.mark_bearing(parse_heading((await body(request)).get("heading")))
+        except ValueError as error:
+            return JSONResponse({"error": str(error)}, 400)
+        return {"bearing": bearing, "bearings": meter.bearings}
 
     @app.post("/peak/reset")
     async def post_reset():

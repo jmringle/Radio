@@ -74,6 +74,19 @@ def test_tone_and_record_buttons_show_their_state(page, server):
     expect(page.locator("#recording")).to_have_text("")
 
 
+def test_a_bearing_is_marked_and_shown(page, server):
+    page.goto(server)
+    expect(page.locator("#over-noise")).not_to_have_text("--")
+    page.get_by_label("Heading").fill("275")
+    page.get_by_role("button", name="Mark bearing").click()
+    expect(page.locator("#bearings li")).to_have_count(1)
+    expect(page.locator("#bearings li")).to_contain_text("275°")
+    page.get_by_label("Heading").fill("400")
+    page.get_by_role("button", name="Mark bearing").click()
+    expect(page.locator("#bearing-message")).to_contain_text("Heading must be 0-360")
+    expect(page.locator("#bearings li")).to_have_count(1)
+
+
 def test_the_csp_blocks_an_injected_script(page, server):
     page.goto(server)
     with pytest.raises(Exception):

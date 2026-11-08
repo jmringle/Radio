@@ -46,6 +46,16 @@ def parse_settings(freq_mhz, gain_db, attenuator_db) -> Settings:
     return Settings(hz, gain, attenuator)
 
 
+def parse_heading(value) -> float:
+    """A yagi heading in degrees from user input; 360 is north, the same as 0."""
+    if isinstance(value, bool):  # float(True) is 1.0, which isn't a heading anyone typed
+        value = str(value)
+    heading = _number(value, "Heading")
+    if not 0 <= heading <= 360:
+        raise ValueError(f"Heading must be 0-360 degrees, not {str(value)[:20]}.")
+    return heading % 360
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -58,13 +68,15 @@ class Meter:
         self.node_id = node_id  # set by receiver nodes in a later phase
         self.clock = clock
         self.peak_db: float | None = None
+        self.last: dict | None = None  # the latest reading
+        self.bearings: list[dict] = []  # this frequency's bearings
         self.recording: Path | None = None
         self._file = None
 
     def apply(self, settings: Settings) -> None:
         """New settings. A new frequency is a new signal, so the peak starts over."""
         if settings.freq_hz != self.settings.freq_hz:
-            self.peak_db = None
+            self.peak_db, self.last, self.bearings = None, None, []
         self.settings = settings
 
     def reset_peak(self) -> None:
@@ -90,10 +102,28 @@ class Meter:
             # For bearing capture and receiver nodes (later phases); empty for now.
             "heading": None, "lat": None, "lon": None, "node_id": self.node_id,
         }
-        if self._file:
-            self._file.write(json.dumps(reading) + "\n")
-            self._file.flush()  # a crash loses at most the line being written
+        self._write(reading)
+        self.last = reading
         return reading
+
+    def mark_bearing(self, heading: float) -> dict:
+        """Save the yagi's heading with the signal now. ValueError if there's no trustworthy reading."""
+        if self.last is None:
+            raise ValueError("No signal reading yet; wait for the meter to show one.")
+        if self.last["overload"]:  # clipping flattens the peak, so the heading of the peak is a guess
+            raise ValueError("Overload: add attenuation or lower the gain before marking a bearing.")
+        bearing = {"kind": "bearing", "time": self.clock().isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+                   "freq_hz": self.settings.freq_hz, "heading": heading, "peak_db": self.last["peak_db"],
+                   "level_db": self.last["level_db"], "over_noise_db": self.last["over_noise_db"],
+                   "lat": None, "lon": None, "node_id": self.node_id}  # position comes in a later phase
+        self.bearings.append(bearing)
+        self._write(bearing)
+        return bearing
+
+    def _write(self, line: dict) -> None:
+        if self._file:
+            self._file.write(json.dumps(line) + "\n")
+            self._file.flush()  # a crash loses at most the line being written
 
     def start_recording(self) -> Path:
         """Start a session file named from the time (never from input); already recording: the same file."""

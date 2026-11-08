@@ -33,6 +33,9 @@ Open http://127.0.0.1:8075. Options: `--gain DB` (fixed tuner gain, default 20),
 - **Peak**: the highest level since you last pressed Reset (or changed frequency).
 - **Overload**: the dongle's input is clipping. Readings are wrong until you add attenuation or lower the gain.
 - **Record** saves every reading to `data/sessions/<UTC time>.jsonl`, one JSON object per line.
+- **Mark bearing**: swing the yagi until the signal peaks, type the heading from your phone's compass app, and mark it. The bearing (time, heading, peak, level, dB over noise) is listed on the page and, while recording, written to the session file as a line with `"kind": "bearing"`. Bearings start over when you change frequency.
+
+**True or magnetic north?** A compass points to magnetic north, which differs from true (map) north by the *magnetic declination*: several degrees in much of the US, and it differs by location. Bearings will be drawn on maps later, and maps use true north, so set your compass app to true north if it has that option (most phone compass apps do). If it doesn't, note that the bearings are magnetic. NOAA's declination calculator gives the value for your area.
 
 ## Running tests
 
@@ -59,7 +62,15 @@ Runs everything: signal math, meter rules, the web server, and the page in headl
 - Recording: one JSON line per reading, written as it happens, so a crash loses at most the line being written. File names come from the time only, never from the request.
 - Every reading has `heading`, `lat`, `lon` and `node_id` fields (empty for now), for bearing capture and the receiver network later.
 
-**Next (later phases):** bearing capture (yagi heading from an ESP32 compass on the boom, or typed in), map and triangulation, a network of receiver nodes uploading readings to a server, the phone app, and a fox transmitter controller. Bearing capture will use a Seeed XIAO ESP32-C6 on the yagi boom (3.3 V logic; USB serial now, Bluetooth LE for the phone app later) plus a compass module, not chosen yet: a BNO085 (does its own sensor fusion and gives a tilt-compensated heading; about $20-25) or a bare QMC5883L-type magnetometer (a few dollars, but the firmware must do tilt compensation and calibration).
+**Acceptance criteria (phase 2a: typed-in bearings).**
+- Heading: 0-360 degrees; 360 is saved as 0. Blank, text, negative, over 360 or not a number: refused with the reason, nothing saved.
+- A bearing saves time, frequency, heading, peak level, current level and dB over noise, plus empty `lat`, `lon` (filled in a later phase) and `node_id`.
+- No reading yet, or the latest reading is overloaded: refused with the reason (clipping flattens the peak, so the heading of the peak can't be trusted).
+- While recording, each bearing is its own line with `"kind": "bearing"`; reading lines don't change.
+- A new frequency clears the bearings (a different fox); a new attenuator or gain doesn't.
+- Marking a bearing is a POST with the same Origin check as the other controls (T1); the page shows bearings as text, never HTML (T2).
+
+**Next (later phases):** automatic bearing capture (yagi heading from an ESP32 compass on the boom, filling the same `heading` field typed-in bearings use), map and triangulation, a network of receiver nodes uploading readings to a server, the phone app, and a fox transmitter controller. Bearing capture will use a Seeed XIAO ESP32-C6 on the yagi boom (3.3 V logic; USB serial now, Bluetooth LE for the phone app later) plus a compass module, not chosen yet: a BNO085 (does its own sensor fusion and gives a tilt-compensated heading; about $20-25) or a bare QMC5883L-type magnetometer (a few dollars, but the firmware must do tilt compensation and calibration).
 
 ### Threat model
 
@@ -67,7 +78,7 @@ Local, receive-only tool on one laptop. The risks are a web page on the internet
 
 | ID | Threat | OWASP 2025 | Mitigation | Test |
 |---|---|---|---|---|
-| T1 | Another website in your browser opens a WebSocket or posts settings to the meter (browsers don't apply the same-origin policy to WebSockets) | A01 Broken Access Control | Listens on 127.0.0.1 only; WebSocket and POSTs need the meter's own `Origin`; `Host` must be 127.0.0.1 or localhost (blocks DNS rebinding) | `test_server.py` |
+| T1 | Another website in your browser opens a WebSocket or posts settings or bearings to the meter (browsers don't apply the same-origin policy to WebSockets) | A01 Broken Access Control | Listens on 127.0.0.1 only; WebSocket and POSTs need the meter's own `Origin`; `Host` must be 127.0.0.1 or localhost (blocks DNS rebinding) | `test_server.py` |
 | T2 | Script injection into the page | A05 Injection | No user text is put into HTML; strict Content-Security-Policy (`script-src 'self'`) | `test_server.py`, `test_browser.py` |
 | T3 | A crafted request writes outside `data/` | A01 Broken Access Control | Session file names are generated from the time; nothing from the request reaches a path | `test_meter.py` |
 | T4 | Bad settings or dongle errors crash it or leave it stuck | A10 Mishandling of Exceptional Conditions | Settings validated before use (refused whole, nothing half-applied); source errors shown and retried | `test_meter.py`, `test_server.py` |

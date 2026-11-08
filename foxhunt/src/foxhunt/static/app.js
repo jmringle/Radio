@@ -25,6 +25,27 @@ function showSettings(state) {
   const used = state.gain_used !== null && state.gain_used !== s.gain_db ? ` (dongle uses ${state.gain_used} dB)` : "";
   $("tuned").textContent = `${s.freq_mhz.toFixed(4)} MHz, gain ${s.gain_db} dB${used}, attenuator ${s.attenuator_db} dB`;
   showRecording(state.recording);
+  showBearings(state.bearings);
+}
+
+function showBearings(bearings) {
+  // textContent only, never HTML (README threat model T2).
+  $("bearings").replaceChildren(...bearings.map((b) => {
+    const li = document.createElement("li");
+    li.textContent = `${b.time.slice(11, 19)}Z  ${b.heading}°  peak ${fmt(b.peak_db)} dB, ${fmt(b.over_noise_db)} dB over noise`;
+    return li;
+  }));
+}
+
+async function markBearing(event) {
+  event.preventDefault();
+  try {
+    const result = await post("/bearing", { heading: $("heading").value });
+    showBearings(result.bearings);
+    $("bearing-message").textContent = `Marked ${result.bearing.heading}°.`;
+  } catch (error) {
+    $("bearing-message").textContent = error.message;
+  }
 }
 
 function showRecording(name) {
@@ -141,6 +162,7 @@ function connect() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   $("settings").addEventListener("submit", applySettings);
+  $("bearing-form").addEventListener("submit", markBearing);
   $("tone").addEventListener("click", toggleTone);
   $("reset").addEventListener("click", () => post("/peak/reset", {}).catch((e) => showError(e.message)));
   $("record").addEventListener("click", async () => {

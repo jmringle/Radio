@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from foxhunt.dsp import Measurement
-from foxhunt.meter import Meter, Settings, parse_settings
+from foxhunt.meter import Meter, Settings, parse_heading, parse_settings
 
 NOW = datetime(2026, 11, 8, 15, 30, 0, tzinfo=UTC)
 
@@ -118,3 +118,60 @@ def test_two_recordings_in_the_same_second_dont_overwrite(tmp_path):
 def test_starting_twice_keeps_the_same_file(tmp_path):
     meter_ = meter(tmp_path)
     assert meter_.start_recording() == meter_.start_recording()
+
+
+# --- bearings ---
+
+@pytest.mark.parametrize("typed, heading", [(0, 0.0), ("275", 275.0), (359.9, 359.9), (360, 0.0), (" 90 ", 90.0)])
+def test_headings_from_0_to_360(typed, heading):
+    assert parse_heading(typed) == heading
+
+
+@pytest.mark.parametrize("typed", [-0.1, 360.1, "", "north", None, float("nan"), float("inf"), True])
+def test_bad_headings_are_refused(typed):
+    with pytest.raises(ValueError, match="Heading"):
+        parse_heading(typed)
+
+
+def test_a_bearing_saves_the_heading_with_the_signal(tmp_path):
+    meter_ = meter(tmp_path)
+    meter_.update(m(-40, over_noise_db=25.0), 20.0)
+    meter_.update(m(-50, over_noise_db=15.0), 20.0)
+    bearing = meter_.mark_bearing(275.0)
+    assert bearing == {"kind": "bearing", "time": "2026-11-08T15:30:00.000Z", "freq_hz": 146_565_000,
+                       "heading": 275.0, "peak_db": -60.0, "level_db": -70.0, "over_noise_db": 15.0,
+                       "lat": None, "lon": None, "node_id": None}
+    assert meter_.bearings == [bearing]
+
+
+def test_no_bearing_before_the_first_reading(tmp_path):
+    with pytest.raises(ValueError, match="No signal reading yet"):
+        meter(tmp_path).mark_bearing(90.0)
+
+
+def test_no_bearing_while_overloaded(tmp_path):
+    meter_ = meter(tmp_path)
+    meter_.update(m(-40), 20.0)
+    meter_.update(m(-10, overload=True), 20.0)
+    with pytest.raises(ValueError, match="Overload"):
+        meter_.mark_bearing(90.0)
+    assert meter_.bearings == []
+
+
+def test_a_bearing_is_its_own_line_in_the_recording(tmp_path):
+    meter_ = meter(tmp_path)
+    path = meter_.start_recording()
+    reading = meter_.update(m(-40), 20.0)
+    bearing = meter_.mark_bearing(90.0)
+    assert [json.loads(line) for line in path.read_text().splitlines()] == [reading, bearing]
+    assert "kind" not in reading  # reading lines are unchanged
+
+
+def test_a_new_frequency_clears_the_bearings_but_a_new_attenuator_doesnt(tmp_path):
+    meter_ = meter(tmp_path)
+    meter_.update(m(-40), 20.0)
+    meter_.mark_bearing(90.0)
+    meter_.apply(Settings(146_565_000, 20.0, 10.0))
+    assert len(meter_.bearings) == 1
+    meter_.apply(Settings(147_000_000, 20.0, 10.0))
+    assert meter_.bearings == []

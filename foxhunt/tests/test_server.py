@@ -82,11 +82,29 @@ def test_bad_settings_are_refused_and_change_nothing(client, body, reason):
 
 
 @pytest.mark.parametrize("path, body", [("/settings", {"freq_mhz": 147, "gain_db": 20, "attenuator_db": 0}),
-                                        ("/record", {"on": True}), ("/peak/reset", {})])
+                                        ("/record", {"on": True}), ("/peak/reset", {}),
+                                        ("/bearing", {"heading": 90})])
 @pytest.mark.parametrize("headers", [{"Origin": "https://evil.example"}, {}])
 def test_posts_from_any_other_origin_are_refused(client, tmp_path, path, body, headers):
     assert client.post(path, headers=headers, json=body).status_code == 403
     assert not (tmp_path / "sessions").exists()
+
+
+def test_a_bearing_is_marked_and_listed(client):
+    with client.websocket_connect(WS, headers=ORIGIN) as ws:
+        next_reading(ws)
+    response = client.post("/bearing", headers=ORIGIN, json={"heading": "275"})
+    assert response.status_code == 200 and response.json()["bearing"]["heading"] == 275.0
+    assert [b["heading"] for b in client.get("/state").json()["bearings"]] == [275.0]
+
+
+@pytest.mark.parametrize("body", [{"heading": 400}, {"heading": "north"}, {}])
+def test_a_bad_heading_is_refused_and_nothing_is_saved(client, body):
+    with client.websocket_connect(WS, headers=ORIGIN) as ws:
+        next_reading(ws)
+    response = client.post("/bearing", headers=ORIGIN, json=body)
+    assert response.status_code == 400 and "Heading" in response.json()["error"]
+    assert client.get("/state").json()["bearings"] == []
 
 
 def test_recording_starts_and_stops(client, tmp_path):

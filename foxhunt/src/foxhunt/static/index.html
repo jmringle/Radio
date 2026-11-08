@@ -47,6 +47,18 @@
     <p id="recording" class="muted" role="status"></p>
   </section>
 
+  <section aria-labelledby="bearing-title">
+    <h2 id="bearing-title">Bearings</h2>
+    <form id="bearing-form">
+      <label for="heading">Heading (°)</label>
+      <input id="heading" name="heading" inputmode="decimal" autocomplete="off" required>
+      <button type="submit">Mark bearing</button>
+    </form>
+    <p id="bearing-message" role="status"></p>
+    <ol id="bearings"></ol>
+    <p class="muted">Point the yagi where the signal peaks, type the heading from your compass app and mark it. Use true north if the app offers it (see the README). Bearings start over when the frequency changes.</p>
+  </section>
+
   <section aria-labelledby="settings-title">
     <h2 id="settings-title">Settings</h2>
     <form id="settings">
