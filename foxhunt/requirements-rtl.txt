@@ -1,0 +1,2 @@
+# Only for a real RTL-SDR; needs librtlsdr (brew install librtlsdr). 0.5.1: 2026-10-16.
+pyrtlsdr==0.5.1

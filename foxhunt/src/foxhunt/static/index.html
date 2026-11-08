@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>foxhunt meter</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>foxhunt</h1>
+  <p id="tuned" class="muted">Connecting…</p>
+</header>
+
+<main>
+  <div id="error" class="banner" role="alert" hidden></div>
+  <div id="overload" class="banner overload" role="alert" hidden>
+    Overload: the dongle is clipping, so readings are wrong. Add attenuation or lower the gain.
+  </div>
+
+  <section class="readout" aria-label="Signal">
+    <p class="big"><output id="over-noise">--</output> <span class="unit">dB over noise</span></p>
+    <div class="bar" role="meter" id="bar" aria-label="dB over noise" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0">
+      <div id="bar-fill"></div>
+      <div id="bar-peak" hidden></div>
+    </div>
+    <p class="scale" aria-hidden="true"><span>0</span><span>20</span><span>40</span><span>60</span></p>
+    <dl>
+      <div><dt>Level</dt><dd><output id="level">--</output> dB</dd></div>
+      <div><dt>Peak</dt><dd><output id="peak">--</output> dB</dd></div>
+      <div><dt>Below peak</dt><dd><output id="below">--</output> dB</dd></div>
+      <div><dt>Noise</dt><dd><output id="noise">--</output> dBFS</dd></div>
+    </dl>
+  </section>
+
+  <section aria-labelledby="history-title">
+    <h2 id="history-title">Last 60 seconds</h2>
+    <canvas id="history" width="720" height="180" role="img" aria-label="Graph of dB over noise for the last 60 seconds"></canvas>
+  </section>
+
+  <section class="actions" aria-label="Actions">
+    <button type="button" id="tone" aria-pressed="false">Tone off</button>
+    <button type="button" id="reset">Reset peak</button>
+    <button type="button" id="record" aria-pressed="false">Record</button>
+    <p id="recording" class="muted" role="status"></p>
+  </section>
+
+  <section aria-labelledby="settings-title">
+    <h2 id="settings-title">Settings</h2>
+    <form id="settings">
+      <label for="freq">Frequency (MHz)</label>
+      <input id="freq" name="freq_mhz" inputmode="decimal" autocomplete="off" required>
+      <label for="gain">Gain (dB)</label>
+      <input id="gain" name="gain_db" inputmode="decimal" autocomplete="off" required>
+      <label for="att">Attenuator (dB)</label>
+      <input id="att" name="attenuator_db" inputmode="decimal" autocomplete="off" required>
+      <button type="submit">Apply</button>
+    </form>
+    <p id="settings-message" role="status"></p>
+    <p class="muted">Level takes the gain and attenuator back out, so it stays comparable when you change them (relative dB, not calibrated). Set the attenuator here to whatever your attenuator is set to.</p>
+  </section>
+</main>
+</body>
+</html>

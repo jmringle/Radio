@@ -1,0 +1,62 @@
+/* Light by default: it's used outdoors, where a light page reads best in sun. Dark for night hunts.
+   One accent, safety orange, kept for overload: the one thing that must catch the eye. */
+:root {
+  --paper: #f7f6f2;
+  --ink: #1b1b1b;
+  --muted: #5a5a55;      /* 6.4:1 on --paper (computed 2026-11-08) */
+  --rule: #d4d1c7;
+  --panel: #ffffff;
+  --accent: #b34700;     /* safety orange: 5.1:1 on --paper, 5.5:1 on --panel */
+  --error: #a40e26;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #141414;
+    --ink: #ecebe6;
+    --muted: #a8a69f;    /* 7.6:1 on --paper */
+    --rule: #3a3936;
+    --panel: #1e1e1d;
+    --accent: #ff8a3d;
+    --error: #ff7b8b;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0 auto;
+  max-width: 48rem;
+  padding: 1rem;
+  background: var(--paper);
+  color: var(--ink);
+  font: 1rem/1.5 "Avenir Next", "Helvetica Neue", sans-serif;
+}
+h1 { margin: 0; font-size: 1.4rem; font-weight: 600; }
+h2 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+.muted { color: var(--muted); margin: 0.25rem 0; }
+output, dd, .big, input { font-variant-numeric: tabular-nums; }
+
+.banner { border-left: 4px solid var(--error); padding: 0.5rem 0.75rem; margin: 1rem 0; background: var(--panel); }
+.overload { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+.readout { margin-top: 1rem; }
+.big { margin: 0; font-size: clamp(3rem, 14vw, 6rem); line-height: 1; font-family: "SF Mono", Menlo, monospace; }
+.big .unit { font: 1rem "Avenir Next", "Helvetica Neue", sans-serif; color: var(--muted); }
+.bar { position: relative; height: 1.75rem; margin-top: 0.75rem; background: var(--panel); border: 1px solid var(--rule); }
+#bar-fill { height: 100%; width: 0; background: var(--ink); transition: width 0.08s linear; }
+#bar-peak { position: absolute; top: -0.3rem; bottom: -0.3rem; width: 3px; margin-left: -1px; background: var(--accent); }
+.scale { display: flex; justify-content: space-between; margin: 0.2rem 0 0; color: var(--muted); font-size: 0.8rem; }
+dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: 0.5rem 1rem; margin: 1rem 0 0; }
+dt { color: var(--muted); font-size: 0.85rem; }
+dd { margin: 0; font-size: 1.3rem; font-family: "SF Mono", Menlo, monospace; }
+
+canvas { display: block; width: 100%; height: auto; background: var(--panel); border: 1px solid var(--rule); }
+
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 1.5rem; }
+button {
+  font: inherit; padding: 0.55rem 1rem; min-height: 2.75rem;  /* big enough for a thumb outdoors */
+  background: var(--panel); color: var(--ink); border: 1px solid var(--ink); cursor: pointer;
+}
+button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+button[type="submit"] { background: var(--ink); color: var(--paper); }
+form { display: grid; grid-template-columns: max-content minmax(0, 12rem); gap: 0.5rem 0.75rem; align-items: center; }
+form button { grid-column: 2; justify-self: start; }
+input { font: inherit; padding: 0.45rem 0.5rem; background: var(--panel); color: var(--ink); border: 1px solid var(--rule); }

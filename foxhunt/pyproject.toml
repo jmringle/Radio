@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=84"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foxhunt"
+version = "0.1.0"
+description = "Radio fox hunting tools: a live RTL-SDR signal meter for yagi direction finding"
+requires-python = ">=3.12"
+# Exact versions (2-week rule, checked on PyPI 2026-11-08) are pinned in requirements-*.txt.
+dependencies = ["fastapi>=0.162.0,<1", "uvicorn>=0.54.0,<1", "websockets>=17.3,<18", "numpy>=2.5.4,<3"]
+
+[project.optional-dependencies]
+# Needs librtlsdr installed (brew install librtlsdr); the simulator doesn't.
+rtl = ["pyrtlsdr>=0.5.1,<0.6"]
+
+[project.scripts]
+foxhunt = "foxhunt.__main__:main"
+
+[tool.setuptools.package-data]
+foxhunt = ["static/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

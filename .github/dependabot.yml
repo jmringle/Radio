@@ -8,6 +8,10 @@ updates:
     directory: "/ft8-forecast"
     schedule:
       interval: weekly
+  - package-ecosystem: pip
+    directory: "/foxhunt"
+    schedule:
+      interval: weekly
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
