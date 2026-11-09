@@ -1,6 +1,6 @@
 # foxhunt
 
-Tools for radio fox hunting (finding a hidden transmitter). Phase 1 is a **live signal meter** for hunting with a yagi and an attenuator: an RTL-SDR measures how strong the fox is, and a page in your browser shows it as a number, a bar, a 60-second graph and a tone that rises as you get closer.
+Tools for radio fox hunting (finding a hidden transmitter). A **live signal meter** for hunting with a yagi and an attenuator: an RTL-SDR measures how strong the fox is, and a page in your browser shows it as a number, a bar, a 60-second graph and a tone that rises as you get closer. On top of that: it learns the fox's on/off schedule, coaches the attenuator, fits each spot's bearing from a sweep, and maps where the fox probably is from bearings taken at several spots.
 
 Receive only. Nothing here transmits, and it measures signal strength only: it doesn't demodulate or play anyone's audio.
 
@@ -24,6 +24,7 @@ playwright install chromium      # only for the browser tests
 ```sh
 foxhunt --freq 146.565                 # simulator: a made-up fox that drifts stronger and weaker
 foxhunt --freq 146.565 --source rtl    # the RTL-SDR
+foxhunt --freq 146.565 --sim-burst 30/90   # simulator fox that transmits 30 s, then is quiet 90 s
 ```
 
 Open http://127.0.0.1:8075. Options: `--gain DB` (fixed tuner gain, default 20), `--att DB` (what your attenuator is set to, default 0), `--port N`. Gain and attenuator can also be changed on the page.
@@ -33,7 +34,10 @@ Open http://127.0.0.1:8075. Options: `--gain DB` (fixed tuner gain, default 20),
 - **Peak**: the highest level since you last pressed Reset (or changed frequency).
 - **Overload**: the dongle's input is clipping. Readings are wrong until you add attenuation or lower the gain.
 - **Record** saves every reading to `data/sessions/<UTC time>.jsonl`, one JSON object per line.
-- **Mark bearing**: swing the yagi until the signal peaks, type the heading from your phone's compass app, and mark it. The bearing (time, heading, peak, level, dB over noise) is listed on the page and, while recording, written to the session file as a line with `"kind": "bearing"`. Bearings start over when you change frequency.
+- **Schedule** (under the bar): most foxes transmit in bursts. After 3 transmissions it shows the pattern and counts down: "Next transmission in about 40 s (every 120 s, on for 30 s)". It says when the timing is irregular (or there's more than one fox) and when the fox is overdue.
+- **Advice** (the box above the reading): what to change on the attenuator: add 10 dB when overloaded, add 20 dB when the signal is so strong the meter has no room to rise, remove 10 dB when attenuation is hiding a weak fox, and a body-shielding tip when it's strong even with 60+ dB of attenuation. Nothing while the fox is between transmissions.
+- **Spots and bearings**: at each place you stop, press **New spot** (latitude and longitude are optional, but the map needs them; long-press in your phone's map app shows them). Then either point the yagi where the signal peaks and **Mark bearing** once, or **sweep**: mark the level at several headings (every 30-45°, including some weaker ones on both sides of the peak). From 4+ marks it fits the bearing with a ± range; from fewer, it uses the strongest mark with an assumed ±15°. Bearings can't be marked while the fox is between transmissions (the reading would be noise). While recording, spots and bearings are written to the session file as lines with `"kind": "spot"` and `"kind": "bearing"`. Everything starts over when you change frequency.
+- **Map**: with bearings from 2+ spots with positions, a north-up plot (no street map, so it works offline) shades where the fox probably is, gives the most likely latitude/longitude (to paste into a phone map) and the size of the area holding 90% of the probability. With 4+ spots, a bearing that disagrees with the rest is flagged as a likely reflection and left out.
 
 **True or magnetic north?** A compass points to magnetic north, which differs from true (map) north by the *magnetic declination*: several degrees in much of the US, and it differs by location. Bearings will be drawn on maps later, and maps use true north, so set your compass app to true north if it has that option (most phone compass apps do). If it doesn't, note that the bearings are magnetic. NOAA's declination calculator gives the value for your area.
 
@@ -62,6 +66,13 @@ Runs everything: signal math, meter rules, the web server, and the page in headl
 - Recording: one JSON line per reading, written as it happens, so a crash loses at most the line being written. File names come from the time only, never from the request.
 - Every reading has `heading`, `lat`, `lon` and `node_id` fields (empty for now), for bearing capture and the receiver network later.
 
+**Acceptance criteria (phase 2b: schedule, coaching, sweep fit, map).** Thresholds are starting values, to be tuned after real hunts.
+- Schedule: on at 6+ dB over noise or overloaded, off under 3 dB (two thresholds so a signal near one doesn't flicker); a change must last 3 readings (0.3 s), so a noise spike isn't a transmission. A pattern needs 3 starts whose 2+ intervals agree within 20% (or 2 s); otherwise "learning" or "irregular". Uses the last 6 transmissions, so a changed pattern is relearned. Late by more than half a period (at least 5 s): "overdue". A fox never heard is not "off" (it may just be weak). New frequency: forgotten.
+- Advice: from the last second (10 readings) so one odd reading doesn't flip it; any overload in that second: add 10 dB (and lower the gain, unless it's 0). Median over 45 dB (an 8-bit dongle has about 48 dB of range): add 20 dB, or the body-shielding tip at 60+ dB of attenuation. Median under 6 dB with attenuation in: remove 10 dB. Exactly at a threshold: no advice. Nothing while the fox is between transmissions; starts over when settings change.
+- Sweep fit: a cardioid beam pattern (sharpness fitted, back floored at -20 dB) fitted over every heading in 0.5° steps; the ± is the range where the fit is worse by less than one reading's variance (about 68%), at least 3°. Refuses to fit (falls back to the strongest mark, ±15° assumed) with fewer than 4 marks, no weaker mark on each side of the strongest, less than 3 dB from strongest to weakest, or a ± over 90°.
+- Map: each bearing is a wedge whose width is its ±, with a 10% allowance for any one bearing being wrong so a reflection can't veto the rest. Needs 2+ spots with positions and bearings, else says so. Reflection: with 4+ spots, a bearing off the best location by more than 3× its ± (and 20°), only when 3+ spots agree. Grid 160×160 across at least 2 km and at most 50 km (flat-earth math is fine at that size); an estimate at the edge says the fox may be farther.
+- Positions: latitude -90 to 90 and longitude -180 to 180, both or neither; anything else refused with the reason, nothing saved.
+
 **Acceptance criteria (phase 2a: typed-in bearings).**
 - Heading: 0-360 degrees; 360 is saved as 0. Blank, text, negative, over 360 or not a number: refused with the reason, nothing saved.
 - A bearing saves time, frequency, heading, peak level, current level and dB over noise, plus empty `lat`, `lon` (filled in a later phase) and `node_id`.
@@ -78,14 +89,16 @@ Local, receive-only tool on one laptop. The risks are a web page on the internet
 
 | ID | Threat | OWASP 2025 | Mitigation | Test |
 |---|---|---|---|---|
-| T1 | Another website in your browser opens a WebSocket or posts settings or bearings to the meter (browsers don't apply the same-origin policy to WebSockets) | A01 Broken Access Control | Listens on 127.0.0.1 only; WebSocket and POSTs need the meter's own `Origin`; `Host` must be 127.0.0.1 or localhost (blocks DNS rebinding) | `test_server.py` |
+| T1 | Another website in your browser opens a WebSocket or posts settings, spots or bearings to the meter (browsers don't apply the same-origin policy to WebSockets) | A01 Broken Access Control | Listens on 127.0.0.1 only; WebSocket and POSTs need the meter's own `Origin`; `Host` must be 127.0.0.1 or localhost (blocks DNS rebinding) | `test_server.py` |
 | T2 | Script injection into the page | A05 Injection | No user text is put into HTML; strict Content-Security-Policy (`script-src 'self'`) | `test_server.py`, `test_browser.py` |
 | T3 | A crafted request writes outside `data/` | A01 Broken Access Control | Session file names are generated from the time; nothing from the request reaches a path | `test_meter.py` |
 | T4 | Bad settings or dongle errors crash it or leave it stuck | A10 Mishandling of Exceptional Conditions | Settings validated before use (refused whole, nothing half-applied); source errors shown and retried | `test_meter.py`, `test_server.py` |
 | T5 | A compromised or brand-new dependency | A03 Software Supply Chain Failures | Exact pins, 2-week rule, `pip-audit` in CI, Dependabot | CI |
 
-Later phases change this: the node server will take uploads over the network (logins, rate limits, OWASP API Top 10), and session files will hold GPS positions.
+| T6 | Spot positions reveal where you were (personal location data) | A01 Broken Access Control | Positions stay in memory and in `data/` (gitignored); nothing is sent off the laptop; the map draws no tiles, so no map service learns your location | `.gitignore`, no network code |
+
+Later phases change this: the node server will take uploads over the network (logins, rate limits, OWASP API Top 10).
 
 ## Security notes
 
-No secrets and no network access beyond 127.0.0.1. `data/` is gitignored.
+No secrets and no network access beyond 127.0.0.1. `data/` is gitignored; session files can hold the positions you typed, so don't share them casually.

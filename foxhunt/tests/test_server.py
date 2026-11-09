@@ -83,7 +83,7 @@ def test_bad_settings_are_refused_and_change_nothing(client, body, reason):
 
 @pytest.mark.parametrize("path, body", [("/settings", {"freq_mhz": 147, "gain_db": 20, "attenuator_db": 0}),
                                         ("/record", {"on": True}), ("/peak/reset", {}),
-                                        ("/bearing", {"heading": 90})])
+                                        ("/bearing", {"heading": 90}), ("/spot", {"lat": 40, "lon": -100})])
 @pytest.mark.parametrize("headers", [{"Origin": "https://evil.example"}, {}])
 def test_posts_from_any_other_origin_are_refused(client, tmp_path, path, body, headers):
     assert client.post(path, headers=headers, json=body).status_code == 403
@@ -95,7 +95,8 @@ def test_a_bearing_is_marked_and_listed(client):
         next_reading(ws)
     response = client.post("/bearing", headers=ORIGIN, json={"heading": "275"})
     assert response.status_code == 200 and response.json()["bearing"]["heading"] == 275.0
-    assert [b["heading"] for b in client.get("/state").json()["bearings"]] == [275.0]
+    (spot,) = client.get("/state").json()["spots"]
+    assert [b["heading"] for b in spot["marks"]] == [275.0] and spot["bearing"]["heading"] == 275.0
 
 
 @pytest.mark.parametrize("body", [{"heading": 400}, {"heading": "north"}, {}])
@@ -104,7 +105,47 @@ def test_a_bad_heading_is_refused_and_nothing_is_saved(client, body):
         next_reading(ws)
     response = client.post("/bearing", headers=ORIGIN, json=body)
     assert response.status_code == 400 and "Heading" in response.json()["error"]
-    assert client.get("/state").json()["bearings"] == []
+    assert client.get("/state").json()["spots"] == []
+
+
+def test_readings_come_with_the_schedule_and_advice(client):
+    with client.websocket_connect(WS, headers=ORIGIN) as ws:
+        while "reading" not in (message := ws.receive_json()):
+            pass
+    assert "text" in message["schedule"] and "advice" in message
+
+
+def test_spots_and_the_map(client):
+    with client.websocket_connect(WS, headers=ORIGIN) as ws:
+        next_reading(ws)
+    for lat, lon, heading in [(40.0, -100.0, 45), (40.0, -99.98, 315)]:
+        assert client.post("/spot", headers=ORIGIN, json={"lat": lat, "lon": lon}).status_code == 200
+        client.post("/bearing", headers=ORIGIN, json={"heading": heading})
+    result = client.get("/map").json()
+    assert result["estimate"]["lat"] > 40.0 and len(result["spots"]) == 2  # the two bearings cross to the north
+
+
+@pytest.mark.parametrize("body, reason", [({"lat": 40}, "both"), ({"lat": 91, "lon": 0}, "Latitude"), ([1], "JSON object")])
+def test_a_bad_position_is_refused(client, body, reason):
+    response = client.post("/spot", headers=ORIGIN, json=body)
+    assert response.status_code == 400 and reason in response.json()["error"]
+    assert client.get("/state").json()["spots"] == []
+
+
+def test_the_map_without_enough_spots_says_what_it_needs(client):
+    assert client.get("/map").json()["estimate"] is None
+
+
+def test_no_bearing_while_the_fox_is_between_transmissions(tmp_path):
+    # Bursts of 1 s every 3 s: wait until the learner has heard one and it has gone quiet.
+    with make_client(tmp_path, source=SimSource(seed=1, realtime=True, burst=(1.0, 2.0))) as client:
+        with client.websocket_connect(WS, headers=ORIGIN) as ws:
+            while True:
+                message = ws.receive_json()
+                if "schedule" in message and message["schedule"]["text"].startswith("Fox off"):
+                    break
+        response = client.post("/bearing", headers=ORIGIN, json={"heading": 90})
+    assert response.status_code == 400 and "off the air" in response.json()["error"]
 
 
 def test_recording_starts_and_stops(client, tmp_path):

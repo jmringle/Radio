@@ -56,6 +56,23 @@ def parse_heading(value) -> float:
     return heading % 360
 
 
+def parse_position(lat, lon) -> tuple[float | None, float | None]:
+    """A spot's position in decimal degrees, or (None, None) when both are blank."""
+    blank = [v is None or str(v).strip() == "" for v in (lat, lon)]
+    if all(blank):
+        return None, None
+    if any(blank):
+        raise ValueError("Enter both latitude and longitude, or leave both blank.")
+    if isinstance(lat, bool) or isinstance(lon, bool):
+        raise ValueError("Latitude and longitude must be numbers.")
+    latitude, longitude = _number(lat, "Latitude"), _number(lon, "Longitude")
+    if not -90 <= latitude <= 90:
+        raise ValueError(f"Latitude must be -90 to 90, not {str(lat)[:20]}.")
+    if not -180 <= longitude <= 180:
+        raise ValueError(f"Longitude must be -180 to 180, not {str(lon)[:20]}.")
+    return latitude, longitude
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -70,13 +87,14 @@ class Meter:
         self.peak_db: float | None = None
         self.last: dict | None = None  # the latest reading
         self.bearings: list[dict] = []  # this frequency's bearings
+        self.spots: list[dict] = []  # where bearings were taken; bearings belong to the latest
         self.recording: Path | None = None
         self._file = None
 
     def apply(self, settings: Settings) -> None:
         """New settings. A new frequency is a new signal, so the peak starts over."""
         if settings.freq_hz != self.settings.freq_hz:
-            self.peak_db, self.last, self.bearings = None, None, []
+            self.peak_db, self.last, self.bearings, self.spots = None, None, [], []
         self.settings = settings
 
     def reset_peak(self) -> None:
@@ -106,16 +124,27 @@ class Meter:
         self.last = reading
         return reading
 
+    def _now(self) -> str:
+        return self.clock().isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    def new_spot(self, lat: float | None, lon: float | None) -> dict:
+        """Start a new spot; bearings marked from now on belong to it."""
+        spot = {"kind": "spot", "id": len(self.spots) + 1, "time": self._now(), "lat": lat, "lon": lon}
+        self.spots.append(spot)
+        self._write(spot)
+        return spot
+
     def mark_bearing(self, heading: float) -> dict:
         """Save the yagi's heading with the signal now. ValueError if there's no trustworthy reading."""
         if self.last is None:
             raise ValueError("No signal reading yet; wait for the meter to show one.")
         if self.last["overload"]:  # clipping flattens the peak, so the heading of the peak is a guess
             raise ValueError("Overload: add attenuation or lower the gain before marking a bearing.")
-        bearing = {"kind": "bearing", "time": self.clock().isoformat(timespec="milliseconds").replace("+00:00", "Z"),
-                   "freq_hz": self.settings.freq_hz, "heading": heading, "peak_db": self.last["peak_db"],
-                   "level_db": self.last["level_db"], "over_noise_db": self.last["over_noise_db"],
-                   "lat": None, "lon": None, "node_id": self.node_id}  # position comes in a later phase
+        spot = self.spots[-1] if self.spots else self.new_spot(None, None)
+        bearing = {"kind": "bearing", "time": self._now(), "freq_hz": self.settings.freq_hz, "spot": spot["id"],
+                   "heading": heading, "peak_db": self.last["peak_db"], "level_db": self.last["level_db"],
+                   "over_noise_db": self.last["over_noise_db"], "lat": spot["lat"], "lon": spot["lon"],
+                   "node_id": self.node_id}
         self.bearings.append(bearing)
         self._write(bearing)
         return bearing

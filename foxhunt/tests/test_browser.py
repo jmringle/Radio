@@ -50,6 +50,7 @@ def test_too_much_gain_shows_the_overload_banner(page, server):
     page.get_by_label("Gain (dB)").fill("50")
     page.get_by_role("button", name="Apply").click()
     expect(page.locator("#overload")).to_be_visible()
+    expect(page.locator("#advice")).to_contain_text("add 10 dB of attenuation")
     page.get_by_label("Gain (dB)").fill("20")
     page.get_by_role("button", name="Apply").click()
     expect(page.locator("#overload")).to_be_hidden()
@@ -79,12 +80,35 @@ def test_a_bearing_is_marked_and_shown(page, server):
     expect(page.locator("#over-noise")).not_to_have_text("--")
     page.get_by_label("Heading").fill("275")
     page.get_by_role("button", name="Mark bearing").click()
-    expect(page.locator("#bearings li")).to_have_count(1)
-    expect(page.locator("#bearings li")).to_contain_text("275°")
+    expect(page.locator("#bearings > li")).to_have_count(1)  # spot 1, made for it
+    expect(page.locator("#bearings > li")).to_contain_text("Spot 1 (no position): bearing 275° ±15° (strongest mark; ± assumed)")
     page.get_by_label("Heading").fill("400")
     page.get_by_role("button", name="Mark bearing").click()
     expect(page.locator("#bearing-message")).to_contain_text("Heading must be 0-360")
-    expect(page.locator("#bearings li")).to_have_count(1)
+    expect(page.locator("#bearings ul li")).to_have_count(1)
+
+
+def test_two_spots_put_the_fox_on_the_map(page, server):
+    page.goto(server)
+    expect(page.locator("#over-noise")).not_to_have_text("--")
+    expect(page.locator("#map-text")).to_contain_text("Needs bearings from 2 or more spots")
+    for lat, lon, heading in [("40.0", "-100.0", "45"), ("40.0", "-99.98", "315")]:  # made-up coordinates
+        page.get_by_label("Latitude").fill(lat)
+        page.get_by_label("Longitude").fill(lon)
+        page.get_by_role("button", name="New spot").click()
+        page.get_by_label("Heading").fill(heading)
+        page.get_by_role("button", name="Mark bearing").click()
+    expect(page.locator("#bearings > li")).to_have_count(2)
+    expect(page.locator("#map-text")).to_contain_text("Most likely spot 40.0")
+    page.get_by_label("Latitude").fill("95")
+    page.get_by_label("Longitude").fill("0")
+    page.get_by_role("button", name="New spot").click()
+    expect(page.locator("#spot-message")).to_contain_text("Latitude must be -90 to 90")
+
+
+def test_the_schedule_line_shows(page, server):
+    page.goto(server)
+    expect(page.locator("#schedule")).not_to_be_empty()
 
 
 def test_the_csp_blocks_an_injected_script(page, server):

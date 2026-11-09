@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from foxhunt.dsp import Measurement
-from foxhunt.meter import Meter, Settings, parse_heading, parse_settings
+from foxhunt.meter import Meter, Settings, parse_heading, parse_position, parse_settings
 
 NOW = datetime(2026, 11, 8, 15, 30, 0, tzinfo=UTC)
 
@@ -138,7 +138,7 @@ def test_a_bearing_saves_the_heading_with_the_signal(tmp_path):
     meter_.update(m(-40, over_noise_db=25.0), 20.0)
     meter_.update(m(-50, over_noise_db=15.0), 20.0)
     bearing = meter_.mark_bearing(275.0)
-    assert bearing == {"kind": "bearing", "time": "2026-11-08T15:30:00.000Z", "freq_hz": 146_565_000,
+    assert bearing == {"kind": "bearing", "time": "2026-11-08T15:30:00.000Z", "freq_hz": 146_565_000, "spot": 1,
                        "heading": 275.0, "peak_db": -60.0, "level_db": -70.0, "over_noise_db": 15.0,
                        "lat": None, "lon": None, "node_id": None}
     assert meter_.bearings == [bearing]
@@ -163,7 +163,8 @@ def test_a_bearing_is_its_own_line_in_the_recording(tmp_path):
     path = meter_.start_recording()
     reading = meter_.update(m(-40), 20.0)
     bearing = meter_.mark_bearing(90.0)
-    assert [json.loads(line) for line in path.read_text().splitlines()] == [reading, bearing]
+    lines = [json.loads(line) for line in path.read_text().splitlines()]
+    assert lines[0] == reading and lines[1]["kind"] == "spot" and lines[2] == bearing  # spot 1 made for it
     assert "kind" not in reading  # reading lines are unchanged
 
 
@@ -174,4 +175,34 @@ def test_a_new_frequency_clears_the_bearings_but_a_new_attenuator_doesnt(tmp_pat
     meter_.apply(Settings(146_565_000, 20.0, 10.0))
     assert len(meter_.bearings) == 1
     meter_.apply(Settings(147_000_000, 20.0, 10.0))
-    assert meter_.bearings == []
+    assert meter_.bearings == [] and meter_.spots == []
+
+
+# --- spots ---
+
+@pytest.mark.parametrize("lat, lon, expected", [
+    ("40.0", "-100.0", (40.0, -100.0)), (90, 180, (90.0, 180.0)), (-90, -180, (-90.0, -180.0)),
+    ("", "", (None, None)), (None, None, (None, None)), (" ", None, (None, None)),
+])
+def test_positions(lat, lon, expected):
+    assert parse_position(lat, lon) == expected
+
+
+@pytest.mark.parametrize("lat, lon, reason", [
+    ("40.0", "", "both"), (None, "-100", "both"), (90.1, 0, "Latitude"), (0, -180.1, "Longitude"),
+    ("forty", 0, "Latitude"), (0, "nan", "Longitude"), (True, 0, "numbers"),
+])
+def test_bad_positions_are_refused(lat, lon, reason):
+    with pytest.raises(ValueError, match=reason):
+        parse_position(lat, lon)
+
+
+def test_bearings_belong_to_the_latest_spot_and_carry_its_position(tmp_path):
+    meter_ = meter(tmp_path)
+    meter_.update(m(-40), 20.0)
+    meter_.new_spot(40.0, -100.0)
+    first = meter_.mark_bearing(10.0)
+    meter_.new_spot(40.01, -100.0)
+    second = meter_.mark_bearing(20.0)
+    assert (first["spot"], first["lat"], second["spot"], second["lat"]) == (1, 40.0, 2, 40.01)
+    assert [s["id"] for s in meter_.spots] == [1, 2]

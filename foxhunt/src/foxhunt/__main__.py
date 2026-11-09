@@ -19,12 +19,24 @@ def _port(text: str) -> int:
     return port
 
 
+def _burst(text: str) -> tuple[float, float]:
+    try:
+        on, off = (float(part) for part in text.split("/"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} isn't ON/OFF seconds, e.g. 30/90") from None
+    if not (1 <= on <= 3600 and 1 <= off <= 3600):
+        raise argparse.ArgumentTypeError("burst times must be 1-3600 seconds")
+    return on, off
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="foxhunt", description="Live signal meter for fox hunting.")
     parser.add_argument("--freq", required=True, help="the fox's frequency in MHz, e.g. 146.565")
     parser.add_argument("--source", choices=["sim", "rtl"], default="sim", help="sim (default) or rtl (RTL-SDR)")
     parser.add_argument("--gain", default="20", help="fixed tuner gain in dB, 0-50 (default 20)")
     parser.add_argument("--att", default="0", help="your attenuator's setting in dB, 0-120 (default 0)")
+    parser.add_argument("--sim-burst", type=_burst, metavar="ON/OFF",
+                        help="simulator only: transmit in bursts, e.g. 30/90 (30 s on, 90 s off)")
     parser.add_argument("--port", type=_port, default=DEFAULT_PORT, help=f"port (default {DEFAULT_PORT})")
     try:
         args = parser.parse_args(argv)
@@ -41,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     from foxhunt.server import create_app
     from foxhunt.sources import RtlSource, SimSource
 
-    source = RtlSource() if args.source == "rtl" else SimSource(realtime=True)
+    source = RtlSource() if args.source == "rtl" else SimSource(realtime=True, burst=args.sim_burst)
     app = create_app(source, Meter(settings, DATA_DIR), args.port)
     print(f"foxhunt: open http://127.0.0.1:{args.port} (Ctrl+C stops)")
     # 127.0.0.1 only: nothing else on the network can reach it (threat model T1).

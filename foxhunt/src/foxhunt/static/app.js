@@ -25,23 +25,107 @@ function showSettings(state) {
   const used = state.gain_used !== null && state.gain_used !== s.gain_db ? ` (dongle uses ${state.gain_used} dB)` : "";
   $("tuned").textContent = `${s.freq_mhz.toFixed(4)} MHz, gain ${s.gain_db} dB${used}, attenuator ${s.attenuator_db} dB`;
   showRecording(state.recording);
-  showBearings(state.bearings);
+  showSpots(state.spots);
 }
 
-function showBearings(bearings) {
+function text(tag, content) {
   // textContent only, never HTML (README threat model T2).
-  $("bearings").replaceChildren(...bearings.map((b) => {
-    const li = document.createElement("li");
-    li.textContent = `${b.time.slice(11, 19)}Z  ${b.heading}°  peak ${fmt(b.peak_db)} dB, ${fmt(b.over_noise_db)} dB over noise`;
+  const el = document.createElement(tag);
+  el.textContent = content;
+  return el;
+}
+
+function showSpots(spots) {
+  $("bearings").replaceChildren(...spots.map((s) => {
+    const where = s.lat === null ? "no position" : `${s.lat.toFixed(5)}, ${s.lon.toFixed(5)}`;
+    const b = s.bearing;
+    const li = text("li", `Spot ${s.id} (${where}): ` + (b ? `bearing ${b.heading}° ±${b.pm}° (${b.method})` : "no bearings yet"));
+    const marks = document.createElement("ul");
+    marks.replaceChildren(...s.marks.map((m) =>
+      text("li", `${m.time.slice(11, 19)}Z  ${m.heading}°  level ${fmt(m.level_db)} dB, ${fmt(m.over_noise_db)} dB over noise`)));
+    li.append(marks);
     return li;
   }));
+  refreshMap();
+}
+
+async function newSpot(event) {
+  event.preventDefault();
+  try {
+    const result = await post("/spot", { lat: $("lat").value, lon: $("lon").value });
+    showSpots(result.spots);
+    $("spot-message").textContent = `Spot ${result.spot.id} started. Bearings now belong to it.`;
+  } catch (error) {
+    $("spot-message").textContent = error.message;
+  }
+}
+
+async function refreshMap() {
+  try {
+    drawMap(await (await fetch("/map")).json());
+  } catch {
+    $("map-text").textContent = "Couldn't load the map.";
+  }
+}
+
+function drawMap(m) {
+  const canvas = $("map");
+  const ctx = canvas.getContext("2d");
+  const style = getComputedStyle(document.documentElement);
+  const color = (name) => style.getPropertyValue(name).trim();
+  const { width, height } = canvas;
+  ctx.clearRect(0, 0, width, height);
+  $("map-text").textContent = m.text;
+  if (!m.estimate) return;
+
+  // Probability: one hue, clear to solid accent (sequential).
+  const hex = color("--accent").replace("#", "");
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const cells = new ImageData(m.size, m.size);
+  m.grid.forEach((v, i) => cells.data.set([r, g, b, Math.round(v * 0.85)], i * 4));
+  const off = new OffscreenCanvas(m.size, m.size);
+  off.getContext("2d").putImageData(cells, 0, 0);
+  ctx.drawImage(off, 0, 0, width, height);
+
+  const px = (x) => ((x + m.half_m) / (2 * m.half_m)) * width;
+  const py = (y) => ((m.half_m - y) / (2 * m.half_m)) * height;
+  for (const s of m.spots) {  // bearing lines
+    const rad = (s.heading * Math.PI) / 180;
+    ctx.strokeStyle = color(s.reflection ? "--muted" : "--ink");
+    ctx.lineWidth = 2;
+    ctx.setLineDash(s.reflection ? [6, 6] : []);
+    ctx.beginPath();
+    ctx.moveTo(px(s.x), py(s.y));
+    ctx.lineTo(px(s.x + Math.sin(rad) * 4 * m.half_m), py(s.y + Math.cos(rad) * 4 * m.half_m));
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.font = "600 14px 'Avenir Next', 'Helvetica Neue', sans-serif";
+  for (const s of m.spots) {  // spot dots with a surface ring, labeled
+    ctx.beginPath();
+    ctx.arc(px(s.x), py(s.y), 6, 0, 2 * Math.PI);
+    ctx.fillStyle = color("--ink");
+    ctx.strokeStyle = color("--panel");
+    ctx.lineWidth = 2;
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillText(String(s.id), px(s.x) + 9, py(s.y) - 9);
+  }
+  ctx.fillStyle = color("--ink");
+  ctx.fillText("N ↑", 10, 22);
+  // Scale bar: a round length about a quarter of the map.
+  const target = m.half_m / 2;
+  const meters = [100, 200, 500, 1000, 2000, 5000, 10000, 20000].reduce((a, c) => (c <= target ? c : a), 100);
+  const bar = (meters / (2 * m.half_m)) * width;
+  ctx.fillRect(10, height - 16, bar, 3);
+  ctx.fillText(meters >= 1000 ? `${meters / 1000} km` : `${meters} m`, 10, height - 22);
 }
 
 async function markBearing(event) {
   event.preventDefault();
   try {
     const result = await post("/bearing", { heading: $("heading").value });
-    showBearings(result.bearings);
+    showSpots(result.spots);
     $("bearing-message").textContent = `Marked ${result.bearing.heading}°.`;
   } catch (error) {
     $("bearing-message").textContent = error.message;
@@ -152,6 +236,11 @@ function connect() {
   ws.onmessage = (event) => {
     const message = JSON.parse(event.data);
     if (message.reading) showReading(message.reading);
+    if (message.schedule) $("schedule").textContent = message.schedule.text;
+    if ("advice" in message) {
+      $("advice").hidden = !message.advice;
+      $("advice").textContent = message.advice || "";
+    }
     if (message.error) showError(message.error);
   };
   ws.onclose = () => {
@@ -163,6 +252,7 @@ function connect() {
 document.addEventListener("DOMContentLoaded", async () => {
   $("settings").addEventListener("submit", applySettings);
   $("bearing-form").addEventListener("submit", markBearing);
+  $("spot-form").addEventListener("submit", newSpot);
   $("tone").addEventListener("click", toggleTone);
   $("reset").addEventListener("click", () => post("/peak/reset", {}).catch((e) => showError(e.message)));
   $("record").addEventListener("click", async () => {

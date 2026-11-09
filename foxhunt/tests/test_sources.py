@@ -26,6 +26,14 @@ def test_the_simulated_fox_drifts_stronger_and_weaker():
     assert strongest.over_noise_db > weakest.over_noise_db + 20
 
 
+def test_the_simulator_can_transmit_in_bursts():
+    sim = SimSource(seed=1, burst=(30.0, 90.0))
+    sim.open(FOX)
+    assert reading(sim, t=0.0).over_noise_db > 20  # on (30 s of every 120), at the drift's strongest
+    assert abs(reading(sim, t=60.0).over_noise_db) < 3  # off: noise only
+    assert reading(sim, t=120.0).over_noise_db > 20  # on again
+
+
 def test_the_simulator_responds_to_the_attenuator_like_a_real_dongle():
     sim = SimSource(seed=1)
     sim.open(FOX)

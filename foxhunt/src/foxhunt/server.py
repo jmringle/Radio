@@ -2,6 +2,7 @@
 each reading to the page over a WebSocket. Listens on 127.0.0.1 only (README threat model)."""
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,8 +10,11 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from foxhunt.coach import Coach
 from foxhunt.dsp import SAMPLE_RATE, measure
-from foxhunt.meter import Meter, parse_heading, parse_settings
+from foxhunt.locate import probability_map, summarize
+from foxhunt.meter import Meter, parse_heading, parse_position, parse_settings
+from foxhunt.schedule import Schedule
 from foxhunt.sources import SourceError
 
 STATIC = Path(__file__).parent / "static"
@@ -31,6 +35,7 @@ def create_app(source, meter: Meter, port: int, retry_s: float = 2.0) -> FastAPI
     origins = {f"http://{host}" for host in hosts}
     clients: set[WebSocket] = set()
     state = {"error": None, "gain": None, "reopen": True}
+    coach, schedule = Coach(), Schedule()
 
     async def broadcast(message: dict) -> None:
         for ws in list(clients):
@@ -55,7 +60,10 @@ def create_app(source, meter: Meter, port: int, retry_s: float = 2.0) -> FastAPI
                     continue  # settings changed during the read: this reading belongs to the old ones
                 reading = meter.update(measure(samples), state["gain"])
                 state["error"] = None
-                await broadcast({"reading": reading})
+                now = time.monotonic()
+                schedule.update(now, reading["over_noise_db"], reading["overload"])
+                advice = coach.update(reading, fox_off=schedule.fox_off)
+                await broadcast({"reading": reading, "advice": advice, "schedule": schedule.status(now)})
             except SourceError as error:
                 await failed(str(error))
             except Exception:
@@ -91,7 +99,10 @@ def create_app(source, meter: Meter, port: int, retry_s: float = 2.0) -> FastAPI
 
     def status() -> dict:
         return {"settings": settings_json(), "gain_used": state["gain"], "error": state["error"],
-                "recording": meter.recording.name if meter.recording else None, "bearings": meter.bearings}
+                "recording": meter.recording.name if meter.recording else None, "spots": spots()}
+
+    def spots() -> list[dict]:
+        return summarize(meter.spots, meter.bearings)
 
     async def body(request: Request) -> dict:
         try:
@@ -117,7 +128,10 @@ def create_app(source, meter: Meter, port: int, retry_s: float = 2.0) -> FastAPI
             settings = parse_settings(data.get("freq_mhz"), data.get("gain_db"), data.get("attenuator_db"))
         except ValueError as error:
             return JSONResponse({"error": str(error)}, 400)
+        if settings.freq_hz != meter.settings.freq_hz:
+            schedule.clear()  # a different fox
         meter.apply(settings)
+        coach.clear()
         state["reopen"] = True  # the loop retunes before its next reading
         return status()
 
@@ -138,10 +152,26 @@ def create_app(source, meter: Meter, port: int, retry_s: float = 2.0) -> FastAPI
     @app.post("/bearing")
     async def post_bearing(request: Request):
         try:
-            bearing = meter.mark_bearing(parse_heading((await body(request)).get("heading")))
+            heading = parse_heading((await body(request)).get("heading"))
+            if schedule.fox_off:  # the reading now is noise, not the fox
+                raise ValueError("The fox is off the air; mark the bearing during its next transmission.")
+            bearing = meter.mark_bearing(heading)
         except ValueError as error:
             return JSONResponse({"error": str(error)}, 400)
-        return {"bearing": bearing, "bearings": meter.bearings}
+        return {"bearing": bearing, "spots": spots()}
+
+    @app.post("/spot")
+    async def post_spot(request: Request):
+        try:
+            data = await body(request)
+            spot = meter.new_spot(*parse_position(data.get("lat"), data.get("lon")))
+        except ValueError as error:
+            return JSONResponse({"error": str(error)}, 400)
+        return {"spot": spot, "spots": spots()}
+
+    @app.get("/map")
+    async def get_map():
+        return await asyncio.to_thread(probability_map, spots())  # numpy work off the event loop
 
     @app.post("/peak/reset")
     async def post_reset():

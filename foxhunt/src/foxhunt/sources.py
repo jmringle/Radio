@@ -19,8 +19,9 @@ class SimSource:
     PERIOD_S = 20.0  # one strong-weak-strong swing
     NOISE_AT_20_DB = 0.005  # sample noise level at 20 dB gain
 
-    def __init__(self, seed: int | None = None, realtime: bool = False):
+    def __init__(self, seed: int | None = None, realtime: bool = False, burst: tuple[float, float] | None = None):
         self.rng = np.random.default_rng(seed)
+        self.burst = burst  # (on s, off s): transmits in bursts like most foxes; None = always on
         self.realtime = realtime  # pace reads to the real sample rate, as the dongle does
         self.settings: Settings | None = None
         self.started = time.monotonic()
@@ -42,6 +43,8 @@ class SimSource:
         # holds about 19 dB less noise, so this reads about 5-45 dB over noise (before the attenuator).
         strength_db = 6 + 20 * math.cos(2 * math.pi * t / self.PERIOD_S) - self.settings.attenuator_db
         amplitude = noise * 10 ** (strength_db / 20)
+        if self.burst and t % sum(self.burst) >= self.burst[0]:
+            amplitude = 0.0  # between transmissions
         k = np.arange(n)
         samples = noise * (self.rng.standard_normal(n) + 1j * self.rng.standard_normal(n)) / math.sqrt(2)
         samples += amplitude * np.exp(2j * np.pi * OFFSET_HZ * k / SAMPLE_RATE)

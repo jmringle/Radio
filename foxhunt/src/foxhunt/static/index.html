@@ -20,6 +20,8 @@
     Overload: the dongle is clipping, so readings are wrong. Add attenuation or lower the gain.
   </div>
 
+  <div id="advice" class="banner advice" role="status" hidden></div>
+
   <section class="readout" aria-label="Signal">
     <p class="big"><output id="over-noise">--</output> <span class="unit">dB over noise</span></p>
     <div class="bar" role="meter" id="bar" aria-label="dB over noise" aria-valuemin="0" aria-valuemax="60" aria-valuenow="0">
@@ -27,6 +29,7 @@
       <div id="bar-peak" hidden></div>
     </div>
     <p class="scale" aria-hidden="true"><span>0</span><span>20</span><span>40</span><span>60</span></p>
+    <p id="schedule" class="muted" role="status"></p>
     <dl>
       <div><dt>Level</dt><dd><output id="level">--</output> dB</dd></div>
       <div><dt>Peak</dt><dd><output id="peak">--</output> dB</dd></div>
@@ -49,6 +52,14 @@
 
   <section aria-labelledby="bearing-title">
     <h2 id="bearing-title">Bearings</h2>
+    <form id="spot-form">
+      <label for="lat">Latitude</label>
+      <input id="lat" name="lat" inputmode="decimal" autocomplete="off" placeholder="optional">
+      <label for="lon">Longitude</label>
+      <input id="lon" name="lon" inputmode="decimal" autocomplete="off" placeholder="optional">
+      <button type="submit">New spot</button>
+    </form>
+    <p id="spot-message" role="status"></p>
     <form id="bearing-form">
       <label for="heading">Heading (°)</label>
       <input id="heading" name="heading" inputmode="decimal" autocomplete="off" required>
@@ -56,7 +67,14 @@
     </form>
     <p id="bearing-message" role="status"></p>
     <ol id="bearings"></ol>
-    <p class="muted">Point the yagi where the signal peaks, type the heading from your compass app and mark it. Use true north if the app offers it (see the README). Bearings start over when the frequency changes.</p>
+    <p class="muted">At each spot, press New spot (with its latitude and longitude for the map: long-press in your phone's map app shows them). Then either point the yagi where the signal peaks and mark that heading, or sweep: mark the level at several headings, every 30-45°, and it fits the bearing and how sure it is. Use true north if your compass app offers it (see the README). Bearings start over when the frequency changes.</p>
+  </section>
+
+  <section aria-labelledby="map-title">
+    <h2 id="map-title">Where the fox probably is</h2>
+    <canvas id="map" width="600" height="600" role="img" aria-label="Map of where the fox probably is; the same information is in the text below it"></canvas>
+    <p class="muted key"><span class="swatch" aria-hidden="true"></span> stronger orange = more likely. Lines: each spot's bearing; dashed = left out as a likely reflection. North is up. Plain grid, no street map (it works offline).</p>
+    <p id="map-text" role="status"></p>
   </section>
 
   <section aria-labelledby="settings-title">
