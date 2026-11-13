@@ -124,6 +124,11 @@
   {% elif message %}
     <h2 id="forecast-title">Forecast</h2>
     <p>{{ message }}</p>
+    {% if use_saved %}
+    <form method="post" action="/start">
+      <button type="submit">{{ use_saved }}</button>
+    </form>
+    {% endif %}
   {% endif %}
 </section>
 

@@ -24,6 +24,7 @@ from ft8_forecast.store import StoreError, open_db
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 LOCAL_NAMES = {"127.0.0.1", "localhost"}
 MAX_NAME = 80  # characters of an uploaded file's name to show
+START_MESSAGE = "Import your latest log below to start, or use the data saved from earlier."
 
 _HEADERS = {
     # No scripts, no outside fonts or images; forms only post back here; no framing (clickjacking).
@@ -54,10 +55,14 @@ def log_failure(log: Path, error: BaseException) -> None:
         pass  # nothing can be done, and this already runs while reporting an error
 
 
-def create_app(db: Path, log_file: Path | None = None) -> Flask:
-    """log_file: for the standalone app, which has no terminal. Without it, errors go to the terminal."""
+def create_app(db: Path, log_file: Path | None = None, prompt_on_start: bool = False) -> Flask:
+    """log_file: for the standalone app, which has no terminal. Without it, errors go to the terminal.
+    prompt_on_start: also the app's (the user's choice, 2026-11-13). Saved data is kept, but each
+    launch asks for a fresh log first, offering the saved data instead; importing or choosing it
+    shows the forecast for the rest of the launch. One flag per server: the app serves one user."""
     app = Flask(__name__)
     app.config["DB"] = db
+    app.config["STARTED"] = not prompt_on_start
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
     @app.before_request
@@ -91,7 +96,12 @@ def create_app(db: Path, log_file: Path | None = None) -> Flask:
             by = cli._rank(request.args.get("rank", "busiest"))
         except argparse.ArgumentTypeError as error:
             raise PageError(400, f"Best bet {error}.") from None
-        return _render(db, hour, by)  # hour None: now; cli.ALL_HOURS: the whole day
+        return _render(db, hour, by, start=not app.config["STARTED"])  # hour None: now; cli.ALL_HOURS: the whole day
+
+    @app.post("/start")
+    def use_saved_data():
+        app.config["STARTED"] = True
+        return _render(db, None, "busiest")
 
     @app.post("/import")
     def upload():
@@ -110,6 +120,7 @@ def create_app(db: Path, log_file: Path | None = None) -> Flask:
             new = save_log(conn, log)
         finally:
             conn.close()
+        app.config["STARTED"] = True
         return _render(db, None, "busiest", imported=[{"name": name, "log": log, "new": new, "error": None}])
 
     @app.post("/import-folder")
@@ -132,6 +143,7 @@ def create_app(db: Path, log_file: Path | None = None) -> Flask:
             raise PageError(400, str(error)) from None
         finally:
             conn.close()
+        app.config["STARTED"] = True
         return _render(db, None, "busiest", imported=[
             {"name": r.path.name[:MAX_NAME], "log": r.log, "new": r.new, "error": r.error} for r in results])
 
@@ -143,7 +155,7 @@ def create_app(db: Path, log_file: Path | None = None) -> Flask:
             raise PageError(400, str(error)) from None
         except OSError as error:
             raise PageError(500, f"Couldn't save settings: {error.strerror}") from None
-        return _render(db, None, "busiest", saved=True)
+        return _render(db, None, "busiest", saved=True, start=not app.config["STARTED"])
 
     @app.errorhandler(PageError)
     def page_error(error):
@@ -178,14 +190,16 @@ def _open(db: Path):
         raise PageError(500, str(error)) from None
 
 
-def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | None = None, saved: bool = False) -> str:
+def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | None = None, saved: bool = False,
+            start: bool = False) -> str:
+    """start: show the app's start screen instead of a forecast from saved data."""
     try:
         my_grid = cli._my_grid()  # the same .env and clock as the CLI
     except ValueError as error:
         raise PageError(500, f"Grid square in Settings: {error}") from None
     now = cli._now()
     hour = now.hour if hour is None else None if hour == cli.ALL_HOURS else hour
-    result, age, message, overview, summary = None, None, None, None, []
+    result, age, message, overview, summary, use_saved = None, None, None, None, [], None
     if not db.is_file():
         message = ("No data yet. Import your WSJT-X ALL.TXT below, or press Import from folder." if cli._log_dir() else
                    "No data yet. Import your WSJT-X ALL.TXT below; add wsjtx_log.adi too for your contacts. "
@@ -202,6 +216,10 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
             conn.close()
         if result is None:
             message = "No ALL.TXT data imported yet: the forecast is built from it. Import it below."
+        elif start:
+            message = START_MESSAGE
+            use_saved = f"Use saved data (through {result.newest:%Y-%m-%d %H:%M} UTC, {cli.data_age(result.newest, now)})"
+            result, overview, summary = None, None, []
         else:
             age = cli.age_days(result.newest, now)
     return render_template(
@@ -215,7 +233,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         thin=result and cli.thin_line(result), overview=overview, overview_key=cli.overview_key(by, now),
         local_short=lambda h: cli.local_short(h, now),
         overview_notes=overview.notes(now) if overview else [],
-        overview_empty=cli.OVERVIEW_EMPTY,
+        overview_empty=cli.OVERVIEW_EMPTY, use_saved=use_saved,
     )
 
 

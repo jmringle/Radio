@@ -799,3 +799,70 @@ def test_the_summary_says_when_answering_cqs_works_better(client, db, five_days)
     conn.close()
     summary = re.search(r'<p class="summary">(.*?)</p>', get(client)[1], re.S).group(1)
     assert "Answering CQs got more replies than calling CQ: 20m (100% vs 0%)" in summary
+
+
+# --- the app's start screen: keep saved data, ask for a fresh log first (2026-11-13) ---
+
+START = "Import your latest log below to start"
+
+
+@pytest.fixture
+def app_client(db, env):
+    """The standalone app's page: it asks for a log before showing saved data."""
+    return web.create_app(db, prompt_on_start=True).test_client()
+
+
+def test_app_asks_for_a_log_before_showing_saved_data(app_client, db, five_days):
+    _, page = get(app_client)
+    assert START in page
+    assert "Use saved data (through 2026-10-25 15:30 UTC, 2 days ago)" in page
+    assert "Best bet" not in page and "24-hour overview" not in page and 'id="hour"' not in page
+    assert db.is_file()  # nothing deleted
+
+
+def test_importing_a_log_starts_the_forecast_for_the_rest_of_the_launch(app_client, five_days):
+    _, page = upload(app_client, RX)
+    assert "Best bet" in page and START not in page
+    _, page = get(app_client, "/?hour=all")
+    assert "Best bet" in page and START not in page
+
+
+def test_using_saved_data_starts_the_forecast(app_client, five_days):
+    response = app_client.post("/start", base_url=BASE, headers={"Origin": BASE})
+    assert response.status_code == 200 and "Best bet" in response.get_data(as_text=True)
+    assert "Best bet" in get(app_client)[1]
+
+
+def test_a_failed_import_keeps_the_start_screen(app_client, five_days):
+    response, _ = upload(app_client, b"not a log\n")
+    assert response.status_code == 400
+    assert START in get(app_client)[1]
+
+
+def test_saving_settings_keeps_the_start_screen(app_client, five_days):
+    response = app_client.post("/settings", base_url=BASE, headers={"Origin": BASE},
+                               data={"my_grid": "JJ00", "log_dir": ""})
+    page = response.get_data(as_text=True)
+    assert START in page and "Best bet" not in page
+
+
+def test_no_saved_data_shows_the_first_run_prompt_without_the_button(app_client):
+    page = get(app_client)[1]
+    assert "No data yet" in page and "Use saved data" not in page
+
+
+def test_use_saved_data_only_from_this_page(app_client, five_days):
+    response = app_client.post("/start", base_url=BASE, headers={"Origin": "http://evil.example.com"})
+    assert response.status_code == 403
+    assert START in get(app_client)[1]
+
+
+def test_serve_has_no_start_screen(client, five_days):
+    page = get(client)[1]
+    assert "Best bet" in page and "Use saved data" not in page
+
+
+def test_importing_from_the_folder_starts_the_forecast(app_client, five_days, logdir):
+    assert START in get(app_client)[1]
+    _, page = import_folder(app_client)
+    assert "Best bet" in page and START not in page

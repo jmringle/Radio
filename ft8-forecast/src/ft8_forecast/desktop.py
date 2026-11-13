@@ -42,7 +42,7 @@ def start_server(folder: Path) -> BaseWSGIServer:
     folder.mkdir(parents=True, exist_ok=True)
     logging.getLogger("werkzeug").setLevel(logging.ERROR)  # one line per request, and no terminal to show it
     cli.ENV_FILE = folder / ".env"
-    app = web.create_app(folder / "ft8cast.sqlite", log_file=folder / LOG_NAME)
+    app = web.create_app(folder / "ft8cast.sqlite", log_file=folder / LOG_NAME, prompt_on_start=True)
     server = make_server("127.0.0.1", 0, app)  # port 0: the OS picks a free one
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

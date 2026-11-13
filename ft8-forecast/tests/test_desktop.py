@@ -2,11 +2,14 @@
 
 import socket
 import urllib.request
+from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 
 from ft8_forecast import cli, desktop, forecast, web
+from ft8_forecast.alltxt import Decode
+from ft8_forecast.store import open_db, save_decodes
 
 LOCAL_ONLY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
@@ -57,6 +60,20 @@ def test_settings_and_data_stay_in_the_app_folder(folder):
     server.shutdown()
     assert cli.ENV_FILE == folder / ".env"
     assert server.app.config["DB"] == folder / "ft8cast.sqlite"
+
+
+def test_the_app_asks_for_a_log_before_showing_saved_data(folder):
+    conn = open_db(folder / "ft8cast.sqlite")  # saved by an earlier launch
+    save_decodes(conn, [Decode(datetime(2026, 10, 25 - n, 15, 0, tzinfo=UTC), 14_074_000, False, -5, "N0CALL", None,
+                               "CQ N0CALL") for n in range(5)])
+    conn.close()
+    server = desktop.start_server(folder)
+    try:
+        page = fetch(desktop.url(server))[1]
+        assert "Import your latest log below to start" in page and "Use saved data" in page
+    finally:
+        server.shutdown()
+    assert (folder / "ft8cast.sqlite").is_file()  # kept
 
 
 def test_two_copies_can_run_at_once(folder):
