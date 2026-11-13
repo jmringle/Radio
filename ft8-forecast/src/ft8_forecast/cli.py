@@ -25,6 +25,7 @@ STALE_NOTE = "Note: this data is over a week old; copy a fresh ALL.TXT over and 
 MAX_LOG_DIR = 1000  # characters
 SHOW_PROBLEMS = 10
 ALL_HOURS = "all"  # --hour all / ?hour=all: the whole day, not one hour
+NEXT_HOURS = 2  # the "Later" line under the best bet: now +1 and +2
 
 
 # Under the table, here and on the web page: what the less obvious columns mean.
@@ -101,14 +102,16 @@ def summary_lines(result: forecast.Forecast, by: str, hours: list[forecast.Forec
                   now: datetime) -> list[str]:
     """Plain-English lines under the best bet, here and on the web page: the runner-up, when the
     best band peaks (from `hours`, compute() for 0-23; skipped for all hours) and the farthest
-    contact, then bands busier or quieter lately (forecast.trend). Nothing without a best bet."""
+    contact, then bands busier or quieter lately (forecast.trend). Only the Later line
+    without a best bet: "nothing now, but 40m at 14 UTC" is when it helps most."""
+    upcoming = next_hours_line(result, by, hours, now)
     best = forecast.best_bet(result.bands, by)
     if best is None:
-        return []
+        return upcoming
     def score(band: forecast.BandStats) -> float:
         return band.stations_per_day if by == "busiest" else band.contacts
 
-    lines = []
+    lines = upcoming
     ranked = forecast.rank(result.bands, by)
     if len(ranked) > 1 and score(ranked[1]):
         lines.append(f"Next: {ranked[1].band} - {_why(ranked[1], by)}")
@@ -135,6 +138,22 @@ def summary_lines(result: forecast.Forecast, by: str, hours: list[forecast.Forec
         if changed:
             lines.append(f"{word.capitalize()} in the last {forecast.TREND_DAYS} days: {', '.join(changed)}")
     return lines + opener_lines(ranked)
+
+
+def next_hours_line(result: forecast.Forecast, by: str, hours: list[forecast.Forecast] | None,
+                    now: datetime) -> list[str]:
+    """The best bet for the next NEXT_HOURS hours, only when this forecast is for the hour it is
+    now. `hours` is compute() for 0-23, so 23 UTC wraps to 00 and 01."""
+    if result.hour != now.hour or not hours:
+        return []
+    picks = []
+    for n in range(1, NEXT_HOURS + 1):
+        hour = (now.hour + n) % 24
+        pick = forecast.best_bet(hours[hour].bands, by)
+        picks.append((hour, pick and pick.band))
+    if not any(band for _, band in picks):
+        return []
+    return [f"Later: {', '.join(f'{_utc_and_local(hour, now)} {band or "none"}' for hour, band in picks)}"]
 
 
 def opener_lines(bands: list[forecast.BandStats]) -> list[str]:

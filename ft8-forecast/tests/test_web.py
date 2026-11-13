@@ -110,6 +110,18 @@ def test_summary_lines_match_the_terminal(client, db, five_days, env, capsys):
     assert '<p class="summary">Next: 20m - about 1 station on a typical day<br>This is 40m&#39;s busiest hour</p>' in page
 
 
+def test_next_hours_match_the_terminal(client, db, five_days, capsys):
+    conn = open_db(db)  # 40m at 16 UTC; 17 UTC has nothing
+    save_decodes(conn, [Decode(datetime(2026, 10, 25 - n, 16, 0, tzinfo=UTC), 7_074_000, False, -5, "N1CALL", None,
+                               "CQ N1CALL") for n in range(5)])
+    conn.close()
+    _, page = get(client)
+    main(["forecast", "--db", str(db)])
+    line = "Later: 16 UTC (12 pm EDT) 40m, 17 UTC (1 pm EDT) none"
+    assert line in capsys.readouterr().out.splitlines()
+    assert f'<p class="summary">{line}<br>' in page
+
+
 def test_answered_table_shows_cqs_and_calls_apart(client, db, five_days):
     conn = open_db(db)
     cq = datetime(2026, 10, 24, 15, 10, tzinfo=UTC)

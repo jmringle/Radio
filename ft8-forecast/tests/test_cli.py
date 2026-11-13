@@ -534,6 +534,43 @@ def test_no_summary_without_a_best_bet(summary_db, db, capsys):
     assert lines[2].startswith("Best bet (busiest): none") and lines[3] == ""
 
 
+def test_next_hours_under_the_best_bet_even_when_this_hour_has_none(summary_db, db, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_now", lambda: NOW.replace(hour=13))
+    lines = forecast_run(capsys, db)[1].splitlines()
+    assert lines[2].startswith("Best bet (busiest): none")
+    assert lines[3:5] == ["Later: 14 UTC (10 am EDT) 40m, 15 UTC (11 am EDT) 40m", ""]
+
+
+def test_next_hours_says_none_for_an_hour_without_a_pick(summary_db, db, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_now", lambda: NOW.replace(hour=14))
+    lines = unwrap(forecast_run(capsys, db)[1])
+    assert lines[3] == "Later: 15 UTC (11 am EDT) 40m, 16 UTC (12 pm EDT) none"
+    # At 15 UTC neither 16 nor 17 has a pick, so there's no line: test_summary_under_the_best_bet.
+
+
+@pytest.mark.parametrize("hour", ["14", "all"])
+def test_next_hours_only_for_the_current_hour(summary_db, db, capsys, monkeypatch, hour):
+    monkeypatch.setattr(cli, "_now", lambda: NOW.replace(hour=13))  # 14 and 15 would have picks
+    assert "Later:" not in forecast_run(capsys, db, "--hour", hour)[1]
+
+
+def test_next_hours_follow_the_ranking(summary_db, db, capsys, monkeypatch):
+    monkeypatch.setattr(cli, "_now", lambda: NOW.replace(hour=13))
+    # By contacts only 15 UTC has a pick: 14 UTC has 40m stations but no contacts.
+    assert "Later: 14 UTC (10 am EDT) none, 15 UTC (11 am EDT) 40m" in unwrap(
+        forecast_run(capsys, db, "--rank", "contacts")[1])
+
+
+def test_next_hours_wraps_past_midnight(setup, db, capsys, monkeypatch):
+    conn = open_db(db)
+    save_decodes(conn, [Decode(datetime(2026, 10, 26 - n, 0, 0, tzinfo=UTC), 7_074_000, False, -5, "N1CALL",
+                               None, "CQ N1CALL") for n in range(5)])
+    conn.close()
+    monkeypatch.setattr(cli, "_now", lambda: NOW.replace(hour=23))
+    lines = unwrap(forecast_run(capsys, db)[1])
+    assert "Later: 00 UTC (8 pm EDT) 40m, 01 UTC (9 pm EDT) none" in lines
+
+
 def test_rank_contacts_without_contacts_names_no_band(setup, db, capsys):
     out = forecast_run(capsys, db, "--rank", "contacts")[1]
     assert "Best bet (most contacts): none - no contacts at this hour in these 30 days" in out
