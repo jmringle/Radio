@@ -8,6 +8,6 @@ pytest==9.2.0
 httpx==0.28.1
 pip-audit==2.10.1
 # Browser tests (tests/test_browser.py). After installing: playwright install chromium
-playwright==1.64.1
+playwright==1.65.0
 pytest-playwright==0.10.0
 -e .
