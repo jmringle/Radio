@@ -172,3 +172,86 @@ def test_a_file_name_is_shown_as_text_never_html(page, server):
     page.click("form.upload button")
     expect(page.get_by_role("status")).to_contain_text(name)
     assert page.evaluate("window.pwned") is None and page.locator("#busy img").count() == 0
+
+
+# --- heard map zoom (static/map.js, 2026-11-13) ---
+
+WORLD = [0, 10, 360, 150]
+
+
+def box(page):
+    return [float(n) for n in page.locator("svg.map").get_attribute("viewBox").split()]
+
+
+def map_point(page, x, y):
+    """The map coordinates (degrees) under a screen point."""
+    return page.eval_on_selector("svg.map", """(svg, [x, y]) => {
+        const p = new DOMPoint(x, y).matrixTransform(svg.getScreenCTM().inverse());
+        return [p.x, p.y]; }""", [x, y])
+
+
+@pytest.fixture
+def map_page(page, server):
+    errors = []
+    page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
+    page.set_viewport_size({"width": 1000, "height": 900})
+    page.goto(server)
+    page.locator("svg.map").scroll_into_view_if_needed()
+    yield page
+    assert errors == []  # a CSP refusal would show here
+
+
+def test_zoom_buttons_appear_and_the_map_opens_at_the_fitted_view(map_page):
+    expect(map_page.locator(".zoom")).to_be_visible()
+    svg = map_page.locator("svg.map")
+    assert svg.get_attribute("viewBox") == svg.get_attribute("data-fit")
+
+
+def test_plus_and_minus_zoom_about_the_middle_and_stop_at_their_limits(map_page):
+    x, y, w, h = box(map_page)
+    map_page.get_by_role("button", name="Zoom in").click()
+    x2, y2, w2, h2 = box(map_page)
+    assert w2 == pytest.approx(w / 1.5) and (x2 + w2 / 2, y2 + h2 / 2) == pytest.approx((x + w / 2, y + h / 2))
+    for _ in range(20):
+        map_page.get_by_role("button", name="Zoom in").click()
+    assert box(map_page)[2] == pytest.approx(6)  # about 6 degrees: closer shows nothing new
+    for _ in range(20):
+        map_page.get_by_role("button", name="Zoom out").click()
+    assert box(map_page) == WORLD
+
+
+def test_world_and_fit_buttons(map_page):
+    fit = map_page.locator("svg.map").get_attribute("data-fit")
+    map_page.get_by_role("button", name="World").click()
+    assert box(map_page) == WORLD
+    map_page.get_by_role("button", name="Fit").click()
+    expect(map_page.locator("svg.map")).to_have_attribute("viewBox", fit)
+
+
+def test_wheel_zooms_toward_the_pointer(map_page):
+    r = map_page.locator("svg.map").bounding_box()
+    px, py = r["x"] + r["width"] * 0.25, r["y"] + r["height"] * 0.6
+    before = map_point(map_page, px, py)
+    width = box(map_page)[2]
+    map_page.mouse.move(px, py)
+    map_page.mouse.wheel(0, -200)
+    expect(map_page.locator("svg.map")).not_to_have_attribute("viewBox", map_page.locator("svg.map").get_attribute("data-fit"))
+    assert box(map_page)[2] < width
+    assert map_point(map_page, px, py) == pytest.approx(before, abs=0.05)  # the spot under the pointer stays put
+
+
+def test_dragging_pans_with_the_pointer_and_stops_at_the_edge(map_page):
+    map_page.get_by_role("button", name="Zoom in").click()
+    r = map_page.locator("svg.map").bounding_box()
+    cx, cy = r["x"] + r["width"] / 2, r["y"] + r["height"] / 2
+    grabbed = map_point(map_page, cx, cy)
+    map_page.mouse.move(cx, cy)
+    map_page.mouse.down()
+    map_page.mouse.move(cx + 60, cy + 20, steps=5)
+    map_page.mouse.up()
+    assert map_point(map_page, cx + 60, cy + 20) == pytest.approx(grabbed, abs=0.05)  # the map moved with it
+    map_page.mouse.move(cx, cy)
+    map_page.mouse.down()
+    map_page.mouse.move(cx + 5000, cy, steps=5)  # far past the map's west edge
+    map_page.mouse.up()
+    assert box(map_page)[0] == 0

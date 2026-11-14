@@ -6,6 +6,7 @@
 <title>{{ tab_title or "FT8 forecast" }}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <script src="{{ url_for('static', filename='busy.js') }}" defer></script>
+<script src="{{ url_for('static', filename='map.js') }}" defer></script>
 </head>
 <body>
 <header>
@@ -140,7 +141,13 @@
   <h2 id="map-title">Heard map{% if heard_map.band %}: {{ heard_map.band }}{% endif %}</h2>
   <p class="bands">{% for name in map_bands %}<a href="/?hour={{ all_hours if hour is none else hour }}&amp;rank={{ rank }}&amp;band={{ name }}"{% if name == heard_map.band %} aria-current="true"{% endif %}>{{ name }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
   {% if heard_map.rects %}
-  <svg class="map" viewBox="0 10 360 140" role="img" aria-labelledby="map-title">
+  <div class="zoom" hidden>
+    <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
+    <button type="button" data-zoom="out" aria-label="Zoom out">−</button>
+    <button type="button" data-zoom="fit">Fit</button>
+    <button type="button" data-zoom="world">World</button>
+  </div>
+  <svg class="map" viewBox="{{ heard_map.view }}" data-fit="{{ heard_map.view }}" data-world="{{ map_world }}" role="img" aria-labelledby="map-title">
     {% include "land.svg" %}
     {% for x, y, shade in heard_map.rects %}<rect class="{{ shade }}" x="{{ "%g" % x }}" y="{{ "%g" % y }}" width="2" height="1"/>{% endfor %}
     {% if heard_map.home %}<rect class="home" x="{{ "%g" % heard_map.home[0] }}" y="{{ "%g" % heard_map.home[1] }}" width="2" height="1"/>{% endif %}

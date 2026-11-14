@@ -3,8 +3,8 @@
 Only this machine can reach it: `ft8cast serve` binds to 127.0.0.1. Any site open in
 your browser can still send requests to localhost, so every request must name
 this server in its Host header (stops DNS rebinding) and every upload must come
-from this page's own Origin (stops cross-site request forgery). The page's one script
-(static/busy.js) is served from here, and nothing is loaded from other sites (the heard
+from this page's own Origin (stops cross-site request forgery). The page's two scripts
+(static/busy.js, static/map.js) are served from here, and nothing is loaded from other sites (the heard
 map's outline is built in), so it makes no web calls either.
 Jinja escapes everything inserted into the page, including text from your files.
 """
@@ -29,11 +29,16 @@ MAX_NAME = 80  # characters of an uploaded file's name to show
 MAP_SHADES = (1, 2, 4, 10)
 MAP_KEY = "Lighter to darker: 1, 2-3, 4-9, 10 or more stations heard in a square on 2 or more days."
 MAP_BANDS = [name for name, _, _ in forecast.BANDS]
+# Map view boxes (degrees, x = longitude + 180, y = 90 - latitude): the whole map, 80 N to 70 S;
+# the opening view fits the squares with a margin, at the map's shape, never closer than MAP_MIN_WIDTH.
+MAP_WORLD = (0, 10, 360, 150)
+MAP_MARGIN = (4, 2)
+MAP_MIN_WIDTH = 48
 START_MESSAGE = "Import your latest log below to start, or use the data saved from earlier."
 
 _HEADERS = {
-    # Scripts and styles only from this server, never inline (the one script, static/busy.js, only
-    # says an import is working); no outside fonts or images; forms only post back here; no framing.
+    # Scripts and styles only from this server, never inline (static/busy.js only says an import is
+    # working; static/map.js only zooms the heard map); no outside fonts or images; forms only post back here; no framing.
     "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; form-action 'self'; "
                                "frame-ancestors 'none'; base-uri 'none'",
     "X-Content-Type-Options": "nosniff",
@@ -239,7 +244,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         local_short=lambda h: cli.local_short(h, now),
         overview_notes=overview.notes(now) if overview else [],
         overview_empty=cli.OVERVIEW_EMPTY, use_saved=use_saved,
-        heard_map=result and _heard_map(result, by, band, my_grid), map_bands=MAP_BANDS, map_key=MAP_KEY, band=band,
+        heard_map=result and _heard_map(result, by, band, my_grid), map_bands=MAP_BANDS, map_key=MAP_KEY, map_world=" ".join(map(str, MAP_WORLD)), band=band,
     )
 
 
@@ -254,8 +259,10 @@ def _heard_map(result: forecast.Forecast, by: str, band: str | None, my_grid: st
     for grid, stations in sorted(shown.squares.items()) if shown else []:
         shade = sum(stations >= step for step in MAP_SHADES)
         rects.append((*_corner(grid), f"heard{shade}"))
+    home = my_grid and _corner(my_grid)
     when = "at any hour" if result.hour is None else "at this hour"
-    return {"band": shown and shown.band, "rects": rects, "home": my_grid and _corner(my_grid),
+    view = _fit([(x, y) for x, y, _ in rects] + ([home] if home else []))
+    return {"band": shown and shown.band, "rects": rects, "home": home, "view": " ".join(f"{n:g}" for n in view),
             "empty": f"No grid squares heard on {shown.band if shown else 'any band'} {when} on 2 or more days."}
 
 
@@ -279,6 +286,23 @@ def _results(db: Path, hour: int | None, my_grid: str | None, now: datetime) -> 
     finally:
         conn.close()
     return cache["hours"], cache["all"] if hour is None else cache["hours"][hour]
+
+
+def _fit(corners: list[tuple[float, float]]) -> tuple[float, float, float, float]:
+    """The view box around these squares' top-left corners: margin added, widened to the map's
+    shape and MAP_MIN_WIDTH, then moved back inside the map (the whole map if it's that big)."""
+    left, top, world_w, world_h = MAP_WORLD
+    if not corners:
+        return MAP_WORLD
+    x0, x1 = min(x for x, _ in corners) - MAP_MARGIN[0], max(x for x, _ in corners) + 2 + MAP_MARGIN[0]
+    y0, y1 = min(y for _, y in corners) - MAP_MARGIN[1], max(y for _, y in corners) + 1 + MAP_MARGIN[1]
+    width = max(x1 - x0, (y1 - y0) * world_w / world_h, MAP_MIN_WIDTH)
+    if width >= world_w:
+        return MAP_WORLD
+    height = width * world_h / world_w
+    x = min(max((x0 + x1 - width) / 2, left), left + world_w - width)
+    y = min(max((y0 + y1 - height) / 2, top), top + world_h - height)
+    return x, y, width, height
 
 
 def _corner(grid: str) -> tuple[float, float]:

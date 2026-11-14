@@ -630,7 +630,7 @@ def test_security_headers_on_every_response(client, path):
     headers = client.get(path, base_url=BASE).headers
     csp = headers["Content-Security-Policy"]
     assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp and "form-action 'self'" in csp
-    # Only scripts this server sends (static/busy.js), never inline ones an injection could add.
+    # Only scripts this server sends (static/busy.js, static/map.js), never inline ones an injection could add.
     assert "script-src 'self'" in csp and "unsafe-inline" not in csp and "unsafe-eval" not in csp
     assert headers["X-Content-Type-Options"] == "nosniff"
     # Not "no-referrer": under it, browsers send "Origin: null" on form posts (Fetch standard,
@@ -651,8 +651,9 @@ def test_page_loads_nothing_from_other_sites(client, five_days):
     _, page = get(client)
     links = re.findall(r'(?:href|src|action)="([^"]*)"', page)
     assert links and all(link.startswith("/") and not link.startswith("//") for link in links)
-    # One script, from this server; nothing inline.
-    assert re.findall(r"<script[^>]*>", page) == ['<script src="/static/busy.js" defer>']
+    # Two scripts (the Importing message, map zoom), from this server; nothing inline.
+    assert re.findall(r"<script[^>]*>", page) == ['<script src="/static/busy.js" defer>',
+                                                   '<script src="/static/map.js" defer>']
 
 
 def test_page_never_uses_the_network(client, five_days, monkeypatch):
@@ -770,6 +771,40 @@ def test_map_without_a_best_bet_or_any_square_names_no_band(client, db, five_day
     page = get(client, query_string={"hour": "9"})[1]  # nothing at 09 UTC on any band
     assert "Heard map</h2>" in page
     assert "No grid squares heard on any band at this hour on 2 or more days." in page
+
+
+def view(page):
+    return re.search(r'<svg class="map" viewBox="([^"]+)"', page).group(1)
+
+
+@pytest.mark.parametrize("grids, box", [
+    (["FN31"], "83 38.5 48 20"),  # one square: the closest fit, 48 x 20 degrees around it
+    (["FN31", "JO62"], "102 23 96 40"),  # US and Europe: wide enough for both, plus margin
+    (["AL00"], "0 59.5 48 20"),  # at the date line: pushed back inside the map, not past its edge
+])
+def test_map_opens_fitted_to_the_heard_squares(client, db, five_days, grids, box):
+    for grid in grids:
+        heard(db, grid=grid)
+    assert view(get(client)[1]) == box
+
+
+def test_map_fit_includes_your_square(client, db, five_days, env):
+    heard(db, grid="JO62")
+    env.write_text("MY_GRID=FN31\n")
+    assert view(get(client)[1]) == "102 23 96 40"
+
+
+def test_map_fit_never_goes_past_the_whole_world(client, db, five_days):
+    for grid in ["AL00", "RL00", "FA00", "FQ00"]:  # far west, far east, far south, far north
+        heard(db, grid=grid)
+    assert view(get(client)[1]) == "0 10 360 150"
+
+
+def test_map_zoom_buttons_wait_for_the_script(client, db, five_days):
+    heard(db)
+    page = get(client)[1]
+    assert re.search(r'<div class="zoom" hidden>\s*<button type="button" data-zoom="in"', page)
+    assert '<script src="/static/map.js" defer></script>' in page
 
 # --- ft8cast serve ---
 

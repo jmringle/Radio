@@ -101,3 +101,9 @@ table.overview td.local { color: var(--muted); font-family: inherit; font-size: 
 .map .home { fill: none; stroke: var(--ink); stroke-width: 2px; }
 .bands a { color: inherit; }
 .bands a[aria-current] { color: var(--accent); font-weight: 700; }
+/* Dragging and pinching move the map, not the page. */
+.map { touch-action: none; cursor: grab; }
+.map:active { cursor: grabbing; }
+.zoom { display: flex; gap: 0.35rem; margin-top: 0.5rem; }
+.zoom[hidden] { display: none; }
+.zoom button { min-width: 2.2rem; padding: 0.2rem 0.6rem; }

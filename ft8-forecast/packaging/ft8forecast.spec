@@ -13,7 +13,8 @@ analysis = Analysis(
     datas=[(f"{source}/templates/page.html", "ft8_forecast/templates"),
            (f"{source}/templates/land.svg", "ft8_forecast/templates"),
            (f"{source}/static/style.css", "ft8_forecast/static"),
-           (f"{source}/static/busy.js", "ft8_forecast/static")],
+           (f"{source}/static/busy.js", "ft8_forecast/static"),
+           (f"{source}/static/map.js", "ft8_forecast/static")],
     hiddenimports=["ft8_forecast.desktop"],
     excludes=["pytest", "playwright", "pip_audit", "PyInstaller"],
 )
