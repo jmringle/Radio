@@ -2,7 +2,7 @@
 
 Checks a radio's channel list before you load it, and catches the mistakes a typo makes: a channel that would transmit outside the amateur bands, a repeater offset that doesn't match the band plan, a repeater channel with no tone, and duplicate channels. It reads a CHIRP CSV export (CHIRP supports both the BTECH UV-PRO and the Baofeng DM-32UV; checked on CHIRP's supported-radios list 2026-11-13). It only reads the file: it never talks to or programs a radio, and it makes no network calls.
 
-**Status:** the reader is built: `read_channels()` turns a CHIRP CSV into channels (receive and transmit frequency, the tone each sends and listens for, mode) and reports every bad row with its line number. It reads CHIRP's own sample export (`tests/images/Generic_CSV.csv` in CHIRP's repo, 95 channels) with no problems; that file is GPL-3.0, so it isn't copied here. The checks and the command are next (see **Next**).
+**Status:** the reader is built: `read_channels()` turns a CHIRP CSV into channels (receive and transmit frequency, the tone each sends and listens for, mode) and reports every bad row with its line number. It reads CHIRP's own sample export (`tests/images/Generic_CSV.csv` in CHIRP's repo, 95 channels) with no problems; that file is GPL-3.0, so it isn't copied here. The checks are built too: `check()` returns the errors, warnings and notes below, in file order. On CHIRP's sample (a scanner-style list) it finds 67 channels that would transmit outside the amateur bands (airband, public safety; Duplex left blank instead of `off`), 7 repeater channels with no tone, 5 repeater outputs outside the band-plan segments and 3 duplicates. The command is next (see **Next**).
 
 ## Setup
 
@@ -40,7 +40,7 @@ The same command runs in GitHub Actions on every push that touches this folder (
 
 `codeplug-check FILE.csv` (planned) prints problems grouped as Errors, Warnings and Notes, each naming the CSV line, the channel's Location and Name.
 
-- **Error: transmits outside the amateur bands.** The transmit frequency (Frequency, adjusted by Duplex/Offset) is outside every band above. Channels with Duplex `off` never transmit, so weather, scanner and GMRS-listening channels are fine as receive-only. *(Built: `transmit_hz`, `band_for`.)*
+- **Error: transmits outside the amateur bands.** The transmit frequency (Frequency, adjusted by Duplex/Offset) is outside every band above; the message says to set Duplex to `off`. Channels with Duplex `off` never transmit, so weather, scanner and GMRS-listening channels are fine as receive-only. Such a channel gets only this error, no offset advice on top.
 - **Warning: repeater offset doesn't match the band plan.** 2 m: offset other than 600 kHz, or the wrong direction for the output's segment. 70 cm: split other than 5 MHz (either direction). A repeater channel whose output isn't in a band-plan output segment is a Note ("check with the local coordinator"), since plans vary locally. Other bands: no offset check.
 - **Warning: repeater channel with no transmit tone.** Duplex `+`, `-` or `split` and no tone sent on transmit: Tone blank, `TSQL-R` or `DTCS-R` (tone on receive only), or a CrossMode that sends nothing (`->Tone`, `->DTCS`, `->`). Most repeaters need a tone to open. Only for FM modes (`FM`, `NFM`, `WFM`); DMR and other digital modes don't use CTCSS/DCS.
 - **Note: duplicates.** Two or more channels with the same receive and transmit frequency, tones and mode (names may differ); or one Name used for different settings. Blank names are ignored.
@@ -61,7 +61,7 @@ Personal tool, local files, no network, no radio connection. Channel lists are o
 ## Next
 
 1. ~~Read a whole CHIRP CSV~~ (done 2026-11-13). Tone fields are read only when the row's Tone mode uses them: CHIRP fills unused ones with defaults (CrossMode is `Tone->Tone` on every row of its sample). Offset counts only for Duplex `+`, `-`, `split`: CHIRP keeps a simplex channel's old offset.
-2. The checks above, then the `codeplug-check` command, with control characters stripped from output (T2).
+2. ~~The checks~~ (done 2026-11-13, `checks.py`). Then the `codeplug-check` command, with control characters stripped from output (T2).
 3. Later: the DM-32UV's own CPS export for DMR channels (color code, timeslot, talkgroup), once there's a sample file to read.
 
 ## Security notes
