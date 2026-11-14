@@ -1,0 +1,3 @@
+# Your real channel exports (frequencies, repeater names): local only, like ft8-forecast's data/.
+data/*
+!data/.gitkeep

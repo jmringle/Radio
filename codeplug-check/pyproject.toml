@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=84"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codeplug-check"
+version = "0.1.0"
+description = "Checks a CHIRP channel list (CSV) for channels that transmit outside the amateur bands, odd repeater offsets, missing tones and duplicates"
+requires-python = ">=3.12"
+# No runtime dependencies: the standard library's csv module reads CHIRP files.
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

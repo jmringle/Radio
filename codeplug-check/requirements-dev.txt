@@ -1,0 +1,4 @@
+# Exact versions, each 2+ weeks old when chosen (checked on PyPI 2026-11-13).
+pytest==9.2.0
+pip-audit==2.10.1
+-e .
