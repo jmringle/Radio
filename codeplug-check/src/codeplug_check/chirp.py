@@ -7,6 +7,7 @@ frequency itself) or "off" (transmit disabled).
 """
 
 import csv
+import io
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,7 +69,9 @@ def read_channels(path: Path) -> tuple[list[Channel], list[tuple[int, str]]]:
     except UnicodeDecodeError:
         raise ReadError(f"{path.name} isn't UTF-8 text; export it from CHIRP as CSV") from None
 
-    reader = csv.reader(text.splitlines(), strict=True)
+    # Rows end only at CR/LF, as CHIRP reads them (newline=""): str.splitlines() would also
+    # split on U+2028, form feeds and others inside a channel name.
+    reader = csv.reader(io.StringIO(text, newline=""), strict=True)
     channels, problems, header = [], [], None
     try:
         for fields in reader:

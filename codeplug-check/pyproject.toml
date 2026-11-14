@@ -10,6 +10,9 @@ requires-python = ">=3.12"
 # No runtime dependencies: the standard library's csv module reads CHIRP files.
 dependencies = []
 
+[project.scripts]
+codeplug-check = "codeplug_check.cli:main"
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]

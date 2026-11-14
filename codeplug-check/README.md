@@ -2,7 +2,7 @@
 
 Checks a radio's channel list before you load it, and catches the mistakes a typo makes: a channel that would transmit outside the amateur bands, a repeater offset that doesn't match the band plan, a repeater channel with no tone, and duplicate channels. It reads a CHIRP CSV export (CHIRP supports both the BTECH UV-PRO and the Baofeng DM-32UV; checked on CHIRP's supported-radios list 2026-11-13). It only reads the file: it never talks to or programs a radio, and it makes no network calls.
 
-**Status:** the reader is built: `read_channels()` turns a CHIRP CSV into channels (receive and transmit frequency, the tone each sends and listens for, mode) and reports every bad row with its line number. It reads CHIRP's own sample export (`tests/images/Generic_CSV.csv` in CHIRP's repo, 95 channels) with no problems; that file is GPL-3.0, so it isn't copied here. The checks are built too: `check()` returns the errors, warnings and notes below, in file order. On CHIRP's sample (a scanner-style list) it finds 67 channels that would transmit outside the amateur bands (airband, public safety; Duplex left blank instead of `off`), 7 repeater channels with no tone, 5 repeater outputs outside the band-plan segments and 3 duplicates. The command is next (see **Next**).
+**Status:** v1 works: the command, the reader and the checks are built and tested. It reads CHIRP's own sample export (`tests/images/Generic_CSV.csv` in CHIRP's repo, 95 channels; GPL-3.0, so not copied here) with no read problems, and finds 67 channels that would transmit outside the amateur bands (weather, airband, public safety; Duplex left blank instead of `off`), 7 repeater channels with no tone, 5 repeater outputs outside the band-plan segments and 3 duplicates. Not yet run on a real UV-PRO or DM-32UV export.
 
 ## Setup
 
@@ -14,6 +14,27 @@ python3 -m venv .venv
 .venv/bin/python -m pip install pip==26.2.2   # venv starts with the pip Python shipped with; pip-audit flags old ones
 .venv/bin/pip install -r requirements-dev.txt
 ```
+
+## Usage
+
+```
+.venv/bin/codeplug-check data/channels.csv
+```
+
+```
+channels.csv: 3 channels checked
+
+Errors (1)
+  line 3, location 2 "GMRS 1": This channel transmits on 462.562 MHz, outside the amateur bands (47 CFR 97.301); set Duplex to off for receive-only
+
+Warnings (1)
+  line 2, location 1 "RPT": Offset +0.600 MHz; the band plan has -0.600 MHz for outputs 146.610-146.970
+
+Notes (1)
+  line 4, location 3 "RPT": Same frequencies, tones and mode as location 1 (line 2)
+```
+
+"line" is the line in the CSV file (open it in a text editor or spreadsheet to find it); "location" is CHIRP's memory number. Exit codes: `0` no errors (warnings and notes don't fail), `1` at least one error, `2` the file can't be checked (missing, over 5 MB, not UTF-8, not a CHIRP export) or a usage error.
 
 ## Your data
 
@@ -38,7 +59,7 @@ The same command runs in GitHub Actions on every push that touches this folder (
 
 ### Acceptance criteria
 
-`codeplug-check FILE.csv` (planned) prints problems grouped as Errors, Warnings and Notes, each naming the CSV line, the channel's Location and Name.
+`codeplug-check FILE.csv` prints problems grouped as Errors, Warnings and Notes, each naming the CSV line, the channel's Location and Name.
 
 - **Error: transmits outside the amateur bands.** The transmit frequency (Frequency, adjusted by Duplex/Offset) is outside every band above; the message says to set Duplex to `off`. Channels with Duplex `off` never transmit, so weather, scanner and GMRS-listening channels are fine as receive-only. Such a channel gets only this error, no offset advice on top.
 - **Warning: repeater offset doesn't match the band plan.** 2 m: offset other than 600 kHz, or the wrong direction for the output's segment. 70 cm: split other than 5 MHz (either direction). A repeater channel whose output isn't in a band-plan output segment is a Note ("check with the local coordinator"), since plans vary locally. Other bands: no offset check.
@@ -54,15 +75,16 @@ Personal tool, local files, no network, no radio connection. Channel lists are o
 | ID | Threat | OWASP 2025 | Mitigation | Test |
 |---|---|---|---|---|
 | T1 | A crafted or damaged CSV crashes the check or makes it skip rows, so a bad channel passes as fine | A10 Mishandling of Exceptional Conditions | Strict field parsing (ASCII digits only, at most 6 decimals, known Duplex values); bad rows reported, never skipped silently; 5 MB cap | `test_parse_mhz_refuses_anything_else`, `test_unknown_duplex_is_refused`, `test_a_bad_row_is_reported_with_its_line_and_the_rest_still_read`, `test_a_file_over_5_mb`, `test_broken_quoting_names_its_line` |
-| T2 | A channel name with terminal control codes (ANSI escapes) rewrites or hides lines in your terminal when printed | A05 Injection | Control characters replaced before printing (planned with the command) | planned |
+| T2 | A channel name with terminal control codes (ANSI escapes), a right-to-left override (U+202E) or a Unicode line separator rewrites, reorders or fakes lines in your terminal when printed | A05 Injection | Every control, format and line/paragraph-separator character printed from the file becomes U+FFFD (visible); names cut to 40 characters; rows end only at CR/LF, as CHIRP reads them | `test_control_characters_in_names_never_reach_the_terminal`, `test_only_carriage_return_and_line_feed_end_a_row` |
 | T3 | Your real channel list gets committed | none (privacy mistake) | `data/` gitignored | `git check-ignore` |
 | T4 | A compromised dependency | A03 Software Supply Chain Failures | No runtime dependencies; dev tools pinned (2-week rule); `pip-audit` and Dependabot | CI |
 
 ## Next
 
 1. ~~Read a whole CHIRP CSV~~ (done 2026-11-13). Tone fields are read only when the row's Tone mode uses them: CHIRP fills unused ones with defaults (CrossMode is `Tone->Tone` on every row of its sample). Offset counts only for Duplex `+`, `-`, `split`: CHIRP keeps a simplex channel's old offset.
-2. ~~The checks~~ (done 2026-11-13, `checks.py`). Then the `codeplug-check` command, with control characters stripped from output (T2).
-3. Later: the DM-32UV's own CPS export for DMR channels (color code, timeslot, talkgroup), once there's a sample file to read.
+2. ~~The checks~~ (done 2026-11-13, `checks.py`). ~~The command~~ (done 2026-11-13, `cli.py`).
+3. Run it on your real UV-PRO export; adjust anything a real file shows.
+4. Later: the DM-32UV's own CPS export for DMR channels (color code, timeslot, talkgroup), once there's a sample file to read.
 
 ## Security notes
 

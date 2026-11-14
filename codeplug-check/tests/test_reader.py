@@ -123,3 +123,18 @@ def test_an_empty_file(tmp_path):
 def test_broken_quoting_names_its_line(csv_file):
     with pytest.raises(ReadError, match="line 3: not readable as CSV"):
         read_channels(csv_file(row(), '2,"OPEN QUOTE,146.52'))
+
+
+@pytest.mark.parametrize("code", [0x2028, 0x2029, 0x85, 0x0B, 0x0C, 0x1C, 0x1D, 0x1E])
+def test_only_carriage_return_and_line_feed_end_a_row(csv_file, code):
+    # str.splitlines() also breaks on these; CSV doesn't (CHIRP opens files with newline="").
+    name = "A" + chr(code) + "B"
+    channels, problems = read_channels(csv_file(row(name=name), row(loc=2)))
+    assert problems == [] and [(c.line, c.name) for c in channels] == [(2, name), (3, "RPT")]
+
+
+def test_windows_line_endings(tmp_path):
+    path = tmp_path / "crlf.csv"
+    path.write_bytes((HEADER + "\r\n" + row() + "\r\n").encode())
+    channels, problems = read_channels(path)
+    assert problems == [] and channels[0].line == 2
