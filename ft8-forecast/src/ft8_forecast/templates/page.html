@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ tab_title or "FT8 forecast" }}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="{{ url_for('static', filename='busy.js') }}" defer></script>
 </head>
 <body>
 <header>
@@ -12,6 +13,7 @@
   <p class="muted">From your own WSJT-X/JTDX logs. Nothing leaves this machine.</p>
 </header>
 <main>
+<p id="busy" class="note" role="status" hidden></p>
 {% if error %}
   <p class="error" role="alert">{{ error }}</p>
 {% endif %}
@@ -125,7 +127,7 @@
     <h2 id="forecast-title">Forecast</h2>
     <p>{{ message }}</p>
     {% if use_saved %}
-    <form method="post" action="/start">
+    <form method="post" action="/start" data-busy="Loading saved data…">
       <button type="submit">{{ use_saved }}</button>
     </form>
     {% endif %}
@@ -185,14 +187,14 @@
 
 <section aria-labelledby="import-title">
   <h2 id="import-title">Import a log</h2>
-  <form method="post" action="/import" enctype="multipart/form-data" class="upload">
+  <form method="post" action="/import" enctype="multipart/form-data" class="upload" data-busy="Importing {file}… a big file takes a few seconds.">
     <label for="log">ALL.TXT or ADIF (.adi) file</label>
     <input id="log" name="log" type="file" accept=".txt,.TXT,.adi,.adif" required>
     <button type="submit">Import</button>
   </form>
   <p class="muted">Re-importing is safe: lines already stored are skipped. The file itself isn't kept.</p>
   {% if log_dir %}
-  <form method="post" action="/import-folder" class="upload">
+  <form method="post" action="/import-folder" class="upload" data-busy="Importing from the folder… a big ALL.TXT takes a few seconds.">
     <button type="submit">Import from folder</button>
     <span class="muted">From {{ log_dir }} (set in Settings)</span>
   </form>

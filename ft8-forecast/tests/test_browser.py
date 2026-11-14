@@ -18,6 +18,7 @@ from ft8_forecast.store import open_db, save_contacts, save_decodes
 
 NOW = datetime(2026, 10, 27, 15, 5, tzinfo=UTC)
 HINT = "Scroll the table sideways for more"
+RX = b"261027_143015    14.074 Rx FT8     -9  0.2  627 CQ N0CALL FN31\n"
 
 
 @pytest.fixture
@@ -134,3 +135,40 @@ def test_settings_form_fits_a_phone(page, server):
     page.set_viewport_size({"width": 360, "height": 800})
     page.goto(server)
     assert not overflows(page, "html")
+
+
+# --- the Importing... indicator (2026-11-13): the app's window has no browser spinner ---
+
+def _stay_on_the_page(page):
+    """Cancel the form's navigation after the page's own script has seen the submit: Playwright
+    waits for a page load to finish before looking, so a held load would hide the busy state."""
+    page.evaluate("window.addEventListener('submit', (event) => event.preventDefault())")
+
+
+def test_importing_shows_it_is_working_and_blocks_a_second_click(page, server):
+    page.goto(server)
+    _stay_on_the_page(page)
+    page.set_input_files("#log", files=[{"name": "ALL.TXT", "mimeType": "text/plain", "buffer": RX}])
+    page.click("form.upload button")
+    expect(page.get_by_role("status")).to_have_text("Importing ALL.TXT\u2026 a big file takes a few seconds.")
+    expect(page.locator("form[data-busy] button")).to_have_count(1)  # no folder set: just Import
+    expect(page.locator("form.upload button")).to_be_disabled()
+
+
+def test_the_import_still_goes_through_with_the_script(page, server):
+    page.goto(server)
+    page.set_input_files("#log", files=[{"name": "ALL.TXT", "mimeType": "text/plain", "buffer": RX}])
+    page.click("form.upload button")
+    expect(page.get_by_role("heading", name="Imported")).to_be_visible()
+    expect(page.get_by_role("status")).to_be_hidden()
+    expect(page.locator("form.upload button")).to_be_enabled()
+
+
+def test_a_file_name_is_shown_as_text_never_html(page, server):
+    page.goto(server)
+    _stay_on_the_page(page)
+    name = "<img src=x onerror=window.pwned=1>.txt"
+    page.set_input_files("#log", files=[{"name": name, "mimeType": "text/plain", "buffer": RX}])
+    page.click("form.upload button")
+    expect(page.get_by_role("status")).to_contain_text(name)
+    assert page.evaluate("window.pwned") is None and page.locator("#busy img").count() == 0

@@ -630,7 +630,8 @@ def test_security_headers_on_every_response(client, path):
     headers = client.get(path, base_url=BASE).headers
     csp = headers["Content-Security-Policy"]
     assert "default-src 'none'" in csp and "frame-ancestors 'none'" in csp and "form-action 'self'" in csp
-    assert "script-src" not in csp  # no JavaScript at all
+    # Only scripts this server sends (static/busy.js), never inline ones an injection could add.
+    assert "script-src 'self'" in csp and "unsafe-inline" not in csp and "unsafe-eval" not in csp
     assert headers["X-Content-Type-Options"] == "nosniff"
     # Not "no-referrer": under it, browsers send "Origin: null" on form posts (Fetch standard,
     # "serializing a request origin"), and the Origin check then refuses this page's own uploads.
@@ -650,7 +651,8 @@ def test_page_loads_nothing_from_other_sites(client, five_days):
     _, page = get(client)
     links = re.findall(r'(?:href|src|action)="([^"]*)"', page)
     assert links and all(link.startswith("/") and not link.startswith("//") for link in links)
-    assert "<script" not in page
+    # One script, from this server; nothing inline.
+    assert re.findall(r"<script[^>]*>", page) == ['<script src="/static/busy.js" defer>']
 
 
 def test_page_never_uses_the_network(client, five_days, monkeypatch):
@@ -866,3 +868,80 @@ def test_importing_from_the_folder_starts_the_forecast(app_client, five_days, lo
     assert START in get(app_client)[1]
     _, page = import_folder(app_client)
     assert "Best bet" in page and START not in page
+
+
+# --- speed: the 24 hourly results are reused until the data, the UTC hour or the grid changes (2026-11-13) ---
+
+@pytest.fixture
+def computes(monkeypatch):
+    """How many times the page ran forecast.compute: each run is ~40 ms on a year of data."""
+    calls = []
+    real = forecast.compute
+
+    def counting(*args, **kwargs):
+        calls.append(args[1])
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(forecast, "compute", counting)
+    return calls
+
+
+def test_switching_hours_reuses_the_days_results(client, five_days, computes):
+    first = get(client)[1]
+    assert len(computes) == 24  # the current hour is one of the 24
+    computes.clear()
+    assert get(client, "/?hour=3&rank=contacts")[0].status_code == 200
+    assert get(client, "/")[1] == first
+    assert computes == []
+
+
+def _stations_per_day(page, band="20m"):
+    return cells(page, band)[0]
+
+
+def test_an_import_from_the_page_shows_at_once(client, five_days):
+    assert _stations_per_day(get(client)[1]) == "1"
+    _, page = upload(client, b"".join(  # a second 20 m station at 15 UTC on all 5 days
+        f"2610{25 - n:02d}_150000    14.074 Rx FT8    -9  0.2  627 CQ N9CALL FN31\r\n".encode() for n in range(5)))
+    assert _stations_per_day(page) == "2"
+
+
+def test_an_import_from_the_terminal_shows_on_the_next_load(client, db, five_days):
+    get(client)
+    conn = open_db(db)  # what `ft8cast import` or `watch` does while the page is open
+    save_decodes(conn, [Decode(datetime(2026, 10, 25 - n, 15, 0, tzinfo=UTC), 14_074_000, False, -5, "N9CALL", None,
+                               "CQ N9CALL") for n in range(5)])
+    conn.close()
+    assert _stations_per_day(get(client)[1]) == "2"
+
+
+def test_a_contacts_only_import_shows_on_the_next_load(client, db, five_days):
+    assert cells(get(client)[1], "20m")[-1] == "0"
+    conn = open_db(db)
+    save_contacts(conn, [Contact("N9CALL", datetime(2026, 10, 25, 15, 10, tzinfo=UTC), 14_075_800, "FN31")])
+    conn.close()
+    assert cells(get(client)[1], "20m")[-1] == "1"
+
+
+def test_a_new_utc_hour_counts_again(client, five_days, computes, monkeypatch):
+    get(client)
+    computes.clear()
+    monkeypatch.setattr(cli, "_now", lambda: NOW + timedelta(hours=1))
+    get(client)
+    assert len(computes) == 24
+
+
+def test_changing_the_grid_counts_again(client, five_days, env, computes):
+    assert "need your grid" in get(client)[1]
+    computes.clear()
+    env.write_text("MY_GRID=JJ00\n")
+    assert "need your grid" not in get(client)[1]
+    assert len(computes) == 24
+
+
+def test_all_hours_is_counted_once_when_asked_for(client, five_days, computes):
+    get(client)
+    computes.clear()
+    get(client, "/?hour=all")
+    get(client, "/?hour=all")
+    assert computes == [None]

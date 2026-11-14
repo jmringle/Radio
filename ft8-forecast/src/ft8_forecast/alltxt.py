@@ -14,6 +14,7 @@ The file is untrusted input. Bad lines never raise; each is reported with its
 line number and skipped.
 """
 
+import functools
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -77,7 +78,7 @@ def parse_all_txt(lines: Iterable[bytes]) -> AllTxtResult:
             continue
         try:
             when = _time(match["date"], match["time"])
-            dial = mhz(match["dial"])
+            dial = _dial_hz(match["dial"])
         except ValueError as error:
             result.problems.append(Problem(number, f"{error}; line skipped"))
             continue
@@ -88,11 +89,19 @@ def parse_all_txt(lines: Iterable[bytes]) -> AllTxtResult:
 
 
 def _time(date: str, time: str) -> datetime:
+    """`date` YYMMDD and `time` HHMMSS, six digits each (_LINE checks). Built from the digits, not
+    strptime: a third of a big file's import time went to strptime (2026-11-13)."""
     try:
-        # Two-digit year: FT8 dates from 2017, so 20YY (strptime's %y would put 69-99 in the 1900s).
-        return datetime.strptime("20" + date + time, "%Y%m%d%H%M%S").replace(tzinfo=UTC)
+        # Two-digit year: FT8 dates from 2017, so 20YY.
+        return datetime(2000 + int(date[:2]), int(date[2:4]), int(date[4:]),
+                        int(time[:2]), int(time[2:4]), int(time[4:]), tzinfo=UTC)
     except ValueError:
         raise ValueError(f"{date}_{time} isn't a real date and time") from None
+
+
+# A log has a handful of dial frequencies, and exact conversion is a quarter of an import's
+# time if repeated on every line. Errors aren't cached: they raise again.
+_dial_hz = functools.lru_cache(maxsize=256)(mhz)
 
 
 def _sender_and_grid(message: str) -> tuple[str | None, str | None]:

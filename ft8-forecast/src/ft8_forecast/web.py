@@ -13,7 +13,7 @@ import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 
-from flask import Flask, render_template, request
+from flask import Flask, current_app, render_template, request
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 from ft8_forecast import cli, folder, forecast
@@ -27,8 +27,9 @@ MAX_NAME = 80  # characters of an uploaded file's name to show
 START_MESSAGE = "Import your latest log below to start, or use the data saved from earlier."
 
 _HEADERS = {
-    # No scripts, no outside fonts or images; forms only post back here; no framing (clickjacking).
-    "Content-Security-Policy": "default-src 'none'; style-src 'self'; form-action 'self'; "
+    # Scripts and styles only from this server, never inline (the one script, static/busy.js, only
+    # says an import is working); no outside fonts or images; forms only post back here; no framing.
+    "Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; form-action 'self'; "
                                "frame-ancestors 'none'; base-uri 'none'",
     "X-Content-Type-Options": "nosniff",
     # Not "no-referrer": browsers then send "Origin: null" on form posts, which the Origin check refuses.
@@ -205,15 +206,10 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
                    "No data yet. Import your WSJT-X ALL.TXT below; add wsjtx_log.adi too for your contacts. "
                    "To import from a folder instead, set the log folder in Settings.")
     else:
-        conn = _open(db)
-        try:
-            result = forecast.compute(conn, hour, my_grid, now)
-            if result is not None:  # about 0.3 s for a year of listening
-                hours = [forecast.compute(conn, h, my_grid, now) for h in range(24)]
-                overview = cli.overview(hours, by)
-                summary = cli.summary_lines(result, by, hours if hour is not None else None, now)
-        finally:
-            conn.close()
+        hours, result = _results(db, hour, my_grid, now)
+        if result is not None:
+            overview = cli.overview(hours, by)
+            summary = cli.summary_lines(result, by, hours if hour is not None else None, now)
         if result is None:
             message = "No ALL.TXT data imported yet: the forecast is built from it. Import it below."
         elif start:
@@ -235,6 +231,28 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         overview_notes=overview.notes(now) if overview else [],
         overview_empty=cli.OVERVIEW_EMPTY, use_saved=use_saved,
     )
+
+
+def _results(db: Path, hour: int | None, my_grid: str | None, now: datetime) -> tuple[list, forecast.Forecast | None]:
+    """compute() for each hour 0-23, and for `hour` (None: all hours). The 24 take about 1 s on
+    two months of listening, and only change when the data, the UTC hour or the grid does, so
+    they're kept until then. Imports only ever add rows, so the newest row numbers catch an
+    import from anywhere (`ft8cast import` and `watch` too); a file's modified time can be a
+    whole second coarse."""
+    conn = _open(db)
+    try:
+        newest = conn.execute("SELECT (SELECT max(rowid) FROM decodes), (SELECT max(rowid) FROM contacts)").fetchone()
+        key = (newest, now.strftime("%Y-%m-%d %H"), my_grid)
+        cache = current_app.config.get("RESULTS")
+        if cache is None or cache["key"] != key:
+            cache = current_app.config["RESULTS"] = {"key": key, "hours": None, "all": None}
+        if cache["hours"] is None:
+            cache["hours"] = [forecast.compute(conn, h, my_grid, now) for h in range(24)]
+        if hour is None and cache["all"] is None and cache["hours"][0] is not None:  # only when asked for
+            cache["all"] = forecast.compute(conn, None, my_grid, now)
+    finally:
+        conn.close()
+    return cache["hours"], cache["all"] if hour is None else cache["hours"][hour]
 
 
 def _tab_title(result: forecast.Forecast | None, hour: int | None, by: str) -> str:

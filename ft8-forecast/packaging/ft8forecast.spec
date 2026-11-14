@@ -11,7 +11,8 @@ analysis = Analysis(
     pathex=[src],
     # Named one by one, so nothing else in the project (data/, .env) can come along.
     datas=[(f"{source}/templates/page.html", "ft8_forecast/templates"),
-           (f"{source}/static/style.css", "ft8_forecast/static")],
+           (f"{source}/static/style.css", "ft8_forecast/static"),
+           (f"{source}/static/busy.js", "ft8_forecast/static")],
     hiddenimports=["ft8_forecast.desktop"],
     excludes=["pytest", "playwright", "pip_audit", "PyInstaller"],
 )
