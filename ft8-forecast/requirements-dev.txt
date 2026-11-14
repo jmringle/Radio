@@ -3,7 +3,7 @@ flask==3.1.3
 pip-audit==2.10.1
 # Browser tests (tests/test_browser.py). playwright 1.64.1, released 2026-10-22: 2+ weeks for
 # problems to surface (checked 2026-11-07). After installing: playwright install chromium
-playwright==1.64.1
+playwright==1.65.0
 pytest-playwright==0.10.0
 # Time zones for tests (tests/conftest.py pins America/New_York): Windows has no zone database
 # of its own. 2026.6, released 2026-10-28 (checked on PyPI 2026-11-12).
