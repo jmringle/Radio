@@ -283,6 +283,24 @@ def test_farthest_days_must_be_at_this_hour_on_this_band(conn):
     assert band(conn, my_grid="JJ00").farthest_miles is None
 
 
+# --- heard squares (the map) ---
+
+def test_squares_count_stations_heard_with_the_same_grid_on_two_days(conn):
+    # No grid setting needed. JJ01 has two stations; JJ10's only station was heard on one day.
+    save_decodes(conn, [*two_days("N0CALL", "JJ01"), *two_days("N0CALL/P", "JJ01"),
+                        rx(sender="N0CALL/M", grid="JJ10"), rx(sender="N0CALL/M", grid="JJ10", snr=-3)])
+    assert band(conn).squares == {"JJ01": 2}
+
+
+def test_squares_need_both_days_at_this_hour_on_this_band_and_never_count_your_tx(conn):
+    yours = Decode(days_back(1), TWENTY, True, 0, "N0CALL", "JJ10", "N0CALL/P N0CALL JJ10")
+    save_decodes(conn, [rx(grid="JJ10"), rx(days_back(1, hour=14), grid="JJ10"),
+                        rx(days_back(2), dial=7_074_000, grid="JJ10"),
+                        rx(sender="N0CALL/P", grid="JJ10"), yours])
+    assert band(conn).squares == {}
+    assert band(conn, hour=None).squares == {"JJ10": 1}  # all hours: today + 14 UTC yesterday
+
+
 def test_bands_are_kept_apart(conn):
     save_decodes(conn, [rx(), rx(dial=7_074_000, sender="N0CALL/P")])
     assert (band(conn, "20m").stations, band(conn, "40m").stations) == (1, 1)

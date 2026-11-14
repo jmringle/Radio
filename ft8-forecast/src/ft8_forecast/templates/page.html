@@ -61,6 +61,7 @@
       <option value="{{ value }}"{% if value == rank %} selected{% endif %}>{{ name }}</option>
     {% endfor %}
     </select>
+    {% if band %}<input type="hidden" name="band" value="{{ band }}">{% endif %}
     <button type="submit">Show</button>
   </form>
   {% endif %}
@@ -134,6 +135,24 @@
   {% endif %}
 </section>
 
+{% if heard_map %}
+<section aria-labelledby="map-title">
+  <h2 id="map-title">Heard map{% if heard_map.band %}: {{ heard_map.band }}{% endif %}</h2>
+  <p class="bands">{% for name in map_bands %}<a href="/?hour={{ all_hours if hour is none else hour }}&amp;rank={{ rank }}&amp;band={{ name }}"{% if name == heard_map.band %} aria-current="true"{% endif %}>{{ name }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+  {% if heard_map.rects %}
+  <svg class="map" viewBox="0 10 360 140" role="img" aria-labelledby="map-title">
+    {% include "land.svg" %}
+    {% for x, y, shade in heard_map.rects %}<rect class="{{ shade }}" x="{{ "%g" % x }}" y="{{ "%g" % y }}" width="2" height="1"/>{% endfor %}
+    {% if heard_map.home %}<rect class="home" x="{{ "%g" % heard_map.home[0] }}" y="{{ "%g" % heard_map.home[1] }}" width="2" height="1"/>{% endif %}
+  </svg>
+  <p class="muted">{{ map_key }}{% if heard_map.home %} Outlined: your square.{% endif %}<br>
+    Only messages that include a grid can be mapped; empty areas don't mean the band was closed.</p>
+  {% else %}
+  <p>{{ heard_map.empty }}</p>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if overview %}
 <section aria-labelledby="overview-title">
   <h2 id="overview-title">24-hour overview</h2>
@@ -146,7 +165,7 @@
     </thead>
     <tbody>
     {% for h, cells in overview.rows %}
-      <tr{% if h == hour %} class="current"{% endif %}><th scope="row"><a href="/?hour={{ h }}&amp;rank={{ rank }}"{% if h == hour %} aria-current="true"{% endif %}>{{ "%02d" % h }}</a></th>{% if local_short(h) %}<td class="local">{{ local_short(h) }}</td>{% endif %}{% for text, best in cells %}<td{% if best %} class="best"{% elif text == "." %} class="thin"{% endif %}>{{ text }}{% if best %}*{% endif %}</td>{% endfor %}</tr>
+      <tr{% if h == hour %} class="current"{% endif %}><th scope="row"><a href="/?hour={{ h }}&amp;rank={{ rank }}{% if band %}&amp;band={{ band }}{% endif %}"{% if h == hour %} aria-current="true"{% endif %}>{{ "%02d" % h }}</a></th>{% if local_short(h) %}<td class="local">{{ local_short(h) }}</td>{% endif %}{% for text, best in cells %}<td{% if best %} class="best"{% elif text == "." %} class="thin"{% endif %}>{{ text }}{% if best %}*{% endif %}</td>{% endfor %}</tr>
     {% endfor %}
     </tbody>
   </table>

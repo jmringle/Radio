@@ -88,3 +88,16 @@ table.overview td.local { color: var(--muted); font-family: inherit; font-size: 
 .settings { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.5rem 0.75rem; align-items: center; max-width: 36rem; }
 .settings input, .settings select { min-width: 0; width: 100%; box-sizing: border-box; }
 .settings button { grid-column: 1 / -1; justify-self: start; }
+
+/* The heard map. A 2 x 1 degree square is only about 4 x 2 px at this width, so each gets an
+   outline in its own color that stays 1.5 px however the map is scaled. */
+.map { display: block; width: 100%; height: auto; margin-top: 0.5rem; background: var(--paper); }
+.map .land { fill: var(--row); stroke: var(--rule); stroke-width: 1px; vector-effect: non-scaling-stroke; }
+.map rect { stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.map .heard1 { fill: var(--accent); stroke: var(--accent); opacity: 0.35; }
+.map .heard2 { fill: var(--accent); stroke: var(--accent); opacity: 0.55; }
+.map .heard3 { fill: var(--accent); stroke: var(--accent); opacity: 0.8; }
+.map .heard4 { fill: var(--accent); stroke: var(--accent); }
+.map .home { fill: none; stroke: var(--ink); stroke-width: 2px; }
+.bands a { color: inherit; }
+.bands a[aria-current] { color: var(--accent); font-weight: 700; }

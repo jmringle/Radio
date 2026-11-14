@@ -666,6 +666,111 @@ def test_page_never_uses_the_network(client, five_days, monkeypatch):
     assert upload(client, ADIF, "log.adi")[0].status_code == 200
 
 
+# --- the heard map (2026-11-13) ---
+
+def heard(db, grid="FN31", dial=14_074_000, sender="N0CALL", hour=15):
+    """One station decoded with `grid` on two days at `hour`: enough to put its square on the map."""
+    conn = open_db(db)
+    save_decodes(conn, [Decode(datetime(2026, 10, d, hour, 30, tzinfo=UTC), dial, False, -10, sender, grid,
+                               f"CQ {sender} {grid}") for d in (24, 25)])
+    conn.close()
+
+
+def squares(page):
+    """The map's squares: {(x, y): css class}. x = west longitude + 180, y = 90 - north latitude."""
+    return {(float(x), float(y)): cls for cls, x, y in
+            re.findall(r'<rect class="(heard\d)" x="([\d.]+)" y="([\d.]+)" width="2" height="1"', page)}
+
+
+def test_map_draws_each_heard_square_where_it_is(client, db, five_days):
+    heard(db)  # FN31: 74-72 W, 41-42 N
+    page = get(client)[1]
+    assert '<svg class="map"' in page
+    assert squares(page) == {(106, 48): "heard1"}
+
+
+
+@pytest.mark.parametrize("stations, shade", [(1, "heard1"), (2, "heard2"), (3, "heard2"), (4, "heard3"),
+                                             (9, "heard3"), (10, "heard4"), (25, "heard4")])
+def test_map_shade_steps_up_at_2_4_and_10_stations(client, db, five_days, stations, shade):
+    for n in range(stations):
+        heard(db, sender=f"N{n}CALL/P")
+    assert squares(get(client)[1]) == {(106, 48): shade}
+
+
+def test_map_shows_the_best_bet_band_unless_another_is_chosen(client, db, five_days):
+    heard(db)  # 20 m: the best bet
+    heard(db, grid="JO62", dial=7_074_000)  # 40 m: 14-12 E, 52-53 N
+    page = get(client)[1]
+    assert "Heard map: 20m" in page and squares(page) == {(106, 48): "heard1"}
+    page = get(client, query_string={"band": "40m", "hour": "all", "rank": "contacts"})[1]
+    assert "Heard map: 40m" in page and squares(page) == {(192, 37): "heard1"}
+
+
+def test_map_band_links_keep_the_hour_and_ranking(client, db, five_days):
+    heard(db)
+    page = get(client, query_string={"hour": "all", "rank": "contacts", "band": "20m"})[1]
+    links = re.findall(r'<a href="/\?hour=all&amp;rank=contacts&amp;band=(\w+)"( aria-current="true")?>', page)
+    assert [band for band, _ in links] == [name for name, _, _ in forecast.BANDS]
+    assert [band for band, current in links if current] == ["20m"]
+
+
+@pytest.mark.parametrize("band", ["", "6m", "20M", " 20m", "20", "<script>alert(1)</script>"])
+def test_bad_map_band_is_a_400(client, db, five_days, band):
+    heard(db)
+    response, page = get(client, query_string={"band": band})
+    assert response.status_code == 400
+    assert "Map band must be one of 160m, 80m, 40m, 30m, 20m, 17m, 15m, 12m, 10m." in page
+    assert "<script>alert" not in page
+
+
+COVERAGE = "Only messages that include a grid can be mapped; empty areas don't mean the band was closed."
+
+
+def test_map_says_what_it_cant_show(client, db, five_days):
+    heard(db)
+    page = get(client)[1]
+    assert COVERAGE in page
+    assert "Lighter to darker: 1, 2-3, 4-9, 10 or more stations heard in a square on 2 or more days." in page
+    assert "N0CALL" not in page  # squares and shades only, never who was heard
+
+
+def test_map_without_squares_says_so_instead_of_an_empty_map(client, five_days):
+    page = get(client)[1]  # five stations, each on one day: none counts
+    assert "No grid squares heard on 20m at this hour on 2 or more days." in page
+    assert '<svg class="map"' not in page
+
+
+def test_map_without_a_best_bet_shows_the_band_with_most_squares(client, db, five_days):
+    heard(db, hour=9)  # 2 days at 09 UTC: too few for a best bet
+    heard(db, grid="JO62", dial=7_074_000, hour=9)
+    heard(db, grid="JO62", dial=7_074_000, hour=9, sender="N0CALL/P")
+    page = get(client, query_string={"hour": "9"})[1]
+    assert "Heard map: 40m" in page and squares(page) == {(192, 37): "heard2"}
+
+
+def test_map_marks_your_square_when_your_grid_is_set(client, db, five_days, env):
+    heard(db, grid="JO62")
+    assert '<rect class="home"' not in get(client)[1]
+    env.write_text("MY_GRID=FN31\n")
+    assert '<rect class="home" x="106" y="48" width="2" height="1"' in get(client)[1]
+
+
+def test_a_chosen_map_band_stays_when_the_hour_changes(client, db, five_days):
+    # Stepping through the hours on one band is the time-lapse.
+    heard(db)
+    page = get(client, query_string={"band": "40m"})[1]
+    assert '<input type="hidden" name="band" value="40m">' in page  # the hour picker
+    assert '<a href="/?hour=15&amp;rank=busiest&amp;band=40m"' in page  # the 24-hour overview
+    page = get(client)[1]  # no band chosen: follow the best bet, whatever the hour
+    assert 'name="band"' not in page and "&amp;band=" not in page.split('id="overview-title"')[1].split("</table>")[0]
+
+
+def test_map_without_a_best_bet_or_any_square_names_no_band(client, db, five_days):
+    page = get(client, query_string={"hour": "9"})[1]  # nothing at 09 UTC on any band
+    assert "Heard map</h2>" in page
+    assert "No grid squares heard on any band at this hour on 2 or more days." in page
+
 # --- ft8cast serve ---
 
 @pytest.fixture

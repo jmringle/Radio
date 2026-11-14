@@ -10,7 +10,8 @@ import math
 import re
 import sqlite3
 import statistics
-from dataclasses import dataclass
+from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import cache
 
@@ -82,6 +83,8 @@ class BandStats:
     calls_answered: int
     recent_per_day: float | None  # stations_per_day over the last TREND_DAYS; None under TREND_MIN_DAYS days
     earlier_per_day: float | None  # the same for the TREND_DAYS before
+    # The map: 4-character square -> stations heard there with that grid on FARTHEST_MIN_DAYS days.
+    squares: dict[str, int] = field(default_factory=dict)
 
     @property
     def enough_data(self) -> bool:
@@ -187,15 +190,16 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
         snrs.setdefault(band, []).append(snr)
         if sender:
             heard.add(sender)
-        if grid and sender and my_grid:
+        if grid and sender:
             grid_days.setdefault(band, {}).setdefault((sender, grid), set()).add(day)
 
     farthest: dict[str, tuple[int, str]] = {}
+    squares: dict[str, dict[str, int]] = {}
     for band, pairs in grid_days.items():
-        qualified = [(miles_between(my_grid, grid), grid) for (_, grid), days in pairs.items()
-                     if len(days) >= FARTHEST_MIN_DAYS]
-        if qualified:
-            farthest[band] = max(qualified)
+        qualified = [grid for (_, grid), days in pairs.items() if len(days) >= FARTHEST_MIN_DAYS]
+        squares[band] = dict(Counter(qualified))
+        if qualified and my_grid:
+            farthest[band] = max((miles_between(my_grid, grid), grid) for grid in qualified)
 
     contacts: dict[str, int] = {}
     contact_far: dict[str, Farthest] = {}  # the column: window and hour
@@ -242,6 +246,7 @@ def compute(conn: sqlite3.Connection, hour: int | None, my_grid: str | None,
             calls_answered=calls_answered.get(name, 0),
             recent_per_day=_median_day([heard for day, heard in days.items() if day > split]),
             earlier_per_day=_median_day([heard for day, heard in days.items() if day <= split]),
+            squares=squares.get(name, {}),
         ))
     daily = sorted(by_day.values(), key=lambda far: far.day, reverse=True) if my_grid else []
     return Forecast(hour, newest, bands, daily, best_ever)

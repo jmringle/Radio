@@ -3,8 +3,9 @@
 Only this machine can reach it: `ft8cast serve` binds to 127.0.0.1. Any site open in
 your browser can still send requests to localhost, so every request must name
 this server in its Host header (stops DNS rebinding) and every upload must come
-from this page's own Origin (stops cross-site request forgery). The page has no
-JavaScript and loads nothing from other sites, so it makes no web calls either.
+from this page's own Origin (stops cross-site request forgery). The page's one script
+(static/busy.js) is served from here, and nothing is loaded from other sites (the heard
+map's outline is built in), so it makes no web calls either.
 Jinja escapes everything inserted into the page, including text from your files.
 """
 
@@ -24,6 +25,10 @@ from ft8_forecast.store import StoreError, open_db
 MAX_UPLOAD_BYTES = 500 * 1024 * 1024
 LOCAL_NAMES = {"127.0.0.1", "localhost"}
 MAX_NAME = 80  # characters of an uploaded file's name to show
+# The heard map: stations in a square at or above each step get the next darker shade (heard1-heard4).
+MAP_SHADES = (1, 2, 4, 10)
+MAP_KEY = "Lighter to darker: 1, 2-3, 4-9, 10 or more stations heard in a square on 2 or more days."
+MAP_BANDS = [name for name, _, _ in forecast.BANDS]
 START_MESSAGE = "Import your latest log below to start, or use the data saved from earlier."
 
 _HEADERS = {
@@ -97,7 +102,10 @@ def create_app(db: Path, log_file: Path | None = None, prompt_on_start: bool = F
             by = cli._rank(request.args.get("rank", "busiest"))
         except argparse.ArgumentTypeError as error:
             raise PageError(400, f"Best bet {error}.") from None
-        return _render(db, hour, by, start=not app.config["STARTED"])  # hour None: now; cli.ALL_HOURS: the whole day
+        band = request.args.get("band")
+        if band is not None and band not in MAP_BANDS:
+            raise PageError(400, f"Map band must be one of {', '.join(MAP_BANDS)}.")
+        return _render(db, hour, by, start=not app.config["STARTED"], band=band)  # hour None: now; cli.ALL_HOURS: the whole day
 
     @app.post("/start")
     def use_saved_data():
@@ -192,8 +200,9 @@ def _open(db: Path):
 
 
 def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | None = None, saved: bool = False,
-            start: bool = False) -> str:
-    """start: show the app's start screen instead of a forecast from saved data."""
+            start: bool = False, band: str | None = None) -> str:
+    """start: show the app's start screen instead of a forecast from saved data.
+    band: the heard map's band; None: the best bet's."""
     try:
         my_grid = cli._my_grid()  # the same .env and clock as the CLI
     except ValueError as error:
@@ -230,7 +239,24 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         local_short=lambda h: cli.local_short(h, now),
         overview_notes=overview.notes(now) if overview else [],
         overview_empty=cli.OVERVIEW_EMPTY, use_saved=use_saved,
+        heard_map=result and _heard_map(result, by, band, my_grid), map_bands=MAP_BANDS, map_key=MAP_KEY, band=band,
     )
+
+
+def _heard_map(result: forecast.Forecast, by: str, band: str | None, my_grid: str | None) -> dict:
+    """`band`'s squares (None: the best bet's) as map rectangles, and your square if your grid is set."""
+    if band is not None:
+        shown = next(stats for stats in result.bands if stats.band == band)
+    else:  # without a best bet, the band with the most squares (the lowest band on a tie), if any has one
+        most = max(result.bands, key=lambda stats: len(stats.squares))
+        shown = forecast.best_bet(result.bands, by) or (most if most.squares else None)
+    rects = []
+    for grid, stations in sorted(shown.squares.items()) if shown else []:
+        shade = sum(stations >= step for step in MAP_SHADES)
+        rects.append((*_corner(grid), f"heard{shade}"))
+    when = "at any hour" if result.hour is None else "at this hour"
+    return {"band": shown and shown.band, "rects": rects, "home": my_grid and _corner(my_grid),
+            "empty": f"No grid squares heard on {shown.band if shown else 'any band'} {when} on 2 or more days."}
 
 
 def _results(db: Path, hour: int | None, my_grid: str | None, now: datetime) -> tuple[list, forecast.Forecast | None]:
@@ -253,6 +279,13 @@ def _results(db: Path, hour: int | None, my_grid: str | None, now: datetime) -> 
     finally:
         conn.close()
     return cache["hours"], cache["all"] if hour is None else cache["hours"][hour]
+
+
+def _corner(grid: str) -> tuple[float, float]:
+    """A square's top-left corner on the map: x = west longitude + 180, y = 90 - north latitude
+    (plate carree, where every 2 x 1 degree square is the same rectangle)."""
+    lat, lon = forecast._center(grid)
+    return lon - 1 + 180, 90 - (lat + 0.5)
 
 
 def _tab_title(result: forecast.Forecast | None, hour: int | None, by: str) -> str:
