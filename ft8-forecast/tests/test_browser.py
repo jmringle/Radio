@@ -255,3 +255,13 @@ def test_dragging_pans_with_the_pointer_and_stops_at_the_edge(map_page):
     map_page.mouse.move(cx + 5000, cy, steps=5)  # far past the map's west edge
     map_page.mouse.up()
     assert box(map_page)[0] == 0
+
+
+def test_square_labels_hide_when_zoomed_out_too_far_to_read(map_page):
+    label = map_page.locator("svg.map text.label").first
+    for _ in range(4):  # the test data's fit is 222 degrees wide (FN31 to PF95); 4 presses: 44
+        map_page.get_by_role("button", name="Zoom in").click()
+    expect(map_page.locator("svg.map")).to_have_attribute("data-labels-on", "")
+    map_page.get_by_role("button", name="World").click()
+    expect(label).to_be_hidden()
+    expect(map_page.locator("svg.map")).not_to_have_attribute("data-labels-on", "")

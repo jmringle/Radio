@@ -806,6 +806,25 @@ def test_map_zoom_buttons_wait_for_the_script(client, db, five_days):
     assert re.search(r'<div class="zoom" hidden>\s*<button type="button" data-zoom="in"', page)
     assert '<script src="/static/map.js" defer></script>' in page
 
+
+def test_map_squares_carry_their_locator_and_station_count(client, db, five_days):
+    heard(db)
+    for n in range(3):
+        heard(db, grid="JO62", sender=f"N{n}CALL/P")
+    page = get(client)[1]
+    assert '<title>FN31: 1 station</title>' in page and '<title>JO62: 3 stations</title>' in page  # hover
+    assert '<text class="label" x="107" y="48.5">FN31</text>' in page  # the square's middle
+
+
+def test_map_labels_show_only_when_zoomed_in_enough_to_read(client, db, five_days):
+    heard(db)  # one square: fitted to 48 degrees wide
+    page = get(client)[1]
+    assert re.search(r'<svg class="map"[^>]* data-labels="60" data-labels-on', page)
+    for grid in ["AL00", "RL00"]:  # the whole map: a label would be about 1 px tall
+        heard(db, grid=grid)
+    page = get(client)[1]
+    assert 'data-labels="60"' in page and "data-labels-on" not in page
+
 # --- ft8cast serve ---
 
 @pytest.fixture

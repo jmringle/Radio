@@ -107,3 +107,9 @@ table.overview td.local { color: var(--muted); font-family: inherit; font-size: 
 .zoom { display: flex; gap: 0.35rem; margin-top: 0.5rem; }
 .zoom[hidden] { display: none; }
 .zoom button { min-width: 2.2rem; padding: 0.2rem 0.6rem; }
+/* Square labels: sized in map degrees, so they fit inside their 2 x 1 square at any zoom; shown
+   only when zoomed in enough to read (data-labels-on, set by the server and map.js). Ink with a
+   paper halo reads on every shade. */
+.map .label { display: none; font: 600 0.5px ui-monospace, Menlo, monospace; text-anchor: middle; dominant-baseline: central;
+  fill: var(--ink); stroke: var(--paper); stroke-width: 0.12px; paint-order: stroke; pointer-events: none; }
+.map[data-labels-on] .label { display: inline; }

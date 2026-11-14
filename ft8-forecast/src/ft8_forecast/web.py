@@ -34,6 +34,7 @@ MAP_BANDS = [name for name, _, _ in forecast.BANDS]
 MAP_WORLD = (0, 10, 360, 150)
 MAP_MARGIN = (4, 2)
 MAP_MIN_WIDTH = 48
+MAP_LABEL_WIDTH = 60  # square labels show at views this many degrees wide or closer: about 7 px tall at 60
 START_MESSAGE = "Import your latest log below to start, or use the data saved from earlier."
 
 _HEADERS = {
@@ -244,7 +245,7 @@ def _render(db: Path, hour: int | str | None, by: str, imported: list[dict] | No
         local_short=lambda h: cli.local_short(h, now),
         overview_notes=overview.notes(now) if overview else [],
         overview_empty=cli.OVERVIEW_EMPTY, use_saved=use_saved,
-        heard_map=result and _heard_map(result, by, band, my_grid), map_bands=MAP_BANDS, map_key=MAP_KEY, map_world=" ".join(map(str, MAP_WORLD)), band=band,
+        heard_map=result and _heard_map(result, by, band, my_grid), map_bands=MAP_BANDS, map_key=MAP_KEY, map_world=" ".join(map(str, MAP_WORLD)), map_label_width=MAP_LABEL_WIDTH, band=band,
     )
 
 
@@ -258,11 +259,12 @@ def _heard_map(result: forecast.Forecast, by: str, band: str | None, my_grid: st
     rects = []
     for grid, stations in sorted(shown.squares.items()) if shown else []:
         shade = sum(stations >= step for step in MAP_SHADES)
-        rects.append((*_corner(grid), f"heard{shade}"))
+        rects.append((*_corner(grid), f"heard{shade}", grid, stations))
     home = my_grid and _corner(my_grid)
     when = "at any hour" if result.hour is None else "at this hour"
-    view = _fit([(x, y) for x, y, _ in rects] + ([home] if home else []))
+    view = _fit([(x, y) for x, y, *_ in rects] + ([home] if home else []))
     return {"band": shown and shown.band, "rects": rects, "home": home, "view": " ".join(f"{n:g}" for n in view),
+            "labels_on": view[2] <= MAP_LABEL_WIDTH,
             "empty": f"No grid squares heard on {shown.band if shown else 'any band'} {when} on 2 or more days."}
 
 

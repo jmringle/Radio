@@ -147,9 +147,10 @@
     <button type="button" data-zoom="fit">Fit</button>
     <button type="button" data-zoom="world">World</button>
   </div>
-  <svg class="map" viewBox="{{ heard_map.view }}" data-fit="{{ heard_map.view }}" data-world="{{ map_world }}" role="img" aria-labelledby="map-title">
+  <svg class="map" viewBox="{{ heard_map.view }}" data-fit="{{ heard_map.view }}" data-world="{{ map_world }}" data-labels="{{ map_label_width }}"{% if heard_map.labels_on %} data-labels-on{% endif %} role="img" aria-labelledby="map-title">
     {% include "land.svg" %}
-    {% for x, y, shade in heard_map.rects %}<rect class="{{ shade }}" x="{{ "%g" % x }}" y="{{ "%g" % y }}" width="2" height="1"/>{% endfor %}
+    {% for x, y, shade, grid, stations in heard_map.rects %}<rect class="{{ shade }}" x="{{ "%g" % x }}" y="{{ "%g" % y }}" width="2" height="1"><title>{{ grid }}: {{ stations }} station{{ "" if stations == 1 else "s" }}</title></rect>{% endfor %}
+    {% for x, y, shade, grid, stations in heard_map.rects %}<text class="label" x="{{ "%g" % (x + 1) }}" y="{{ "%g" % (y + 0.5) }}">{{ grid }}</text>{% endfor %}
     {% if heard_map.home %}<rect class="home" x="{{ "%g" % heard_map.home[0] }}" y="{{ "%g" % heard_map.home[1] }}" width="2" height="1"/>{% endif %}
   </svg>
   <p class="muted">{{ map_key }}{% if heard_map.home %} Outlined: your square.{% endif %}<br>

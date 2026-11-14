@@ -10,6 +10,7 @@
   const ratio = world[3] / world[2]; // every view keeps the map's shape, so the map never resizes
   const MIN_WIDTH = 6; // degrees: three squares across; closer shows nothing new
   const STEP = 1.5; // one button press
+  const LABEL_WIDTH = Number(svg.dataset.labels); // square labels show at this width or closer
   let view = parse(svg.getAttribute("viewBox"));
 
   // Show the view at (x, y), `width` degrees wide, kept within the zoom limits and the map's edges.
@@ -22,6 +23,7 @@
       w, h,
     ];
     svg.setAttribute("viewBox", view.map((n) => +n.toFixed(4)).join(" "));
+    svg.toggleAttribute("data-labels-on", w <= LABEL_WIDTH);
   }
 
   // Zoom in by `factor` (below 1: out), keeping the map point at fraction (fx, fy) of the view in place.
