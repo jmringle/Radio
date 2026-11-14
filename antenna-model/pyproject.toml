@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=84"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "antenna-model"
+version = "0.1.0"
+description = "Models your HF antennas with NEC2: pattern, takeoff angle, feedpoint impedance and SWR"
+requires-python = ">=3.12"
+# PyNEC wraps necpp, a C++ port of NEC2. 2.3.4 (2026-08-02) is the newest release 2+ weeks old
+# (checked on PyPI 2026-11-14; 2.3.5 and 2.4.0 came out 2026-11-09). Its wheels cover
+# CPython 3.12-3.14 on macOS arm64 and Linux; requirements-dev.txt pins the exact version.
+dependencies = ["PyNEC>=2.3.4,<3"]
+
+[tool.pytest.ini_options]
+# Lets tests import the src/ package without installing it.
+pythonpath = ["src"]
+testpaths = ["tests"]

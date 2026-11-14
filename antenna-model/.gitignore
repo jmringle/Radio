@@ -1,0 +1,2 @@
+# Plots and reports the tool writes: regenerate them, don't commit them.
+output/

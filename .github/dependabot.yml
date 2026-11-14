@@ -16,6 +16,10 @@ updates:
     directory: "/codeplug-check"
     schedule:
       interval: weekly
+  - package-ecosystem: pip
+    directory: "/antenna-model"
+    schedule:
+      interval: weekly
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

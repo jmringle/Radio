@@ -1,0 +1,29 @@
+name: antenna-model tests
+on:
+  push:
+    paths: ["antenna-model/**", ".github/workflows/antenna-model-tests.yml"]
+  pull_request:
+    paths: ["antenna-model/**", ".github/workflows/antenna-model-tests.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest Python pyproject.toml allows, and the newest PyNEC 2.3.4 ships wheels for
+        # (no 3.15 wheel: pip would try to compile NEC2 from source).
+        python: ["3.12", "3.14"]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: antenna-model
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements-dev.txt
+      - run: pytest
+      # --skip-editable: our own package isn't on PyPI; a stranger's "antenna-model" there mustn't be audited as ours.
+      - run: pip-audit --skip-editable
