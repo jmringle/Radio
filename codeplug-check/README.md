@@ -2,7 +2,7 @@
 
 Checks a radio's channel list before you load it, and catches the mistakes a typo makes: a channel that would transmit outside the amateur bands, a repeater offset that doesn't match the band plan, a repeater channel with no tone, and duplicate channels. It reads a CHIRP CSV export (CHIRP supports both the BTECH UV-PRO and the Baofeng DM-32UV; checked on CHIRP's supported-radios list 2026-11-13). It only reads the file: it never talks to or programs a radio, and it makes no network calls.
 
-**Status:** scaffold. Reading frequencies and duplex, and the band edges, are built and tested; the checks and the command are next (see **Next**).
+**Status:** the reader is built: `read_channels()` turns a CHIRP CSV into channels (receive and transmit frequency, the tone each sends and listens for, mode) and reports every bad row with its line number. It reads CHIRP's own sample export (`tests/images/Generic_CSV.csv` in CHIRP's repo, 95 channels) with no problems; that file is GPL-3.0, so it isn't copied here. The checks and the command are next (see **Next**).
 
 ## Setup
 
@@ -53,15 +53,15 @@ Personal tool, local files, no network, no radio connection. Channel lists are o
 
 | ID | Threat | OWASP 2025 | Mitigation | Test |
 |---|---|---|---|---|
-| T1 | A crafted or damaged CSV crashes the check or makes it skip rows, so a bad channel passes as fine | A10 Mishandling of Exceptional Conditions | Strict field parsing (ASCII digits only, at most 6 decimals, known Duplex values); bad rows reported, never skipped silently; 5 MB cap | `test_parse_mhz_refuses_anything_else`, `test_unknown_duplex_is_refused` (more with the reader) |
+| T1 | A crafted or damaged CSV crashes the check or makes it skip rows, so a bad channel passes as fine | A10 Mishandling of Exceptional Conditions | Strict field parsing (ASCII digits only, at most 6 decimals, known Duplex values); bad rows reported, never skipped silently; 5 MB cap | `test_parse_mhz_refuses_anything_else`, `test_unknown_duplex_is_refused`, `test_a_bad_row_is_reported_with_its_line_and_the_rest_still_read`, `test_a_file_over_5_mb`, `test_broken_quoting_names_its_line` |
 | T2 | A channel name with terminal control codes (ANSI escapes) rewrites or hides lines in your terminal when printed | A05 Injection | Control characters replaced before printing (planned with the command) | planned |
 | T3 | Your real channel list gets committed | none (privacy mistake) | `data/` gitignored | `git check-ignore` |
 | T4 | A compromised dependency | A03 Software Supply Chain Failures | No runtime dependencies; dev tools pinned (2-week rule); `pip-audit` and Dependabot | CI |
 
 ## Next
 
-1. Read a whole CHIRP CSV into channels with line numbers, reporting bad rows (T1, bad-input criteria).
-2. The four checks above, then the `codeplug-check` command, with control characters stripped from output (T2).
+1. ~~Read a whole CHIRP CSV~~ (done 2026-11-13). Tone fields are read only when the row's Tone mode uses them: CHIRP fills unused ones with defaults (CrossMode is `Tone->Tone` on every row of its sample). Offset counts only for Duplex `+`, `-`, `split`: CHIRP keeps a simplex channel's old offset.
+2. The checks above, then the `codeplug-check` command, with control characters stripped from output (T2).
 3. Later: the DM-32UV's own CPS export for DMR channels (color code, timeslot, talkgroup), once there's a sample file to read.
 
 ## Security notes
