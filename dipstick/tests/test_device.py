@@ -166,7 +166,7 @@ def test_never_picks_something_that_isnt_a_nanovna(port):
 
 
 def test_none_found_lists_what_is_connected():
-    with pytest.raises(DeviceError, match="/dev/cu.usbserial-1"):
+    with pytest.raises(DeviceError, match=r"/dev/cu.usbserial-1.*give its port with --port"):
         find_port([Port("/dev/cu.usbserial-1", 0x10C4, 0xEA60, "CP2102 USB to UART")])
 
 

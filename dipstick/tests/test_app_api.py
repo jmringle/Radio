@@ -12,7 +12,7 @@ from test_cable_cli import fake_nano as fake_cable_nano
 from test_cable_cli import planned
 from test_device import Port
 
-from dipstick.app import Api
+from dipstick.app import Api, connect_nanovna
 from dipstick.device import DeviceError, NanoVNA
 
 SETTINGS = b"sweep\r\n1500000 30000000 101\r\nch> "
@@ -166,6 +166,22 @@ def test_status_more_than_one():
     answer = status([NANO, other])
     assert answer["connected"] is False
     assert answer["text"] == "More than one NanoVNA is plugged in (/dev/cu.usbmodem401, /dev/cu.usbmodem402); unplug one"
+
+
+def test_a_sweep_with_two_nanovnas_says_unplug_one_not_use_port():
+    # The app has no --port option, so the command's advice would be no help here.
+    other = Port("/dev/cu.usbmodem402", 0x0483, 0x5740, "NanoVNA-H")
+    api = Api(connect=lambda port: connect_nanovna(port, ports=lambda: [NANO, other]))
+    for answer in (api.sweep("40m", "", 101), api.cable(True, "0.66", "", "50")):
+        assert answer == {"ok": False, "error": "Found more than one NanoVNA "
+                                                "(/dev/cu.usbmodem401, /dev/cu.usbmodem402); unplug one"}
+
+
+def test_a_sweep_with_no_nanovna_never_mentions_port():
+    api = Api(connect=lambda port: connect_nanovna(port, ports=lambda: [RADIO]))
+    for answer in (api.sweep("40m", "", 101), api.cable(True, "0.66", "", "50")):
+        assert answer == {"ok": False, "error": "No NanoVNA found. Is it plugged in and switched on? "
+                                                "Serial ports: /dev/cu.usbserial-1410."}
 
 
 def test_status_never_connects():

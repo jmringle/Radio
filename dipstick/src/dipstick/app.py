@@ -14,8 +14,7 @@ import traceback
 from pathlib import Path
 
 from dipstick.bands import BANDS
-from dipstick.cli import connect as connect_nanovna
-from dipstick.device import DeviceError, nanovna_ports
+from dipstick.device import DeviceError, NanoVNA, find_port, nanovna_ports
 from dipstick.measure import band_for_target, measure_band, measure_cable
 from dipstick.plots import smith_svg, swr_svg
 
@@ -24,6 +23,11 @@ PAGE = Path(__file__).parent / "ui" / "index.html"
 # The cable tab's labels, so errors name the field to fix (index.html must match).
 _FIELDS = {"no_antenna": "tick No antenna connected", "vf": "Velocity factor", "length": "Length",
            "max_length": "Longest cable"}
+
+
+def connect_nanovna(port: str | None, ports=list_ports.comports) -> NanoVNA:
+    """Opens the NanoVNA. The app has no --port option, so its errors never suggest one."""
+    return NanoVNA.open(port or find_port(ports(), port_option=False))
 
 
 class Api:

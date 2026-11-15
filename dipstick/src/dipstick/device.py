@@ -34,17 +34,19 @@ def nanovna_ports(ports) -> list[str]:
             if (p.vid, p.pid) == USB_ID and "nanovna" in f"{p.product or ''} {p.description or ''}".lower()]
 
 
-def find_port(ports) -> str:
+def find_port(ports, port_option: bool = True) -> str:
     """The NanoVNA's port, from pyserial's list_ports.comports(). Never guesses (T3): writing
-    NanoVNA commands to the wrong port, such as a radio's CAT port, could change its settings."""
+    NanoVNA commands to the wrong port, such as a radio's CAT port, could change its settings.
+    `port_option`: whether the person can give --port (the command can; the app can't)."""
     found = nanovna_ports(ports)
     if len(found) == 1:
         return found[0]
     if found:
-        raise DeviceError(f"Found more than one NanoVNA ({', '.join(found)}); choose one with --port")
+        raise DeviceError(f"Found more than one NanoVNA ({', '.join(found)}); "
+                          + ("choose one with --port" if port_option else "unplug one"))
     connected = ", ".join(p.device for p in ports) or "no USB serial ports are connected"
-    raise DeviceError(f"No NanoVNA found. Is it plugged in and switched on? Serial ports: {connected}. "
-                      "If yours has another name, give its port with --port.")
+    raise DeviceError(f"No NanoVNA found. Is it plugged in and switched on? Serial ports: {connected}."
+                      + (" If yours has another name, give its port with --port." if port_option else ""))
 
 
 class NanoVNA:
