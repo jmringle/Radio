@@ -14,8 +14,8 @@ analysis = Analysis(
     excludes=["pytest", "playwright", "pip_audit", "PyInstaller"],
 )
 archive = PYZ(analysis.pure)
-executable = EXE(archive, analysis.scripts, [], exclude_binaries=True, name="dipstick", console=False)
-collected = COLLECT(executable, analysis.binaries, analysis.datas, name="dipstick")
+executable = EXE(archive, analysis.scripts, [], exclude_binaries=True, name="Dipstick", console=False)
+collected = COLLECT(executable, analysis.binaries, analysis.datas, name="Dipstick")
 if sys.platform == "darwin":
-    app = BUNDLE(collected, name="dipstick.app", bundle_identifier="io.github.jmringle.dipstick",
+    app = BUNDLE(collected, name="Dipstick.app", bundle_identifier="io.github.jmringle.dipstick",
                  info_plist={"CFBundleShortVersionString": "0.1.0", "NSHighResolutionCapable": True})

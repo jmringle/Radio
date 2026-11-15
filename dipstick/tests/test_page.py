@@ -429,3 +429,8 @@ def test_calibrate_waits_until_python_is_reachable(page: Page):
     page.goto(PAGE)
     calibrate_tab(page)
     expect(page.get_by_role("button", name="Measure open")).to_be_disabled()
+
+
+def test_the_app_is_called_dipstick_with_a_capital_d(app: Page):
+    expect(app).to_have_title("Dipstick")
+    expect(app.get_by_role("heading", level=1)).to_have_text("Dipstick")

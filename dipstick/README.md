@@ -99,8 +99,8 @@ PyInstaller only builds for the system it runs on. GitHub Actions builds all thr
 
 ```
 .venv/bin/pip install -r requirements-app.txt
-.venv/bin/pyinstaller --noconfirm packaging/dipstick.spec   # dist/dipstick.app (Mac) or dist/dipstick/ (Windows, Linux)
-dist/dipstick.app/Contents/MacOS/dipstick --self-test        # prints what it saw, exits 0 if the window reached Python
+.venv/bin/pyinstaller --noconfirm packaging/dipstick.spec   # dist/Dipstick.app (Mac) or dist/Dipstick/ (Windows, Linux)
+dist/Dipstick.app/Contents/MacOS/Dipstick --self-test        # prints what it saw, exits 0 if the window reached Python
 ```
 
 On Linux, install GTK and WebKit first (Ubuntu 24.04 names): `sudo apt install pkg-config libcairo2-dev libgirepository1.0-dev gir1.2-webkit2-4.1`. The built Linux app needs WebKitGTK on the computer it runs on (most desktops have it).

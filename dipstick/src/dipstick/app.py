@@ -19,7 +19,7 @@ from dipstick.measure import band_for_target, measure_band, measure_cable
 from dipstick.plots import smith_svg, swr_svg
 from dipstick.scan import MAX_POINTS
 
-APP_NAME = "dipstick"
+APP_NAME = "Dipstick"  # the window title (the command stays lowercase: dipstick)
 PAGE = Path(__file__).parent / "ui" / "index.html"
 # The cable tab's labels, so errors name the field to fix (index.html must match).
 _FIELDS = {"no_antenna": "tick No antenna connected", "vf": "Velocity factor", "length": "Length",
