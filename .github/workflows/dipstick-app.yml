@@ -1,0 +1,85 @@
+name: dipstick app
+on:
+  push:
+    paths:
+      - "dipstick/src/**"
+      - "dipstick/packaging/**"
+      - "dipstick/requirements-*.txt"
+      - ".github/workflows/dipstick-app.yml"
+  workflow_dispatch:  # the Actions tab's "Run workflow" button
+permissions:
+  contents: read
+jobs:
+  build:
+    # PyInstaller only builds for the system it runs on, so each OS gets its own runner.
+    strategy:
+      fail-fast: false  # one OS failing still shows the others' results
+      matrix:
+        # ubuntu-24.04 named, not -latest: the GTK packages below are named for it.
+        os: [macos-latest, windows-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: dipstick
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          # 3.12, the version the Mac build was first checked with; PyGObject 3.50.0 (Linux) predates 3.15.
+          python-version: "3.12"
+      - name: GTK and WebKit for the Linux window (and a virtual screen for the self-test)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libcairo2-dev libgirepository1.0-dev gir1.2-webkit2-4.1 xvfb
+      - run: pip install -r requirements-app.txt
+      - run: pyinstaller --noconfirm packaging/dipstick.spec
+
+      # The self-test opens the built app's window, checks the page reached Python, and exits 0. It
+      # gets no NanoVNA connection, so nothing is swept.
+      - name: Self-test the built app (macOS)
+        if: runner.os == 'macOS'
+        timeout-minutes: 2
+        run: dist/dipstick.app/Contents/MacOS/dipstick --self-test
+      - name: Self-test the built app (Linux)
+        if: runner.os == 'Linux'
+        timeout-minutes: 2
+        run: xvfb-run -a dist/dipstick/dipstick --self-test
+      - name: Self-test the built app (Windows)
+        if: runner.os == 'Windows'
+        # A windowed app reports its exit code only if waited on. The time limit is because a
+        # crash can open an error dialog that nobody on a runner can dismiss.
+        run: |
+          $app = Start-Process -FilePath "dist\dipstick\dipstick.exe" -ArgumentList "--self-test" -PassThru
+          $handle = $app.Handle  # without this, ExitCode stays empty
+          if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "self-test still running after 60 s, probably an error dialog" }
+          if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          hdiutil create -volname "dipstick" -srcfolder dist/dipstick.app -format UDZO dist/dipstick-macOS.dmg
+          cd dist && shasum -a 256 dipstick-macOS.dmg > dipstick-macOS.dmg.sha256
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          tar -czf dist/dipstick-Linux.tar.gz -C dist dipstick
+          cd dist && sha256sum dipstick-Linux.tar.gz > dipstick-Linux.tar.gz.sha256
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Compress-Archive -Path "dist\dipstick" -DestinationPath dist\dipstick-Windows.zip
+          # The standard "hash  name" line (lowercase, LF, no BOM), so `shasum -c` and `sha256sum -c` read it.
+          $hash = (Get-FileHash dist\dipstick-Windows.zip -Algorithm SHA256).Hash.ToLower()
+          [IO.File]::WriteAllText("$PWD\dist\dipstick-Windows.zip.sha256", "$hash  dipstick-Windows.zip`n")
+      - name: Check the checksum file reads with the standard tools
+        shell: bash  # Git Bash on Windows
+        run: |
+          cd dist
+          if command -v sha256sum >/dev/null; then sha256sum -c dipstick-*.sha256; else shasum -a 256 -c dipstick-*.sha256; fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dipstick-${{ runner.os }}
+          path: |
+            dipstick/dist/dipstick-*
+          if-no-files-found: error
+          retention-days: 14

@@ -96,7 +96,54 @@ def _points(value) -> int:
     raise ValueError(f"Points must be a whole number, got {value!r}")
 
 
+# What the self-test reads from the page, after opening the Cable tab and ticking its box (never
+# clicking Check cable). Check cable enabled means the page reached Python.
+_PROBE = """
+document.getElementById('tab-cable').click();
+const box = document.getElementById('no-antenna');
+box.checked = true; box.dispatchEvent(new Event('change'));
+({bands: document.getElementById('band').options.length,
+  disabled: document.getElementById('sweep').disabled,
+  live: document.getElementById('live').disabled,
+  connection: document.getElementById('connection').textContent,
+  cable: document.getElementById('check-cable').disabled})
+"""
+
+
+def self_test() -> int:
+    """Open a small window, check the page reached Python, close it: 0 if it did. Prints what it saw
+    as one JSON line. tests/test_window.py and the build check in CI run this. It gets no NanoVNA
+    connection and an empty port list, so nothing can be swept."""
+    import json
+    import time
+
+    import webview
+
+    seen = {}
+
+    def probe(window):
+        for _ in range(100):  # up to 10 s for the page and the bridge
+            time.sleep(0.1)
+            try:
+                seen.update(window.evaluate_js(_PROBE))
+            except Exception as error:  # the page may not be loaded yet
+                seen.update(error=str(error))
+            if seen.get("bands", 0) > 1 and seen.get("disabled") is False and seen.get("connection") \
+                    and seen.get("cable") is False:
+                seen.pop("error", None)
+                break
+        window.destroy()
+
+    window = webview.create_window(f"{APP_NAME} self-test", PAGE.as_uri(), js_api=Api(connect=None, ports=lambda: []),
+                                   width=500, height=250)
+    webview.start(probe, window)
+    print(json.dumps(seen), flush=True)
+    return 0 if seen.get("bands", 0) > 1 and seen.get("cable") is False and "error" not in seen else 1
+
+
 def main() -> int:
+    if "--self-test" in sys.argv[1:]:
+        return self_test()
     import webview
 
     webview.create_window(APP_NAME, PAGE.as_uri(), js_api=Api(), width=1100, height=900, min_size=(480, 600))
