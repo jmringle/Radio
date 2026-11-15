@@ -1,7 +1,8 @@
 """The real NanoVNA, plugged in (what the fake link can't show: USB, timing, the real firmware).
 
-Read-only: these only ask for the version, board and current sweep settings, so they change
-nothing on the NanoVNA and start no sweep of their own. They run only when you ask:
+All but one only ask for the version, board and sweep settings. test_a_40m_scan_puts_the_settings_back
+sweeps 40 m once (inside the band, the NanoVNA's tiny signal) and checks your settings come back.
+They run only when you ask:
 
     DIPSTICK_HARDWARE=1 .venv/bin/pytest tests/test_hardware.py
 """
@@ -13,6 +14,7 @@ import pytest
 from serial.tools import list_ports
 
 from dipstick.device import NanoVNA, find_port
+from dipstick.scan import scan
 
 pytestmark = pytest.mark.skipif(os.environ.get("DIPSTICK_HARDWARE") != "1",
                                 reason="set DIPSTICK_HARDWARE=1 with the NanoVNA plugged in")
@@ -42,3 +44,12 @@ def test_it_reports_its_sweep_settings(nano):
 
 def test_asking_twice_stays_in_step(nano):
     assert nano.ask("version") == nano.ask("version")
+
+
+def test_a_40m_scan_puts_the_settings_back(nano):
+    before = nano.ask("sweep")
+    first_frequency = nano.ask("frequencies")[0]
+    readings = scan(nano, 7_000_000, 7_300_000, 11)
+    assert [r.hz for r in readings] == list(range(7_000_000, 7_300_001, 30_000))
+    assert nano.ask("sweep") == before
+    assert nano.ask("frequencies")[0] == first_frequency  # the frequency list really came back too
