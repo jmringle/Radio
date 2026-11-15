@@ -2,7 +2,7 @@
 
 Models your HF antennas with NEC2 so you can see what they do before changing anything in the yard: radiation pattern, takeoff angle, gain, feedpoint impedance and SWR across a band. Antennas: the 40 m dipole, the 40 m EFHW (with the tuner on 40/20/15/10 m), the 30 m dipole and the 20 m vertical. It runs entirely on your computer: no network, no radio connection, nothing transmits.
 
-**Status:** scaffold. NEC2 runs through PyNEC and is checked against textbook dipole values, and the SWR math is tested. No antenna files, plots or command yet (see Next).
+**Status:** antenna files are read and checked; NEC2 runs through PyNEC and is checked against textbook dipole values; the SWR math is tested. No ground model, plots or command yet (see Next).
 
 ## Setup
 
@@ -15,6 +15,29 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 ```
 
+## Antenna files
+
+One TOML file per antenna. Each straight wire is a `[[wire]]` section with its two end points; a sloping or bent antenna is several wires that share end points.
+
+```toml
+name = "40m EFHW"
+units = "ft"            # required, no default: "ft" or "m"
+ground = "average"      # free-space, perfect, average, poor or good
+bands = ["40m", "20m", "15m", "10m"]   # 160m, 80m (includes 75m), 40m, 30m, 20m, 17m, 15m, 12m, 10m
+
+[[wire]]
+from = [0, 0, 6]        # x, y, height
+to = [66, 0, 25]        # sloping up to a tree
+size = "14 AWG"         # or a diameter, "2.0 mm"
+
+[feed]
+wire = 1                # which [[wire]], counting from 1
+at = 0                  # 0 = the wire's "from" end, 0.5 = middle, 1 = "to" end
+ratio = 49              # 49:1 transformer; leave out if there's none
+```
+
+Everything is converted to meters when read. A file with a problem is refused with one line naming the file and the field, e.g. `efhw.toml: wire 1: unknown key 'hieght' (allowed: from, size, to)`. Unknown keys are refused on purpose, so a typo can't quietly fall back to a default.
+
 ## Running tests
 
 ```
@@ -26,6 +49,7 @@ The same command runs in GitHub Actions on every push that touches this folder (
 | File | What it guards |
 |---|---|
 | `tests/test_swr.py` | SWR against hand-worked values; shorts and pure reactances are infinite; negative resistance and non-numbers refused |
+| `tests/test_antenna_file.py` | Feet and meters, AWG against published diameters, and every way a file can be wrong: missing or unknown keys, wrong types (including `true` where a number goes), NaN and infinity, wires underground or of zero length, a feed on a wire that doesn't exist, control characters in the name, broken TOML, not UTF-8, over 64 KB, over 100 wires |
 | `tests/test_nec.py` | NEC2 against textbook dipoles: a half wave is about 73 + j42 ohms, about 0.485 wavelength is nearly resonant near 70 ohms, too short is capacitive; impossible dimensions refused |
 
 The textbook tests are the foundation: a model of your real antenna is only worth trusting if the same setup gets the known answers right.
@@ -46,7 +70,7 @@ The textbook tests are the foundation: a model of your real antenna is only wort
 
 ### Acceptance criteria (v1, to build)
 
-- **One antenna file per antenna** (TOML, read with Python's standard library): wires as end points and wire size, the feedpoint, height, ground type, and the bands to model.
+- **One antenna file per antenna** (TOML, read with Python's standard library; built 2026-11-15, see Antenna files): wires as end points and wire size (AWG 0-40 or 0-50 mm), units `ft` or `m` (required), the feedpoint and transformer ratio (up to 100), ground type, and the bands to model (HF bands of 47 CFR 97.301(b), Region 2, eCFR read 2026-11-15; 60 m left out, it's channels, 97.303(h)). Heights below 0 are refused except in free space; 0 is allowed (a ground-mounted vertical).
 - **`antenna-model FILE`** prints, for each band: feedpoint impedance and SWR (50 ohms) at band edges and center, the frequency of lowest SWR, maximum gain (dBi) and the takeoff angle of the main lobe. It saves SVG plots to `output/` (drawn by this tool, no plotting library; the same drawing code serves ft8-forecast's page): elevation pattern, azimuth pattern at the takeoff angle, SWR across the band.
 - **Results file:** `--json` writes the same results as JSON with a format version: the contract ft8-forecast reads. It records which solver and version produced it.
 - **Ground:** free space for the textbook checks, and real ground (conductivity and permittivity) for your antennas, with named presets whose values cite their source.
@@ -60,8 +84,9 @@ Personal tool, local files, no network, no radio connection. Antenna files are y
 
 | ID | Threat | OWASP 2025 | Mitigation | Test |
 |---|---|---|---|---|
-| T1 | A malformed or crafted antenna file crashes the run or gives a believable but wrong answer | A10 Mishandling of Exceptional Conditions | Every field validated (finite, positive, thin-wire limits) before NEC2 sees it; clear one-line errors | `test_impossible_inputs_are_refused`, `test_impossible_dimensions_are_refused`; more with the file reader |
-| T2 | A huge segment count uses up memory or CPU (NEC2's memory grows with the square of the segment count) | A06 Insecure Design | A cap on total segments, checked before running | with the file reader |
+| T1 | A malformed or crafted antenna file crashes the run or gives a believable but wrong answer | A10 Mishandling of Exceptional Conditions | Every field validated (types, finite, ranges, unknown keys refused) before NEC2 sees it; clear one-line errors; file read capped at 64 KB | `test_bad_files_are_refused_with_a_message_naming_the_field`, `test_files_that_arent_antenna_text`, `test_impossible_inputs_are_refused`, `test_impossible_dimensions_are_refused` |
+| T2 | A huge model uses up memory or CPU (NEC2's memory grows with the square of the segment count) | A06 Insecure Design | At most 100 wires per file; a cap on total segments, checked before running | `test_too_many_wires`; the segment cap with the model |
+| T2b | An antenna name with terminal control codes or a line break rewrites your terminal or fakes output lines when printed | A05 Injection | Names with control, format or line-separator characters are refused; 60 characters max | `name control code`, `name line break`, `name line separator` cases |
 | T3 | An output name in a file writes outside `output/` | A01 Broken Access Control | Plot names are made by the tool, never taken from the file | with the plots |
 | T4 | A compromised dependency; PyNEC is compiled C++, so a bad wheel runs native code | A03 Software Supply Chain Failures | Exact pins, 2-week rule, `pip-audit`, Dependabot | CI |
 | T5 | ft8-forecast reads a results file that's damaged or crafted (a shared file) and crashes or injects markup into its page | A05 Injection, A10 Mishandling of Exceptional Conditions | ft8-forecast validates the file (format version, size cap, numbers in range) and escapes all text; no markup taken from the file | in ft8-forecast, with the page |
@@ -70,7 +95,7 @@ No secrets: nothing here needs a key or password, so there's no `.env`.
 
 ## Next
 
-1. The antenna file format and reader, with its validation tests.
+1. ~~The antenna file format and reader~~ (done 2026-11-15).
 2. Real ground and the takeoff angle and gain from a pattern; test against textbook dipoles over ground (a horizontal dipole a half wavelength up has its main lobe near 30 degrees).
 3. The command, the SVG plots and the JSON results file.
 4. Your four antennas, from your measurements: wire lengths, feedpoint and end heights, flat or inverted V, the vertical's radials.
