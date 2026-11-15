@@ -50,6 +50,9 @@ jobs:
       - name: Run it with the files still marked (expected to fail if the mark is the cause)
         id: marked
         continue-on-error: true
+        # Its own limit: a stuck app (an error dialog) can keep the step from ending even after
+        # the kill below (found on the first run, which hung until the job's limit).
+        timeout-minutes: 3
         run: |
           $app = Start-Process -FilePath "installed\Dipstick\Dipstick.exe" -ArgumentList "--self-test" -PassThru
           $handle = $app.Handle  # without this, ExitCode stays empty
@@ -57,7 +60,15 @@ jobs:
           if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
           "the marked build started fine"
 
+      - name: Close anything the marked run left open
+        if: always()
+        run: |
+          Get-Process Dipstick, msedgewebview2, WerFault -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, MainWindowTitle -AutoSize | Out-String
+          Get-Process Dipstick, WerFault -ErrorAction SilentlyContinue | Stop-Process -Force
+
       - name: Unblock the files and run it again (must pass)
+        if: always()
+        timeout-minutes: 3
         run: |
           Get-ChildItem installed -Recurse | Unblock-File
           $app = Start-Process -FilePath "installed\Dipstick\Dipstick.exe" -ArgumentList "--self-test" -PassThru
@@ -67,6 +78,7 @@ jobs:
           "the unblocked build passed its self-test"
 
       - name: Result
+        if: always()
         shell: bash
         run: |
           if [ "${{ steps.marked.outcome }}" = failure ]; then
