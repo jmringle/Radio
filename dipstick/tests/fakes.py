@@ -19,6 +19,7 @@ class FakeLink:
         self.pending = b""
         self.written = []
         self.empty_reads = 0
+        self.closed = False
 
     def write(self, data):
         self.written.append(data)
@@ -30,3 +31,6 @@ class FakeLink:
         out, self.pending = self.pending[:n], self.pending[n:]
         self.empty_reads += not out
         return out
+
+    def close(self):
+        self.closed = True

@@ -4,7 +4,7 @@ Reads your NanoVNA over USB and tells you, in plain words, what it measured: whe
 
 The name: an antenna's resonance shows up as a dip in the SWR curve, and the classic tool for finding it was the grid-dip meter. Like a car's dipstick, it's the quick check you pull out and read.
 
-**Status:** talks to the NanoVNA: finds it, sends allowed commands and reads the replies, with timeouts and checks on every reply. The math that turns its measurement into SWR, impedance and return loss is built and tested, as are the rules for what may be sent and where antenna sweeps may go. It can sweep a range and turn it into readings, putting your NanoVNA's own sweep settings back afterward. No command yet (see Next).
+**Status:** talks to the NanoVNA: finds it, sends allowed commands and reads the replies, with timeouts and checks on every reply. The math that turns its measurement into SWR, impedance and return loss is built and tested, as are the rules for what may be sent and where antenna sweeps may go. `dipstick 40m` sweeps a band and explains the result: best match, SWR across the band, 2:1 bandwidth, where X = 0, and how much to trim. Your NanoVNA's own sweep settings are put back afterward. No plots or cable checks yet (see Next).
 
 **Tested with:** NanoVNA-H, firmware 1.2.43 (DiSlord-based; `info` says "Version: 1.2.43 [p:101, IF:12k, ADC:192k, Lcd:320x240]", built Feb 19 2025), on macOS as `/dev/cu.usbmodem4001`, USB ID 0483:5740.
 
@@ -18,6 +18,38 @@ python3 -m venv .venv
 .venv/bin/python -m pip install pip==26.2.2   # venv starts with the pip Python shipped with; pip-audit flags old ones
 .venv/bin/pip install -r requirements-dev.txt
 ```
+
+## Usage
+
+Connect the antenna's coax to the NanoVNA's CH0 port, then:
+
+```
+.venv/bin/dipstick 40m                  # trims for the middle of the band
+.venv/bin/dipstick 40m --target 7.074   # trims for the FT8 frequency
+.venv/bin/dipstick 2m --points 51       # 2 to 101 points (default 101)
+.venv/bin/dipstick 40m --port /dev/cu.usbmodem4001   # if it can't find the NanoVNA
+```
+
+Bands: 160m, 80m, 40m, 30m, 20m, 17m, 15m, 12m, 10m, 6m, 2m, 1.25m, 70cm, 33cm (also your 915 MHz MeshCore antennas), 23cm. Example (a made-up antenna that's a little long):
+
+```
+40m: 7.000-7.300 MHz, 101 points
+
+Best match: SWR 1.00 at 7.051 MHz (excellent)
+  SWR (standing wave ratio) says how well the antenna matches your 50-ohm coax:
+  1.0 is a perfect match, and the higher it is, the more power bounces back toward the radio.
+  ...
+Across the band: 7.000 MHz SWR 1.81 | 7.150 MHz SWR 3.03 | 7.300 MHz SWR 10.52
+
+2:1 bandwidth: 7.000-7.111 MHz (111 kHz, and it may go lower)
+  ...
+Shorten the antenna about 1.4% to move the best match to 7.150 MHz.
+  ...
+```
+
+Exit codes: `0` measured (whatever the SWR), `2` no NanoVNA, a device problem, or bad arguments (one line on stderr starting `dipstick:`). With nothing on the port it says so ("SWR is infinite everywhere: all of the signal comes back") instead of giving advice.
+
+**Why trim advice comes from SWR, not X:** on low-loss coax, SWR is the same at both ends of the cable, so the lowest-SWR frequency is the antenna's own best match however long the coax is. The impedance R + jX changes along the coax, so X = 0 at the radio's end usually isn't where the antenna itself is resonant. dipstick shows X and explains this, but trims by SWR. The trim percent assumes a wire antenna, whose best-match frequency moves opposite to its length (length is roughly proportional to 1 / frequency).
 
 ## Reading a NanoVNA: the short version
 
@@ -56,6 +88,9 @@ The same command runs in GitHub Actions on every push that touches this folder (
 | `tests/test_commands.py` | Only read-and-sweep commands can be sent; anything that could erase calibration or change settings is refused; arguments must be whole numbers, so no second command can be smuggled in |
 | `tests/test_device.py` | Finding the NanoVNA: only a port with its USB ID and name, never a look-alike or a radio's CAT cable; none or two found. Asking: recorded replies, one byte or many per read; leftovers from an interrupted session cleared; silence and half replies time out on time; endless replies cut off; a wrong echo (out of step), garbled bytes and the "unknown command" reply are errors |
 | `tests/test_scan.py` | A recorded 40 m scan becomes readings; settings read first and always put back, even when the scan fails; a failed restore says what to set by hand; antenna scans refused outside one band before anything is sent; 2-101 points; every reply line checked (count, numbers, order, range, impossible S11), naming the bad line |
+| `tests/test_analysis.py` | The numbers, from a made-up antenna with exact answers (R = 50, X rising steadily; SWR 2 where X = 35.36 ohms): best match, edges, 2:1 bandwidth (interpolated, open-ended, none), X = 0 crossings, trim percent and direction, best match beyond either edge, nothing connected (threshold SWR 10) |
+| `tests/test_report.py` | The wording: ratings, shorten or lengthen with the percent, "at least" when the best match is beyond an edge, 2:1 cases, the coax explanation for X, nothing connected gives no advice, the calibration reminder |
+| `tests/test_cli.py` | The command end to end with a fake NanoVNA: your recorded open-port scan, a good antenna, `--target`, `--port`; bad arguments refused before connecting; device errors are one line and exit 2; the port is closed and settings put back |
 | `tests/test_hardware.py` | The real NanoVNA answers, is a NanoVNA, reports its sweep settings, stays in step, and a 40 m scan puts its settings back (only with `DIPSTICK_HARDWARE=1`) |
 | `tests/test_bands.py` | Band edges (47 CFR 97.301); antenna sweeps must stay inside one band, checked 1 Hz past each edge |
 
@@ -70,7 +105,7 @@ The same command runs in GitHub Actions on every push that touches this folder (
 ### Acceptance criteria (v1, to build)
 
 - **Find the NanoVNA:** only a USB serial port with the NanoVNA's ID (0483:5740) is opened. Writing text to the wrong port, such as a radio's CAT port, could change the radio's settings or worse. None found: say so and list what is connected. More than one: ask for `--port`.
-- **`dipstick 40m`** (antenna): sweeps the band, then prints the lowest-SWR frequency and its SWR, SWR at the band edges and middle, the 2:1 bandwidth, the resonant frequency (X = 0) if there is one in the band, and R + jX there, each with a line saying what it means and what to do (e.g. "resonant below the band: shorten the wire"). Saves an SWR plot and a Smith chart as SVG in `output/`.
+- **`dipstick 40m`** (antenna; built 2026-11-15 except the plots): sweeps the band, then prints the lowest-SWR frequency and its SWR, SWR at the band edges and middle, the 2:1 bandwidth, the resonant frequency (X = 0) if there is one in the band, and R + jX there, each with a line saying what it means and what to do (e.g. "resonant below the band: shorten the wire"). Saves an SWR plot and a Smith chart as SVG in `output/`.
 - **`dipstick cable --far-end open|short`** (feed line): you confirm there's no antenna on the cable. A wide sweep finds the distance to the far end or a fault (time-domain reflectometry, TDR: the time an echo takes to come back, times the speed of the signal in that coax, its velocity factor) and estimates the cable's loss.
 - **Leaves the NanoVNA as it found it:** `scan` replaces the NanoVNA's own frequency list and point count, and afterward `sweep` still reports the old start and stop (found on firmware 1.2.43, 2026-11-15). So dipstick reads the settings before each scan and always puts them back, even if the scan fails; if that fails too, it tells you what to set by hand. It never sends calibration, save, power or reset commands.
 - **Calibration:** dipstick uses the NanoVNA's own saved calibration. The README explains when to recalibrate (a different frequency range, cable or adapter).
@@ -95,7 +130,7 @@ No secrets: nothing needs a key or password, so there's no `.env`.
 
 1. ~~Talk to the NanoVNA~~ (done 2026-11-15). On Windows the port may not be named NanoVNA, so you may need `--port COM3` (untested there).
 2. ~~`scan` a range into readings, putting the settings back~~ (done 2026-11-15). The 33cm entry also covers 915 MHz MeshCore antennas (902-928 MHz is both the 33 cm amateur band and the Part 15 ISM band); a friendlier name like `915` could come with the command.
-3. `dipstick 40m`: the summary and the explanations.
+3. ~~`dipstick 40m`: the summary and the explanations~~ (done 2026-11-15). First real-antenna check: your 2m/70cm HT antenna (`dipstick 2m`, `dipstick 70cm`).
 4. SVG plots: SWR across the band and the Smith chart.
 5. `dipstick cable`: TDR distance and loss, with velocity factors for your coax (from the manufacturer's data sheet).
 6. Later: a local web page with a live SWR curve, for trimming an antenna in the yard; and saving sweeps for antenna-model to compare with its predictions.
