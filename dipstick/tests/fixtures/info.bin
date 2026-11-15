@@ -1,0 +1,10 @@
+info
+Board: NanoVNA-H
+2019-2025 Copyright NanoVNA.com
+based on  @DiSlord @edy555 ... source
+Licensed under GPL.
+Version: 1.2.43 [p:101, IF:12k, ADC:192k, Lcd:320x240]
+Build Time: Feb 19 2025 - 21:36:54
+Architecture: ARMv6-M Core Variant: Cortex-M0
+Platform: STM32F072xB Entry Level Medium Density devices
+ch> 

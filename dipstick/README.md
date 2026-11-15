@@ -4,7 +4,7 @@ Reads your NanoVNA over USB and tells you, in plain words, what it measured: whe
 
 The name: an antenna's resonance shows up as a dip in the SWR curve, and the classic tool for finding it was the grid-dip meter. Like a car's dipstick, it's the quick check you pull out and read.
 
-**Status:** scaffold. The math that turns the NanoVNA's measurement into SWR, impedance and return loss is built and tested, as are the safety rules for what may be sent to the NanoVNA and where antenna sweeps may go. It doesn't talk to the NanoVNA yet (see Next).
+**Status:** talks to the NanoVNA: finds it, sends allowed commands and reads the replies, with timeouts and checks on every reply. The math that turns its measurement into SWR, impedance and return loss is built and tested, as are the rules for what may be sent and where antenna sweeps may go. No sweeps or command yet (see Next).
 
 **Tested with:** NanoVNA-H, firmware 1.2.43 (DiSlord-based; `info` says "Version: 1.2.43 [p:101, IF:12k, ADC:192k, Lcd:320x240]", built Feb 19 2025), on macOS as `/dev/cu.usbmodem4001`, USB ID 0483:5740.
 
@@ -40,12 +40,22 @@ dipstick will print each of these with an explanation for your antenna, so you c
 .venv/bin/pytest
 ```
 
-The tests use no hardware. The same command runs in GitHub Actions on every push that touches this folder (`.github/workflows/dipstick-tests.yml`, Python 3.12 and 3.15), followed by `pip-audit` (known-vulnerable dependencies). Gitleaks scans the whole repo for committed secrets.
+These use no hardware: replies recorded byte for byte from your NanoVNA (`tests/fixtures/`) are played back by a fake serial port. To also test the real thing, plug the NanoVNA in and run:
+
+```
+DIPSTICK_HARDWARE=1 .venv/bin/pytest tests/test_hardware.py
+```
+
+Those are read-only (version, board, current sweep settings): they change nothing on the NanoVNA and start no sweep. CI skips them.
+
+The same command runs in GitHub Actions on every push that touches this folder (`.github/workflows/dipstick-tests.yml`, Python 3.12 and 3.15), followed by `pip-audit` (known-vulnerable dependencies). Gitleaks scans the whole repo for committed secrets.
 
 | File | What it guards |
 |---|---|
 | `tests/test_s11.py` | S11 to impedance, SWR and return loss against hand-worked values; opens and shorts; noise just above 1 on an open; impossible readings refused |
 | `tests/test_commands.py` | Only read-and-sweep commands can be sent; anything that could erase calibration or change settings is refused; arguments must be whole numbers, so no second command can be smuggled in |
+| `tests/test_device.py` | Finding the NanoVNA: only a port with its USB ID and name, never a look-alike or a radio's CAT cable; none or two found. Asking: recorded replies, one byte or many per read; leftovers from an interrupted session cleared; silence and half replies time out on time; endless replies cut off; a wrong echo (out of step), garbled bytes and the "unknown command" reply are errors |
+| `tests/test_hardware.py` | The real NanoVNA answers, is a NanoVNA, reports its sweep settings and stays in step (only with `DIPSTICK_HARDWARE=1`) |
 | `tests/test_bands.py` | Band edges (47 CFR 97.301); antenna sweeps must stay inside one band, checked 1 Hz past each edge |
 
 ## Design notes
@@ -73,8 +83,8 @@ Personal tool on your own machine; no network. It controls a device that puts RF
 |---|---|---|---|---|
 | T1 | dipstick erases or overwrites your NanoVNA's calibration or settings (a bug, or a bad future change) | A06 Insecure Design | Only read-and-sweep commands are on the allowlist | `test_anything_off_the_allowlist_is_refused` |
 | T2 | A value with a carriage return in it ends one command and starts another (`7000000\rclearconfig`): command injection | A05 Injection | Command arguments must be whole numbers; names must be on the allowlist | `test_arguments_must_be_whole_numbers`, `test_a_command_name_cant_carry_a_second_command` |
-| T3 | dipstick opens the wrong serial port, such as a radio's CAT port, and sends it text | A06 Insecure Design | Only ports with the NanoVNA's USB ID are opened | with port finding |
-| T4 | A garbled, endless or hostile reply from the device crashes the tool or shows wrong numbers | A10 Mishandling of Exceptional Conditions | Timeouts, a cap on reply size, strict number parsing, impossible readings refused | `test_impossible_measurements_are_refused`; more with the device link |
+| T3 | dipstick opens the wrong serial port, such as a radio's CAT port, and sends it text | A06 Insecure Design | Only a port with the NanoVNA's USB ID (0483:5740) whose name also says NanoVNA (that ID is ST's generic one, shared by other STM32 gadgets); otherwise you name the port | `test_never_picks_something_that_isnt_a_nanovna`, `test_two_nanovnas_ask_which` |
+| T4 | A garbled, endless or hostile reply from the device crashes the tool or shows wrong numbers | A10 Mishandling of Exceptional Conditions | 5 s timeout; replies capped at 64 KB; plain printable ASCII only; the echo must match the command sent; impossible readings refused | `test_silence_times_out`, `test_it_gives_up_after_the_timeout_not_later`, `test_an_endless_reply_is_cut_off`, `test_garbled_bytes_are_refused`, `test_a_wrong_echo_means_out_of_step`, `test_impossible_measurements_are_refused` |
 | T5 | A wide sweep goes out through an antenna, onto non-amateur frequencies | none (radio rules) | Antenna sweeps locked inside one amateur band; wide sweeps only after you confirm no antenna | `test_sweeps_that_leave_a_band_are_refused`; the confirmation with `cable` |
 | T6 | A compromised dependency | A03 Software Supply Chain Failures | One dependency, pinned; `pip-audit`, Dependabot | CI |
 
@@ -82,7 +92,7 @@ No secrets: nothing needs a key or password, so there's no `.env`.
 
 ## Next
 
-1. Talk to the NanoVNA: find its port (T3), send a command, read until the `ch>` prompt, with timeouts (T4). Record real replies from your NanoVNA as test fixtures, so tests run without hardware; plus a few hardware tests that run only when it's plugged in.
+1. ~~Talk to the NanoVNA~~ (done 2026-11-15). On Windows the port may not be named NanoVNA, so you may need `--port COM3` (untested there).
 2. `scan` a band and turn it into readings; put the NanoVNA's sweep settings back afterward. Check on the device what `scan` changes first.
 3. `dipstick 40m`: the summary and the explanations.
 4. SVG plots: SWR across the band and the Smith chart.
