@@ -16,11 +16,14 @@ from pathlib import Path
 from dipstick.bands import BANDS
 from dipstick.cli import connect as connect_nanovna
 from dipstick.device import DeviceError, nanovna_ports
-from dipstick.measure import band_for_target, measure_band
+from dipstick.measure import band_for_target, measure_band, measure_cable
 from dipstick.plots import smith_svg, swr_svg
 
 APP_NAME = "dipstick"
 PAGE = Path(__file__).parent / "ui" / "index.html"
+# The cable tab's labels, so errors name the field to fix (index.html must match).
+_FIELDS = {"no_antenna": "tick No antenna connected", "vf": "Velocity factor", "length": "Length",
+           "max_length": "Longest cable"}
 
 
 class Api:
@@ -48,19 +51,34 @@ class Api:
     def sweep(self, band, target, points) -> dict:
         """Measure a band (or, with no band, the band the target is in); answers
         {"ok": True, band, report, swr_svg, smith_svg} or {"ok": False, error}."""
+        def measure():
+            nonlocal band
+            text = target if isinstance(target, str) else None
+            if not band:  # "Choose a band" left as it is: the target decides
+                band = band_for_target(text)
+            if not isinstance(band, str):
+                raise ValueError("Choose a band")
+            measured = measure_band(band, text, _points(points), self._connect)
+            # The window's stylesheet colors the plots (its security policy blocks inline styles).
+            return {"band": band, "report": measured.report,
+                    "swr_svg": swr_svg(measured.readings, band, standalone=False),
+                    "smith_svg": smith_svg(measured.readings, standalone=False)}
+        return self._one_at_a_time(measure)
+
+    def cable(self, no_antenna, vf, length, max_length) -> dict:
+        """Check a coax cable (a wide sweep: only when no_antenna is exactly true); answers
+        {"ok": True, report, smith_svg} or {"ok": False, error}."""
+        def measure():
+            measured = measure_cable(no_antenna, vf, length, max_length, self._connect, names=_FIELDS)
+            return {"report": measured.report, "smith_svg": smith_svg(measured.readings, standalone=False)}
+        return self._one_at_a_time(measure)
+
+    def _one_at_a_time(self, measure) -> dict:
+        """pywebview runs each call from the page on its own thread, and there's one NanoVNA."""
         if not self._busy.acquire(blocking=False):
             return {"ok": False, "error": "A sweep is already running"}
         try:
-            target = target if isinstance(target, str) else None
-            if not band:  # "Choose a band" left as it is: the target decides
-                band = band_for_target(target)
-            if not isinstance(band, str):
-                raise ValueError("Choose a band")
-            measured = measure_band(band, target, _points(points), self._connect)
-            # The window's stylesheet colors the plots (its security policy blocks inline styles).
-            return {"ok": True, "band": band, "report": measured.report,
-                    "swr_svg": swr_svg(measured.readings, band, standalone=False),
-                    "smith_svg": smith_svg(measured.readings, standalone=False)}
+            return {"ok": True, **measure()}
         except (DeviceError, ValueError) as error:
             return {"ok": False, "error": str(error)}
         except Exception as error:  # a bug: say so on the page, keep the details for the log
@@ -68,7 +86,6 @@ class Api:
             return {"ok": False, "error": f"Unexpected error ({type(error).__name__}); details are in the log"}
         finally:
             self._busy.release()
-
 
 def _points(value) -> int:
     """The page sends numbers or text; accept whole numbers only."""

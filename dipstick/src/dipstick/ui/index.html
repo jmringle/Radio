@@ -16,14 +16,35 @@
 <body>
   <header>
     <h1>dipstick</h1>
+    <!-- The ARIA tab pattern: the arrow keys move between tabs (app.js). -->
+    <div role="tablist" aria-label="What to check">
+      <button id="tab-antenna" type="button" role="tab" aria-selected="true" aria-controls="antenna-panel">Antenna</button>
+      <button id="tab-cable" type="button" role="tab" aria-selected="false" aria-controls="cable-panel" tabindex="-1">Cable</button>
+    </div>
+    <p id="connection" role="status" aria-label="NanoVNA"></p>
+  </header>
+  <section id="antenna-panel" role="tabpanel" aria-labelledby="tab-antenna">
     <form id="controls">
       <label for="band">Band</label> <select id="band"></select>
       <label for="target">Target</label> <input id="target" inputmode="decimal" placeholder="e.g. 146.520" autocomplete="off">
       <button id="sweep" type="submit" disabled>Sweep</button>  <!-- enabled once Python is reachable -->
       <button id="live" type="button" disabled>Live</button>  <!-- sweeps again and again; becomes Stop -->
     </form>
-    <p id="connection" role="status" aria-label="NanoVNA"></p>
-  </header>
+  </section>
+  <section id="cable-panel" role="tabpanel" aria-labelledby="tab-cable" hidden>
+    <!-- The cable check sweeps 1-200 MHz, outside the ham bands: only with no antenna on the cable.
+         The box is unticked after every check, so it's confirmed each time. -->
+    <form id="cable-controls">
+      <label class="confirm"><input id="no-antenna" type="checkbox" aria-describedby="cable-hint"> No antenna connected</label>
+      <label for="vf">Velocity factor</label> <input id="vf" inputmode="decimal" placeholder="e.g. 0.66" autocomplete="off">
+      <label for="length">Length</label> <input id="length" placeholder="e.g. 15.2, 50ft or 6in" autocomplete="off">
+      <label for="max-length">Longest cable</label> <input id="max-length" value="50 m" autocomplete="off">
+      <button id="check-cable" type="submit" disabled>Check cable</button>  <!-- needs the box and Python -->
+    </form>
+    <p id="cable-hint" class="hint">Sweeps 1 to 200 MHz, outside the ham bands. Take the antenna off and leave the
+      cable's far end open or shorted. Give the velocity factor to measure the length, or the length to measure the
+      velocity factor.</p>
+  </section>
   <p id="status" role="status" aria-label="Sweep status" aria-live="polite"></p>
   <p id="error" role="alert"></p>
   <main>

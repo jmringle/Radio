@@ -25,6 +25,9 @@ window.__answer = {ok: true, band: "40m", report: "40m: 7.000-7.300 MHz, 101 poi
 window.__hold = false;
 window.__nanovna = {connected: true, text: "NanoVNA connected (/dev/cu.usbmodem401)"};
 window.__release = null;
+window.__cableCalls = [];
+window.__cableAnswer = {ok: true, report: "Cable: 1.000-48.000 MHz sweep, 101 points\\n\\nFar end: open\\n",
+                        smith_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-cable-smith" viewBox="0 0 10 10"><circle class="edge" cx="5" cy="5" r="5"/></svg>'};
 // Like real pywebview (its js/api.js and js/finish.js, 6.2.1): window.pywebview.api starts as an
 // EMPTY object, the functions are added later, and only then does "pywebviewready" fire.
 window.pywebview = {api: {}};
@@ -36,6 +39,11 @@ setTimeout(() => {
       window.__calls.push([band, target, points]);
       if (!window.__hold) return Promise.resolve(window.__answer);
       return new Promise(resolve => { window.__release = () => resolve(window.__answer); });
+    },
+    cable: (noAntenna, vf, length, longest) => {
+      window.__cableCalls.push([noAntenna, vf, length, longest]);
+      if (!window.__hold) return Promise.resolve(window.__cableAnswer);
+      return new Promise(resolve => { window.__release = () => resolve(window.__cableAnswer); });
     },
   });
   window.dispatchEvent(new CustomEvent("pywebviewready"));
@@ -221,3 +229,106 @@ def test_live_waits_until_python_is_reachable(page: Page):
     page.add_init_script(FAKE_API.replace("}, 50);", "}, 10_000);"))
     page.goto(PAGE)
     expect(page.get_by_role("button", name="Live")).to_be_disabled()
+
+
+# --- the cable check: its own tab, and only with "No antenna connected" ticked -----------------
+# The ARIA tab pattern: role=tab buttons in a role=tablist, each controlling a role=tabpanel; the
+# arrow keys move between tabs. get_by_role("tab") finds them the way a screen reader does.
+
+def cable_tab(app: Page):
+    app.get_by_role("tab", name="Cable").click()
+    return app
+
+
+def test_tabs_switch_by_click_and_by_arrow_keys(app: Page):
+    antenna, cable = app.get_by_role("tab", name="Antenna"), app.get_by_role("tab", name="Cable")
+    expect(antenna).to_have_attribute("aria-selected", "true")
+    expect(app.get_by_label("Velocity factor")).to_be_hidden()
+    cable.click()
+    expect(cable).to_have_attribute("aria-selected", "true")
+    expect(app.get_by_label("Velocity factor")).to_be_visible()
+    expect(app.get_by_label("Band", exact=True)).to_be_hidden()
+    cable.press("ArrowLeft")
+    expect(antenna).to_have_attribute("aria-selected", "true")
+    expect(antenna).to_be_focused()
+    expect(app.get_by_label("Band", exact=True)).to_be_visible()
+
+
+def test_check_cable_needs_the_no_antenna_box(app: Page):
+    cable_tab(app)
+    check, box = app.get_by_role("button", name="Check cable"), app.get_by_label("No antenna connected")
+    expect(check).to_be_disabled()
+    box.check()
+    expect(check).to_be_enabled()
+    box.uncheck()
+    expect(check).to_be_disabled()
+
+
+def test_a_cable_check_shows_the_report_and_smith_chart_then_clears_the_box(app: Page):
+    cable_tab(app)
+    app.get_by_label("Velocity factor").fill("0.66")
+    app.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Check cable").click()
+    expect(app.locator("#report")).to_contain_text("Far end: open")
+    expect(app.locator("#smith svg.test-cable-smith")).to_be_visible()
+    expect(app.locator("#swr svg")).to_have_count(0)  # no SWR plot for a cable
+    assert app.evaluate("window.__cableCalls") == [[True, "0.66", "", "50 m"]]
+    # Confirm again every time: the antenna might be back on by the next check.
+    expect(app.get_by_label("No antenna connected")).not_to_be_checked()
+    expect(app.get_by_role("button", name="Check cable")).to_be_disabled()
+
+
+def test_a_cable_error_is_shown_and_the_box_clears_too(app: Page):
+    app.evaluate('window.__cableAnswer = {ok: false, error: "Give Velocity factor or Length (one of them)"}')
+    cable_tab(app)
+    app.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Check cable").click()
+    expect(app.get_by_role("alert")).to_have_text("Give Velocity factor or Length (one of them)")
+    expect(app.get_by_label("No antenna connected")).not_to_be_checked()
+
+
+def test_nothing_else_can_start_during_a_cable_check(app: Page):
+    app.evaluate("window.__hold = true")
+    cable_tab(app)
+    app.get_by_label("Length").fill("50ft")
+    app.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Check cable").click()
+    expect(app.get_by_role("status", name="Sweep status")).to_have_text(re.compile("Checking the cable"))
+    for control in (app.get_by_role("tab", name="Antenna"), app.get_by_role("button", name="Check cable"),
+                    app.get_by_label("No antenna connected"), app.get_by_label("Length")):
+        expect(control).to_be_disabled()
+    app.evaluate("window.__release()")
+    expect(app.get_by_role("tab", name="Antenna")).to_be_enabled()
+    expect(app.get_by_role("status", name="Sweep status")).to_have_text("")
+    assert len(app.evaluate("window.__cableCalls")) == 1
+
+
+@pytest.mark.parametrize("start", ["Sweep", "Live"])
+def test_the_cable_tab_cant_be_opened_during_a_band_sweep(app: Page, start):
+    app.evaluate("window.__hold = true")
+    app.get_by_role("button", name=start).click()
+    expect(app.get_by_role("tab", name="Cable")).to_be_disabled()
+    if start == "Live":
+        app.get_by_role("button", name="Stop").click()
+    app.evaluate("window.__release()")
+    expect(app.get_by_role("tab", name="Cable")).to_be_enabled()
+
+
+def test_switching_tabs_clears_the_box_and_the_old_results(app: Page):
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#report")).not_to_be_empty()
+    cable_tab(app)
+    expect(app.locator("#report")).to_be_empty()  # a band's SWR isn't this cable's
+    expect(app.locator("#swr svg")).to_have_count(0)
+    app.get_by_label("No antenna connected").check()
+    app.get_by_role("tab", name="Antenna").click()
+    cable_tab(app)
+    expect(app.get_by_label("No antenna connected")).not_to_be_checked()
+
+
+def test_check_cable_waits_until_python_is_reachable(page: Page):
+    page.add_init_script(FAKE_API.replace("}, 50);", "}, 10_000);"))
+    page.goto(PAGE)
+    cable_tab(page)
+    page.get_by_label("No antenna connected").check()
+    expect(page.get_by_role("button", name="Check cable")).to_be_disabled()

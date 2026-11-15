@@ -104,7 +104,9 @@ def _swr(swr: float) -> str:
 FOOT = 0.3048
 
 
-def cable_report(r: CableResult, start_hz: int, stop_hz: int, points: int, max_length_m: float) -> str:
+def cable_report(r: CableResult, start_hz: int, stop_hz: int, points: int, max_length_m: float,
+                 longer: str = "--max-length") -> str:
+    """`longer` names the setting for a longer cable: the command's option or the app's field."""
     lines = [f"Cable: {_mhz(start_hz)}-{_mhz(stop_hz)} MHz sweep, {points} points", ""]
     if r.end == "matched":
         lines += ["Nothing comes back from the far end (a dummy load, an antenna, or a cable with a lot of loss),",
@@ -119,14 +121,14 @@ def cable_report(r: CableResult, start_hz: int, stop_hz: int, points: int, max_l
                   "  numbers as rough.", ""]
     if r.length_m is None:
         lines += ["Couldn't measure: the echo's phase went the wrong way. The cable may be longer than "
-                  f"{max_length_m:g} m; try --max-length.", ""]
+                  f"{max_length_m:g} m; raise {longer}.", ""]
     elif r.vf is not None and r.length_m is not None:
         lines += _length_lines(r, max_length_m)
     if r.loss_db:
         lines += ["Loss, one way: " + " | ".join(f"{hz // 1_000_000} MHz {db:.2f} dB" for hz, db in sorted(r.loss_db.items())),
                   "  The echo comes back weaker by the cable's loss out and back, so one-way loss is half the",
                   "  return loss. Measured with the end open or shorted; it's close to the loss into a matched load.", ""]
-    lines += [f"Measurable up to {max_length_m:g} m with this sweep; for a longer cable use --max-length."]
+    lines += [f"Measurable up to {max_length_m:g} m with this sweep; for a longer cable raise {longer}."]
     return "\n".join(lines) + "\n"
 
 

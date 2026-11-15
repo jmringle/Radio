@@ -7,6 +7,7 @@ const POINTS = 101;
 const CHECK_EVERY_MS = 2000;  // how often to look for the NanoVNA (reads the port list only)
 const LIVE_PAUSE_MS = 300;    // breathing room between live passes
 let live = false;             // true while live mode runs; Stop sets it false
+let pythonReady = false;      // the bridge's functions have arrived
 
 function ready() {
   window.pywebview.api.bands().then((bands) => {
@@ -22,6 +23,8 @@ function ready() {
     }
     select.value = "";  // or type a target: Python works out its band
     $("sweep").disabled = $("live").disabled = false;  // only now can a sweep reach Python
+    pythonReady = true;
+    allowCableCheck();
   });
   checkConnection();
   setInterval(checkConnection, CHECK_EVERY_MS);
@@ -38,9 +41,10 @@ async function checkConnection() {
   }
 }
 
-async function sweepOnce() {
+// Asks Python and shows the answer; true if it worked.
+async function ask(call) {
   try {
-    const answer = await window.pywebview.api.sweep($("band").value, $("target").value, POINTS);
+    const answer = await call();
     show(answer);
     return answer.ok;
   } catch (error) {
@@ -49,16 +53,23 @@ async function sweepOnce() {
   }
 }
 
+const sweepOnce = () => ask(() => window.pywebview.api.sweep($("band").value, $("target").value, POINTS));
+
 function lock(locked) {
   for (const id of ["band", "target", "sweep"]) $(id).disabled = locked;
 }
 
+// One NanoVNA: while anything sweeps, the other tab can't be opened.
+function running(on) {
+  for (const tab of tabs) tab.disabled = on;
+}
+
 function show(answer) {
   $("error").textContent = answer.ok ? "" : answer.error;
-  if (answer.ok) $("band").value = answer.band;  // the band actually swept
+  if (answer.ok && answer.band) $("band").value = answer.band;  // the band actually swept
   $("report").textContent = answer.ok ? answer.report : "";  // text, never markup
   // The SVG comes from dipstick's own plot code, not from the NanoVNA or anything typed.
-  $("swr").innerHTML = answer.ok ? answer.swr_svg : "";
+  $("swr").innerHTML = answer.ok ? answer.swr_svg || "" : "";  // a cable has no SWR plot
   $("smith").innerHTML = answer.ok ? answer.smith_svg : "";
 }
 
@@ -66,9 +77,11 @@ $("controls").addEventListener("submit", async (event) => {
   event.preventDefault();
   // A disabled submit button also blocks Enter in the target field, so one sweep runs at a time.
   $("sweep").disabled = $("live").disabled = true;
+  running(true);
   $("status").textContent = "Sweeping…";
   await sweepOnce();
   $("sweep").disabled = $("live").disabled = false;
+  running(false);
   $("status").textContent = "";
 });
 
@@ -84,6 +97,7 @@ $("live").addEventListener("click", async () => {
   }
   live = true;
   lock(true);
+  running(true);
   button.textContent = "Stop";
   for (let pass = 1; live; pass++) {
     $("status").textContent = `Live: pass ${pass}`;
@@ -92,8 +106,60 @@ $("live").addEventListener("click", async () => {
   }
   live = false;
   lock(false);
+  running(false);
   button.textContent = "Live";
   button.disabled = false;
+  $("status").textContent = "";
+});
+
+// --- tabs: Antenna (band sweeps) and Cable ---------------------------------------------------
+const tabs = [$("tab-antenna"), $("tab-cable")];
+
+function selectTab(tab) {
+  if (tab.getAttribute("aria-selected") === "true") return;
+  for (const each of tabs) {
+    const selected = each === tab;
+    each.setAttribute("aria-selected", String(selected));
+    each.tabIndex = selected ? 0 : -1;  // roving tabindex: Tab reaches only the selected tab
+    $(each.getAttribute("aria-controls")).hidden = !selected;
+  }
+  // A band's results aren't this cable's (or the other way round), and the box is confirmed afresh.
+  show({ ok: true, report: "", smith_svg: "" });
+  $("no-antenna").checked = false;
+  allowCableCheck();
+}
+
+for (const tab of tabs) {
+  tab.addEventListener("click", () => selectTab(tab));
+  tab.addEventListener("keydown", (event) => {
+    const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const next = tabs[(tabs.indexOf(tab) + step + tabs.length) % tabs.length];
+    selectTab(next);
+    next.focus();
+  });
+}
+
+// --- the cable check: only with "No antenna connected" ticked, cleared after every check -------
+function allowCableCheck() {
+  $("check-cable").disabled = !(pythonReady && $("no-antenna").checked);
+}
+
+$("no-antenna").addEventListener("change", allowCableCheck);
+
+$("cable-controls").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const fields = ["no-antenna", "vf", "length", "max-length", "check-cable"];
+  for (const id of fields) $(id).disabled = true;
+  running(true);
+  $("status").textContent = "Checking the cable…";
+  await ask(() => window.pywebview.api.cable($("no-antenna").checked, $("vf").value, $("length").value,
+                                              $("max-length").value));
+  $("no-antenna").checked = false;  // the antenna might be back on by the next check
+  for (const id of fields) $(id).disabled = false;
+  allowCableCheck();
+  running(false);
   $("status").textContent = "";
 });
 

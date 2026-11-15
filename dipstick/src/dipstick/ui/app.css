@@ -40,6 +40,13 @@ button { background: var(--trace); color: var(--panel); border-color: var(--trac
 button:disabled { opacity: 0.55; cursor: progress; }
 :focus-visible { outline: 2px solid var(--trace); outline-offset: 2px; }
 #live { background: var(--panel); color: var(--trace); }
+[role="tablist"] { display: flex; gap: 0.25rem; }
+[role="tab"] { background: var(--panel); color: var(--muted); border-color: var(--rule); }
+[role="tab"][aria-selected="true"] { background: var(--trace); color: var(--panel); border-color: var(--trace); }
+[role="tabpanel"] { margin-top: 0.75rem; }
+.confirm { color: var(--ink); font-weight: 600; }
+.hint { color: var(--muted); font-size: 0.9rem; margin: 0.5rem 0 0; max-width: 60em; }
+#vf, #length, #max-length { width: 8em; }
 #connection { margin: 0; font-size: 0.9rem; color: var(--muted); }
 #connection.connected::before, #connection.missing::before { content: "● "; }
 #connection.connected::before { color: var(--good); }

@@ -4,18 +4,27 @@ The command and the app both call this, so they can't drift apart. Everything th
 checked without the NanoVNA is checked before connecting to it.
 """
 
+import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal
 
 from dipstick.analysis import summarize
 from dipstick.bands import band_containing, band_range
+from dipstick.cable import MAX_LENGTH_M, analyze, sweep_for
 from dipstick.plots import smith_svg, swr_svg
-from dipstick.report import report
+from dipstick.report import FOOT, cable_report, report
 from dipstick.s11 import Reading
 from dipstick.scan import MAX_POINTS, scan
 
 _MHZ = re.compile(r"[0-9]+(\.[0-9]{1,6})?")
+_LENGTH = re.compile(r'([0-9]*\.?[0-9]+) ?(ft|m|in|inch|inches|")?')  # ".6" is 0.6 m; 6" is 6 inches
+_UNITS = {None: 1, "m": 1, "ft": FOOT, "in": FOOT / 12, "inch": FOOT / 12, "inches": FOOT / 12, '"': FOOT / 12}
+_VF = re.compile(r"[0-9]*\.?[0-9]+")
+
+# What each setting is called where the person typed it, so an error names the right thing:
+# the command's options, or the app's fields.
+COMMAND_NAMES = {"no_antenna": "run again with --no-antenna", "vf": "--vf", "length": "--length", "max_length": "--max-length"}
 
 
 @dataclass(frozen=True)
@@ -55,6 +64,61 @@ def measure_band(band: str, target: str | None, points: int, connect, port: str 
         nano.close()
     return BandMeasurement(band, readings, report(summarize(readings, target_hz=target_hz), band),
                            swr_svg(readings, band), smith_svg(readings))
+
+
+@dataclass(frozen=True)
+class CableMeasurement:
+    readings: list[Reading]
+    report: str
+
+
+def measure_cable(no_antenna: bool, vf: str | None, length: str | None, max_length: str, connect,
+                  port: str | None = None, names: dict[str, str] = COMMAND_NAMES) -> CableMeasurement:
+    """Length (or velocity factor), far end and loss of a coax cable. The sweep goes far outside
+    the ham bands, so it runs only when no_antenna is exactly True (T5). Settings arrive as text."""
+    if no_antenna is not True:
+        raise ValueError("The cable check sweeps 1 to 200 MHz, outside the ham bands. Disconnect any antenna, leave "
+                         f"the cable's far end open or shorted, then {names['no_antenna']}.")
+    vf, length = _given(vf, names["vf"]), _given(length, names["length"])
+    if (vf is None) == (length is None):
+        raise ValueError(f"Give {names['vf']} or {names['length']} (one of them)")
+    vf = _vf(vf, names["vf"]) if vf is not None else None
+    length = _length(length, names["length"]) if length is not None else None
+    max_length = _length(_given(max_length, names["max_length"]) or "", names["max_length"])
+    start, stop, points = sweep_for(max_length_m=max_length, vf=vf)
+    nano = connect(port)
+    try:
+        readings = scan(nano, start, stop, points, no_antenna=True)
+    finally:
+        nano.close()
+    result = analyze(readings, vf=vf, length_m=length)
+    return CableMeasurement(readings, cable_report(result, start, stop, points, max_length, names["max_length"]))
+
+
+def _given(text, name: str) -> str | None:
+    """Text, or None when left empty. The app's page sends text; anything else is refused."""
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        raise ValueError(f"{name} must be typed as text, got {text!r}")
+    return text.strip() or None
+
+
+def _vf(text: str, name: str) -> float:
+    vf = float(text) if _VF.fullmatch(text) else math.nan
+    if not 0 < vf <= 1:  # also false for nan
+        raise ValueError(f"{name} must be a velocity factor above 0 and at most 1, like 0.66; got {text!r}")
+    return vf
+
+
+def _length(text: str, name: str) -> float:
+    match = _LENGTH.fullmatch(text)
+    if not match:
+        raise ValueError(f"{name} must be a length like 15.2 (meters), 50ft or 6in, got {text!r}")
+    meters = float(match.group(1)) * _UNITS[match.group(2)]
+    if not 0 < meters <= MAX_LENGTH_M:
+        raise ValueError(f"{name} must be above 0 and at most {MAX_LENGTH_M} m, got {text!r}")
+    return meters
 
 
 def _target(text: str | None, start: int, stop: int) -> int:

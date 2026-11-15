@@ -8,6 +8,8 @@ import threading
 import pytest
 from fakes import FakeLink, UnpluggedLink, recorded
 from test_analysis import antenna
+from test_cable_cli import fake_nano as fake_cable_nano
+from test_cable_cli import planned
 from test_device import Port
 
 from dipstick.app import Api
@@ -177,4 +179,115 @@ def test_the_page_can_only_reach_public_methods():
     # connection and lock private so the page can't reach them.
     public = {name for name in vars(Api(connect=None)) if not name.startswith("_")}
     assert public == set()
-    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "nanovna", "sweep"}
+    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "nanovna", "sweep"}
+
+
+# --- the cable check: a wide sweep, so only with no antenna connected (T5) ---------------------
+
+def cable_api(nano):
+    return Api(connect=lambda port: nano)
+
+
+@pytest.mark.parametrize("no_antenna", [False, None, "true", 1, "yes"])
+def test_cable_refused_unless_no_antenna_is_exactly_true(no_antenna):
+    # Only the checkbox's own true counts: never a truthy look-alike from a bug in the page.
+    connected = []
+    answer = Api(connect=lambda port: connected.append(port)).cable(no_antenna, "0.66", "", "50")
+    assert answer["ok"] is False and "outside the ham bands" in answer["error"]
+    assert "No antenna connected" in answer["error"] and "--" not in answer["error"]
+    assert connected == []
+
+
+def test_cable_length_with_the_smith_chart():
+    answer = cable_api(fake_cable_nano(planned(12.0, 0.66))).cable(True, "0.66", "", "50")
+    assert answer["ok"] is True
+    assert "Length: 12.00 m (39.4 ft) at velocity factor 0.66" in answer["report"]
+    assert answer["smith_svg"].startswith("<svg") and "<style" not in answer["smith_svg"]
+
+
+def test_cable_velocity_factor_from_a_length_in_feet():
+    answer = cable_api(fake_cable_nano(planned(15.24, 0.78, plan_vf=None))).cable(True, "", "50ft", "50")
+    assert "Velocity factor: 0.78 (for a 15.24 m / 50.0 ft cable)" in answer["report"]
+
+
+def test_cable_report_names_the_apps_field_not_the_option():
+    answer = cable_api(fake_cable_nano(planned(20.0, 0.66))).cable(True, "0.66", "", "50")
+    assert "Measurable up to 50 m with this sweep; for a longer cable raise Longest cable." in answer["report"]
+    assert "--" not in answer["report"]
+
+
+@pytest.mark.parametrize("length, said", [
+    (".6", "0.60 m / 2.0 ft"),        # a leading point, like the velocity factor allows
+    ("6in", "0.15 m / 0.5 ft"),       # 6 inches = 0.1524 m
+    ("6 in", "0.15 m / 0.5 ft"),
+    ('6"', "0.15 m / 0.5 ft"),
+    ("6 inch", "0.15 m / 0.5 ft"),
+    ("6 inches", "0.15 m / 0.5 ft"),
+    ("18.5in", "0.47 m / 1.5 ft"),    # 0.4699 m
+])
+def test_cable_short_lengths_in_inches_or_with_a_leading_point(length, said):
+    meters = {".6": 0.6, "18.5in": 0.4699}.get(length, 0.1524)
+    answer = cable_api(fake_cable_nano(planned(meters, 0.78, plan_vf=None))).cable(True, "", length, "50")
+    assert f"Velocity factor: 0.78 (for a {said} cable)" in answer["report"], answer
+
+
+@pytest.mark.parametrize("vf, length, longest, words", [
+    ("", "", "50", "Give Velocity factor or Length (one of them)"),
+    ("  ", "  ", "50", "Give Velocity factor or Length"),
+    ("0.66", "10", "50", "Give Velocity factor or Length"),
+    ("1.5", "", "50", "Velocity factor must be a velocity factor above 0 and at most 1"),
+    ("abc", "", "50", "Velocity factor must be"),
+    ("", "ten", "50", "Length must be a length like 15.2"),
+    ("", "2001", "50", "Length must be above 0 and at most 2000 m"),
+    ("", "6.", "50", "Length must be a length like 15.2 (meters), 50ft or 6in"),
+    ("", ".", "50", "Length must be a length"),
+    ("", "6 yd", "50", "Length must be a length"),
+    ("", "6inchs", "50", "Length must be a length"),
+    ("", "0in", "50", "Length must be above 0"),
+    ("0.66", "", "0", "Longest cable must be above 0"),
+    ("0.66", "", "", "Longest cable must be a length"),
+    ("0.66", "", "7000ft", "Longest cable must be above 0 and at most 2000 m"),
+    (0.66, "", "50", "Velocity factor must be typed as text"),
+    ("0.66", "", None, "Longest cable must be a length"),
+])
+def test_cable_bad_settings_are_explained_in_the_apps_words_and_never_connect(vf, length, longest, words):
+    connected = []
+    answer = Api(connect=lambda port: connected.append(port)).cable(True, vf, length, longest)
+    assert answer == {"ok": False, "error": answer["error"]}
+    assert words in answer["error"] and "--" not in answer["error"]
+    assert connected == []
+
+
+def test_cable_unplugged_mid_sweep():
+    nano = NanoVNA(UnpluggedLink({b"sweep": SETTINGS}, unplug_on=b"scan"))
+    answer = cable_api(nano).cable(True, "0.66", "", "50")
+    assert answer["ok"] is False and "The NanoVNA disconnected" in answer["error"]
+    assert "set it by hand: 1.5 to 30 MHz, 101 points" in answer["error"]
+
+
+def test_cable_and_band_sweeps_take_turns():
+    # One NanoVNA: a cable check can't start while a band sweep is running.
+    started, release = threading.Event(), threading.Event()
+
+    def slow(port):
+        started.set()
+        release.wait(5)
+        return good_40m()
+
+    api = Api(connect=slow)
+    results = {}
+    first = threading.Thread(target=lambda: results.update(band=api.sweep("40m", "", 101)))
+    first.start()
+    assert started.wait(5)
+    results["cable"] = api.cable(True, "0.66", "", "50")
+    release.set()
+    first.join(5)
+    assert results["cable"] == {"ok": False, "error": "A sweep is already running"}
+    assert results["band"]["ok"] is True
+
+
+def test_cable_unexpected_error_is_a_message(capsys):
+    def broken(port):
+        raise RuntimeError("bug")
+    answer = Api(connect=broken).cable(True, "0.66", "", "50")
+    assert answer["ok"] is False and "Unexpected error (RuntimeError)" in answer["error"]

@@ -2,8 +2,8 @@
 evaluate skips the page's security policy, and the fake bridge isn't pywebview's.
 
 Opens a small window for a few seconds, checks the page reached Python (band list filled in,
-Sweep and Live enabled, the NanoVNA line filled in), closes it. No NanoVNA needed: nothing is
-swept. Run it when you ask:
+Sweep and Live enabled, the NanoVNA line filled in, Check cable enabled once the Cable tab's box is
+ticked), closes it. No NanoVNA needed: nothing is swept, and Check cable is never clicked. Run it when you ask:
 
     DIPSTICK_WINDOW=1 .venv/bin/pytest tests/test_window.py
 """
@@ -29,13 +29,18 @@ def probe(window):
         time.sleep(0.1)
         try:
             result = window.evaluate_js(
+                "document.getElementById('tab-cable').click();"
+                "const box = document.getElementById('no-antenna');"
+                "box.checked = true; box.dispatchEvent(new Event('change'));"
                 "({bands: document.getElementById('band').options.length,"
                 " disabled: document.getElementById('sweep').disabled,"
                 " live: document.getElementById('live').disabled,"
-                " connection: document.getElementById('connection').textContent})")
+                " connection: document.getElementById('connection').textContent,"
+                " cable: document.getElementById('check-cable').disabled})")
         except Exception as error:
             result = {"error": str(error)}
-        if result.get("bands", 0) > 1 and result.get("disabled") is False and result.get("connection"):
+        if result.get("bands", 0) > 1 and result.get("disabled") is False and result.get("connection") \
+                and result.get("cable") is False:
             break
     print(json.dumps(result), flush=True)
     window.destroy()
@@ -52,4 +57,5 @@ def test_the_window_reaches_python():
     assert last.startswith("{"), last
     assert json.loads(last) == {"bands": 16,  # "Choose a band" + 15 bands
                                 "disabled": False, "live": False,
-                                "connection": "No NanoVNA found. Is it plugged in and switched on?"}  # no ports given
+                                "connection": "No NanoVNA found. Is it plugged in and switched on?",  # no ports given
+                                "cable": False}  # Check cable enabled: the box is ticked and Python is reachable
