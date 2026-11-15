@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Only this folder's own script and stylesheet; no inline code, nothing from the web. The page
+       talks to Python through pywebview's bridge, not over the network. 'unsafe-eval' is there
+       because pywebview runs everything through eval (its bridge functions are built with
+       new Function, and evaluate_js wraps code in eval): without it the window can't reach
+       Python at all (found in the real window, 2026-11-15). Inline and remote scripts stay blocked. -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self' 'unsafe-eval'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dipstick</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header>
+    <h1>dipstick</h1>
+    <form id="controls">
+      <label for="band">Band</label> <select id="band"></select>
+      <label for="target">Target</label> <input id="target" inputmode="decimal" placeholder="e.g. 146.520" autocomplete="off">
+      <button id="sweep" type="submit" disabled>Sweep</button>  <!-- enabled once Python is reachable -->
+    </form>
+  </header>
+  <p id="status" role="status" aria-live="polite"></p>
+  <p id="error" role="alert"></p>
+  <main>
+    <div class="plots">
+      <figure id="swr" aria-label="SWR across the band"></figure>
+      <figure id="smith" aria-label="Smith chart"></figure>
+    </div>
+    <pre id="report"></pre>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

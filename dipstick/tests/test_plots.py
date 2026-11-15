@@ -150,3 +150,11 @@ def test_the_swr_scale_is_logarithmic_from_1_to_10():
     top, height = float(area.get("y")), float(area.get("height"))
     [line] = find(root, "line", "two-to-one")
     assert (top + height - float(line.get("y1"))) / height == pytest.approx(math.log10(2), abs=0.001)
+
+
+@pytest.mark.parametrize("make", [lambda r: swr_svg(r, "40m", standalone=False), lambda r: smith_svg(r, standalone=False)])
+def test_app_versions_have_no_inline_styles(make):
+    # The app's Content Security Policy blocks inline styles: no <style>, no style="" attributes.
+    root = parse(make(antenna(7_150_000, 60_000)))
+    assert list(root.iter(SVG + "style")) == []
+    assert all("style" not in e.attrib for e in root.iter())

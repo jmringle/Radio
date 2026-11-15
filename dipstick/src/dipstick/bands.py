@@ -42,3 +42,8 @@ def check_antenna_sweep(start_hz: int, stop_hz: int) -> None:
         return
     raise ValueError(f"An antenna sweep must stay inside one amateur band, from low to high; "
                      f"{start_hz} to {stop_hz} Hz doesn't")
+
+
+def band_containing(hz: int) -> str | None:
+    """The amateur band `hz` is in, or None."""
+    return next((name for name, (low, high) in BANDS.items() if low <= hz <= high), None)

@@ -1,0 +1,63 @@
+/* An instrument panel: neutral ground, the trace in blue, 2:1 in green, the best match in red,
+   the same as the saved plots. Follows the system's light or dark mode. */
+:root {
+  color-scheme: light dark;
+  --ground: #f3f5f7;
+  --panel: #ffffff;
+  --ink: #1b1f24;
+  --muted: #5b6470;
+  --rule: #d5dbe1;
+  --grid: #e6eaee;
+  --trace: #1f4fa3;
+  --good: #2e7d32;
+  --best: #c62828;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #14171b;
+    --panel: #1c2026;
+    --ink: #e6e9ee;
+    --muted: #a3acb8;
+    --rule: #39414b;
+    --grid: #2a3038;
+    --trace: #7aa7ff;
+    --good: #6cc070;
+    --best: #ff7a70;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; padding: 1rem 1.25rem 2rem; background: var(--ground); color: var(--ink);
+  font: 15px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem 1.5rem; }
+h1 { margin: 0; font-size: 1.3rem; letter-spacing: 0.02em; }
+form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+label { color: var(--muted); }
+select, input, button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--rule);
+  border-radius: 4px; padding: 0.3rem 0.5rem; }
+button { background: var(--trace); color: var(--panel); border-color: var(--trace); padding: 0.3rem 1.1rem; cursor: pointer; }
+#target { width: 9em; }
+button:disabled { opacity: 0.55; cursor: progress; }
+:focus-visible { outline: 2px solid var(--trace); outline-offset: 2px; }
+#status { color: var(--muted); min-height: 1.4em; margin: 0.6rem 0 0; }
+#error { color: var(--best); margin: 0.2rem 0 0; font-weight: 600; }
+#error:empty { display: none; }
+
+.plots { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 1rem; margin-top: 0.75rem; }
+@media (max-width: 760px) { .plots { grid-template-columns: minmax(0, 1fr); } }
+figure { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 0.5rem; }
+figure:empty { display: none; }
+figure svg { display: block; width: 100%; height: auto; }
+#report { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; margin: 1rem 0 0;
+  font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+#report:empty { display: none; }
+
+/* The plots (dipstick's SVG with standalone=False: no colors of its own). */
+svg text { font: 12px -apple-system, "Segoe UI", system-ui, sans-serif; fill: var(--ink); }
+svg .plot-area { fill: var(--panel); stroke: var(--rule); }
+svg .grid { stroke: var(--grid); }
+svg .two-to-one, svg .swr-2 { stroke: var(--good); stroke-dasharray: 5 4; fill: none; }
+svg .swr, svg .trace { fill: none; stroke: var(--trace); stroke-width: 2; }
+svg .best { fill: var(--best); }
+svg .edge, svg .r-50, svg .axis { fill: none; stroke: var(--muted); }
+svg .note { fill: var(--good); }

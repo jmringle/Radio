@@ -67,6 +67,19 @@ It reports whether the far end is open or shorted (it can tell by itself: an ope
 
 **Why trim advice comes from SWR, not X:** on low-loss coax, SWR is the same at both ends of the cable, so the lowest-SWR frequency is the antenna's own best match however long the coax is. The impedance R + jX changes along the coax, so X = 0 at the radio's end usually isn't where the antenna itself is resonant. dipstick shows X and explains this, but trims by SWR. The trim percent assumes a wire antenna, whose best-match frequency moves opposite to its length (length is roughly proportional to 1 / frequency).
 
+## The app (in progress)
+
+A window for the same band sweep: pick a band, or just type a target frequency (146.520 sweeps 2 m), press Sweep, and see the report, the SWR plot and the Smith chart together. The band list starts on "Choose a band"; after a sweep it shows the band that was swept. From source:
+
+```
+.venv/bin/pip install -r requirements-app.txt   # pywebview (and PyInstaller, for builds later)
+.venv/bin/dipstick-app
+```
+
+Built so far: band sweep with plots. Still to come: live SWR mode, the cable check, and builds for Mac, Windows and Linux.
+
+**How it's put together:** pywebview shows `src/dipstick/ui/index.html` from a `file://` address, and the page calls Python through pywebview's bridge (`window.pywebview.api`). No web server runs: pywebview only starts its own local HTTP server for plain paths, not `file://` addresses (checked in its source, 2026-11-15). So no other web page in your browser can reach the NanoVNA. The page allows only its own script and stylesheet, plus `'unsafe-eval'` (Content Security Policy `script-src 'self' 'unsafe-eval'; style-src 'self'`). pywebview needs eval: it builds its bridge functions with `new Function` and wraps everything it runs in the page in `eval`, so without it the window can't reach Python (found in the real window, 2026-11-15). Inline and remote scripts stay blocked, and nothing typed or measured is ever inserted as markup, so there's no way to get a string to eval. The plots it shows are the same SVG as the saved files, minus their built-in colors, which the page's stylesheet supplies (and switches for dark mode).
+
 ## Reading a NanoVNA: the short version
 
 The NanoVNA measures one thing on its CH0 port: **S11**, the reflection coefficient. It sends a signal out, and S11 is how much comes back, with its timing (phase). Everything on the screen is S11 redrawn:
@@ -87,6 +100,8 @@ dipstick will print each of these with an explanation for your antenna, so you c
 ```
 .venv/bin/pytest
 ```
+
+The page tests (`tests/test_page.py`) run in Chromium and WebKit through Playwright; install those browsers once with `.venv/bin/playwright install chromium webkit`.
 
 These use no hardware: replies recorded byte for byte from your NanoVNA (`tests/fixtures/`) are played back by a fake serial port. To also test the real thing, plug the NanoVNA in and run:
 
@@ -110,6 +125,9 @@ The same command runs in GitHub Actions on every push that touches this folder (
 | `tests/test_plots.py` | Positions read back from the SVG against known answers: edge to edge, SWR 1 on the bottom, SWR 2 on the 2:1 line at log10(2) of the height, off-scale and infinite SWR at the top; Smith chart S11 = 0 at the center, 1 at the open edge, -1 at the short edge, +j at the top, noise kept on the edge, the SWR-2 circle at a third of the radius, the R = 50 circle through the center, the best match marked |
 | `tests/test_cable.py` | Made-up ideal cables with known length, velocity factor, open or short end and sqrt(f) loss: length from VF and VF from length, open vs short, loss at 7/14/28/50 MHz, matched end, a bent phase flagged; the sweep plan keeps under half a turn per step (aliasing), caps at 200 MHz, assumes VF 0.5 when unknown |
 | `tests/test_cable_cli.py` | `dipstick cable` refuses without `--no-antenna` before connecting; length and VF (feet and meters), short end, loss line, `--max-length`, matched end, messy phase warning; bad arguments never connect |
+| `tests/test_app_api.py` | The app's Python side (what the page may call): sweep returns the report and both plots (with no inline styles) or a message, never raises; bad requests never connect; one sweep at a time across threads; only `bands` and `sweep` are reachable |
+| `tests/test_page.py` | The app's page in Chromium and WebKit with a fake bridge: bands from Python with 40m chosen, Sweep shows report and plots, errors as an alert that clears old results, one sweep at a time (button and Enter), report shown as text not markup, no console or Content Security Policy errors (one harmless WebKit `<select>` quirk ignored, WebKit only) |
+| `tests/test_window.py` | The real pywebview window opens, reaches Python (band list filled, Sweep enabled) and closes, about half a second; only with `DIPSTICK_WINDOW=1`. It's the only test that sees the page's security policy as pywebview does: Playwright's own evaluate skips the policy |
 | `tests/test_hardware.py` | The real NanoVNA answers, is a NanoVNA, reports its sweep settings, stays in step, and a 40 m scan puts its settings back (only with `DIPSTICK_HARDWARE=1`) |
 | `tests/test_bands.py` | Band edges (47 CFR 97.301); antenna sweeps must stay inside one band, checked 1 Hz past each edge |
 
@@ -141,7 +159,9 @@ Personal tool on your own machine; no network. It controls a device that puts RF
 | T3 | dipstick opens the wrong serial port, such as a radio's CAT port, and sends it text | A06 Insecure Design | Only a port with the NanoVNA's USB ID (0483:5740) whose name also says NanoVNA (that ID is ST's generic one, shared by other STM32 gadgets); otherwise you name the port | `test_never_picks_something_that_isnt_a_nanovna`, `test_two_nanovnas_ask_which` |
 | T4 | A garbled, endless or hostile reply from the device crashes the tool or shows wrong numbers | A10 Mishandling of Exceptional Conditions | 5 s timeout; replies capped at 64 KB; plain printable ASCII only; the echo must match the command sent; impossible readings refused | `test_silence_times_out`, `test_it_gives_up_after_the_timeout_not_later`, `test_an_endless_reply_is_cut_off`, `test_garbled_bytes_are_refused`, `test_a_wrong_echo_means_out_of_step`, `test_impossible_measurements_are_refused` |
 | T5 | A wide sweep goes out through an antenna, onto non-amateur frequencies | none (radio rules) | Antenna sweeps locked inside one amateur band; wide sweeps only after you confirm no antenna | `test_sweeps_that_leave_a_band_are_refused`, `test_antenna_scans_stay_inside_one_band`, `test_refused_without_no_antenna_and_nothing_is_sent` |
-| T6 | A compromised dependency | A03 Software Supply Chain Failures | One dependency, pinned; `pip-audit`, Dependabot | CI |
+| T6 | A compromised dependency | A03 Software Supply Chain Failures | Pinned versions (2-week rule); `pip-audit`, Dependabot. The app adds pywebview and PyInstaller (requirements-app.txt), the tests Playwright | CI |
+| T7 | Another web page in your browser triggers a sweep through the app (a local server would be reachable from any page) | A01 Broken Access Control | No server: the page loads from `file://` and calls Python through pywebview's bridge; only `bands` and `sweep` are exposed | `test_the_page_can_only_reach_public_methods` |
+| T8 | Markup in the report or an error runs as code in the app's window (XSS) | A05 Injection | Report and errors set as text, never HTML; the SVG comes only from dipstick's own plot code; Content Security Policy allows only the page's own script and stylesheet. Accepted: `'unsafe-eval'`, which pywebview's bridge requires; it matters only if a script could be injected, which the rest prevents | `test_report_text_is_shown_as_text_not_markup`, `test_the_pages_security_policy`, the page tests' no-CSP-errors check, `test_window.py` |
 
 No secrets: nothing needs a key or password, so there's no `.env`.
 

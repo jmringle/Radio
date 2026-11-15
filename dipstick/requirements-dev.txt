@@ -2,4 +2,9 @@
 pytest==9.2.0
 pip-audit==2.10.1
 pyserial==3.5
+# Browser tests of the app's page (tests/test_page.py). playwright 1.64.1 released 2026-10-22,
+# pytest-playwright 0.10.0 released 2026-10-08 (checked 2026-11-15). After installing:
+# .venv/bin/playwright install chromium webkit
+playwright==1.64.1
+pytest-playwright==0.10.0
 -e .

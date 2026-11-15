@@ -13,8 +13,15 @@ dependencies = ["pyserial>=3.5,<4"]
 
 [project.scripts]
 dipstick = "dipstick.cli:main"
+dipstick-app = "dipstick.app:main"
+
+[tool.setuptools.package-data]
+# The app window's page ships inside the package.
+dipstick = ["ui/*.html", "ui/*.css", "ui/*.js"]
 
 [tool.pytest.ini_options]
 # Lets tests import the src/ package without installing it.
 pythonpath = ["src"]
 testpaths = ["tests"]
+# Page tests run in both engines the app uses: Chromium (Windows WebView2) and WebKit (macOS, Linux).
+addopts = "--browser chromium --browser webkit"

@@ -23,6 +23,9 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -r requirements-dev.txt
+      # The page tests (tests/test_page.py) run in both engines the app uses; --with-deps adds the
+      # Linux libraries WebKit needs.
+      - run: playwright install --with-deps chromium webkit
       - run: pytest
       # --skip-editable: our own package isn't on PyPI; a stranger's "dipstick" there mustn't be audited as ours.
       - run: pip-audit --skip-editable

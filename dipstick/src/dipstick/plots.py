@@ -1,8 +1,9 @@
 """SVG plots of a sweep: SWR across the band, and the Smith chart.
 
-Drawn by hand (no plotting library), so the command's saved files and the future app's
-window show the same drawings. Colors are fixed for saved files; elements carry classes so
-the app can restyle them.
+Drawn by hand (no plotting library), so the command's saved files and the app's window show
+the same drawings. Saved files carry their own colors (standalone=True); the app asks for
+standalone=False and colors them from its stylesheet by class, since its Content Security
+Policy blocks inline styles (and that lets the plots follow dark mode).
 """
 
 import math
@@ -35,7 +36,7 @@ STYLE = """
 """
 
 
-def swr_svg(readings: list[Reading], band: str) -> str:
+def swr_svg(readings: list[Reading], band: str, standalone: bool = True) -> str:
     _need_two(readings)
     start, stop = readings[0].hz, readings[-1].hz
 
@@ -58,10 +59,10 @@ def swr_svg(readings: list[Reading], band: str) -> str:
     bx, by = pts[best]
     parts.append(f'<circle class="best" cx="{bx:.2f}" cy="{by:.2f}" r="4"/>')
     parts.append(f'<text x="{LEFT}" y="{TOP - 10}">{escape(band)}: SWR across the band (MHz)</text>')
-    return _svg(W, H, parts)
+    return _svg(W, H, parts, standalone)
 
 
-def smith_svg(readings: list[Reading]) -> str:
+def smith_svg(readings: list[Reading], standalone: bool = True) -> str:
     _need_two(readings)
     pts = [_smith_xy(r.s11) for r in readings]
     best = min(range(len(readings)), key=lambda i: readings[i].swr)
@@ -80,7 +81,7 @@ def smith_svg(readings: list[Reading]) -> str:
         f'<text x="10" y="{SIZE + 16}">Center: a perfect match. Inside the dashed circle: SWR under 2.</text>',
         f'<text x="10" y="{SIZE + 34}">Solid circle through the center: R = 50 ohms. Red dot: best match.</text>',
     ]
-    return _svg(SIZE, SIZE + KEY, parts)
+    return _svg(SIZE, SIZE + KEY, parts, standalone)
 
 
 def _swr_y(swr: float) -> float:
@@ -100,10 +101,11 @@ def _polyline(cls: str, pts: list[tuple[float, float]]) -> str:
     return f'<polyline class="{cls}" points="{" ".join(f"{x:.4f},{y:.4f}" for x, y in pts)}"/>'
 
 
-def _svg(width: int, height: int, parts: list[str]) -> str:
+def _svg(width: int, height: int, parts: list[str], standalone: bool) -> str:
     body = "\n  ".join(parts)
+    own_colors = f'  <style>{STYLE}</style>\n  <rect width="100%" height="100%" fill="#fff"/>\n' if standalone else ""
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">\n'
-            f'  <style>{STYLE}</style>\n  <rect width="100%" height="100%" fill="#fff"/>\n  {body}\n</svg>\n')
+            f'{own_colors}  {body}\n</svg>\n')
 
 
 def _need_two(readings: list[Reading]) -> None:
