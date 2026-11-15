@@ -1,6 +1,7 @@
 """A band report in plain words: every number comes with what it means."""
 
 from dipstick.analysis import Summary
+from dipstick.cable import CableResult
 from dipstick.s11 import Reading
 
 NO_TRIM_PERCENT = 0.5  # closer than this to the target: leave it alone
@@ -98,3 +99,43 @@ def _mhz(hz: float) -> str:
 
 def _swr(swr: float) -> str:
     return "infinite" if swr == float("inf") else f"{swr:.2f}"
+
+
+FOOT = 0.3048
+
+
+def cable_report(r: CableResult, start_hz: int, stop_hz: int, points: int, max_length_m: float) -> str:
+    lines = [f"Cable: {_mhz(start_hz)}-{_mhz(stop_hz)} MHz sweep, {points} points", ""]
+    if r.end == "matched":
+        lines += ["Nothing comes back from the far end (a dummy load, an antenna, or a cable with a lot of loss),",
+                  "so the length can't be measured. Leave the far end open or short it, and run again."]
+        return "\n".join(lines) + "\n"
+    lines += [f"Far end: {r.end}",
+              "  An open end reflects the signal in phase; a short reflects it inverted. If you left the end open",
+              "  and it reads short (or the other way round), look for a fault in the cable or connector.", ""]
+    if not r.clean:
+        lines += ["Warning: the echo doesn't look like a plain cable with an open or short at the end (an antenna,",
+                  "  a load, a fault partway along, or a cable longer than this sweep can measure?). Treat these",
+                  "  numbers as rough.", ""]
+    if r.length_m is None:
+        lines += ["Couldn't measure: the echo's phase went the wrong way. The cable may be longer than "
+                  f"{max_length_m:g} m; try --max-length.", ""]
+    elif r.vf is not None and r.length_m is not None:
+        lines += _length_lines(r, max_length_m)
+    if r.loss_db:
+        lines += ["Loss, one way: " + " | ".join(f"{hz // 1_000_000} MHz {db:.2f} dB" for hz, db in sorted(r.loss_db.items())),
+                  "  The echo comes back weaker by the cable's loss out and back, so one-way loss is half the",
+                  "  return loss. Measured with the end open or shorted; it's close to the loss into a matched load.", ""]
+    lines += [f"Measurable up to {max_length_m:g} m with this sweep; for a longer cable use --max-length."]
+    return "\n".join(lines) + "\n"
+
+
+def _length_lines(r: CableResult, max_length_m: float) -> list[str]:
+    speed = ("  The velocity factor is the signal's speed in the cable as a fraction of light's. Solid polyethylene",
+             "  coax (RG-58, RG-213) is about 0.66, foam is higher (about 0.78-0.85); check your cable's data sheet.")
+    how = ("  From how fast the echo's phase turns as the frequency rises: the longer the round trip, the faster",
+           "  it turns. If you expected the cable to be longer, a break or short may be at this distance.")
+    feet = r.length_m / FOOT
+    return [f"Length: {r.length_m:.2f} m ({feet:.1f} ft) at velocity factor {r.vf:.2f}", *how, *speed, ""] \
+        if r.vf_given else \
+        [f"Velocity factor: {r.vf:.2f} (for a {r.length_m:.2f} m / {feet:.1f} ft cable)", *speed, ""]

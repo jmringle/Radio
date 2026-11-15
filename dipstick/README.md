@@ -4,7 +4,7 @@ Reads your NanoVNA over USB and tells you, in plain words, what it measured: whe
 
 The name: an antenna's resonance shows up as a dip in the SWR curve, and the classic tool for finding it was the grid-dip meter. Like a car's dipstick, it's the quick check you pull out and read.
 
-**Status:** talks to the NanoVNA: finds it, sends allowed commands and reads the replies, with timeouts and checks on every reply. The math that turns its measurement into SWR, impedance and return loss is built and tested, as are the rules for what may be sent and where antenna sweeps may go. `dipstick 40m` sweeps a band and explains the result: best match, SWR across the band, 2:1 bandwidth, where X = 0, and how much to trim. It also saves an SWR plot and a Smith chart as SVG. Your NanoVNA's own sweep settings are put back afterward. No cable checks yet (see Next).
+**Status:** talks to the NanoVNA: finds it, sends allowed commands and reads the replies, with timeouts and checks on every reply. The math that turns its measurement into SWR, impedance and return loss is built and tested, as are the rules for what may be sent and where antenna sweeps may go. `dipstick 40m` sweeps a band and explains the result: best match, SWR across the band, 2:1 bandwidth, where X = 0, and how much to trim. It also saves an SWR plot and a Smith chart as SVG. `dipstick cable` measures a coax cable's length (or velocity factor), what's at its far end, and its loss. Your NanoVNA's own sweep settings are put back afterward.
 
 **Tested with:** NanoVNA-H, firmware 1.2.43 (DiSlord-based; `info` says "Version: 1.2.43 [p:101, IF:12k, ADC:192k, Lcd:320x240]", built Feb 19 2025), on macOS as `/dev/cu.usbmodem4001`, USB ID 0483:5740.
 
@@ -51,6 +51,20 @@ Each run also saves two SVG plots (open them in a browser) and lists them at the
 
 Exit codes: `0` measured (whatever the SWR), `2` no NanoVNA, a device problem, or bad arguments (one line on stderr starting `dipstick:`). With nothing on the port it says so ("SWR is infinite everywhere: all of the signal comes back") instead of giving advice.
 
+### Checking a cable
+
+**Disconnect any antenna first.** This sweep runs from 1 MHz to as high as 200 MHz, far outside the ham bands, so dipstick refuses to run without `--no-antenna`. Connect the cable to CH0 and leave its far end **open** (nothing connected) or **shorted**. A dummy load at the far end absorbs the signal, so nothing comes back to measure.
+
+```
+.venv/bin/dipstick cable --no-antenna --vf 0.66          # length, from the velocity factor
+.venv/bin/dipstick cable --no-antenna --length 50ft      # velocity factor, from a known length
+.venv/bin/dipstick cable --no-antenna --vf 0.66 --max-length 100   # cables over 50 m
+```
+
+It reports whether the far end is open or shorted (it can tell by itself: an open reflects in phase, a short inverted; if you left it open and it reads short, look for a fault), the length (or the distance to a break or short), and the one-way loss at 7, 14, 28 and 50 MHz. Velocity factor (the signal's speed in the cable as a fraction of light's) is on the cable's data sheet: solid polyethylene (RG-58, RG-213) is about 0.66, foam is higher.
+
+**How:** with the far end open or shorted, the whole signal bounces back from it. The echo's phase turns faster with frequency the longer the trip, so a straight line fitted to phase against frequency gives the delay (length = delay x velocity factor x c). The echo comes back weaker by the loss out and back, so one-way loss is half the return loss. The sweep is planned so the phase turns less than half a turn per step for the longest cable you plan for (`--max-length`, default 50 m); a longer cable would alias and look short. If the phase doesn't follow a straight line (an antenna, a load, a fault partway along), the report warns that the numbers are rough.
+
 **Why trim advice comes from SWR, not X:** on low-loss coax, SWR is the same at both ends of the cable, so the lowest-SWR frequency is the antenna's own best match however long the coax is. The impedance R + jX changes along the coax, so X = 0 at the radio's end usually isn't where the antenna itself is resonant. dipstick shows X and explains this, but trims by SWR. The trim percent assumes a wire antenna, whose best-match frequency moves opposite to its length (length is roughly proportional to 1 / frequency).
 
 ## Reading a NanoVNA: the short version
@@ -94,6 +108,8 @@ The same command runs in GitHub Actions on every push that touches this folder (
 | `tests/test_report.py` | The wording: ratings, shorten or lengthen with the percent, "at least" when the best match is beyond an edge, 2:1 cases, the coax explanation for X, nothing connected gives no advice, the calibration reminder |
 | `tests/test_cli.py` | The command end to end with a fake NanoVNA: your recorded open-port scan, a good antenna, `--target`, `--port`, plots saved and listed (`--out`, default `output/`); bad arguments refused before connecting; device and file errors are one line and exit 2; the port is closed and settings put back |
 | `tests/test_plots.py` | Positions read back from the SVG against known answers: edge to edge, SWR 1 on the bottom, SWR 2 on the 2:1 line at log10(2) of the height, off-scale and infinite SWR at the top; Smith chart S11 = 0 at the center, 1 at the open edge, -1 at the short edge, +j at the top, noise kept on the edge, the SWR-2 circle at a third of the radius, the R = 50 circle through the center, the best match marked |
+| `tests/test_cable.py` | Made-up ideal cables with known length, velocity factor, open or short end and sqrt(f) loss: length from VF and VF from length, open vs short, loss at 7/14/28/50 MHz, matched end, a bent phase flagged; the sweep plan keeps under half a turn per step (aliasing), caps at 200 MHz, assumes VF 0.5 when unknown |
+| `tests/test_cable_cli.py` | `dipstick cable` refuses without `--no-antenna` before connecting; length and VF (feet and meters), short end, loss line, `--max-length`, matched end, messy phase warning; bad arguments never connect |
 | `tests/test_hardware.py` | The real NanoVNA answers, is a NanoVNA, reports its sweep settings, stays in step, and a 40 m scan puts its settings back (only with `DIPSTICK_HARDWARE=1`) |
 | `tests/test_bands.py` | Band edges (47 CFR 97.301); antenna sweeps must stay inside one band, checked 1 Hz past each edge |
 
@@ -109,7 +125,7 @@ The same command runs in GitHub Actions on every push that touches this folder (
 
 - **Find the NanoVNA:** only a USB serial port with the NanoVNA's ID (0483:5740) is opened. Writing text to the wrong port, such as a radio's CAT port, could change the radio's settings or worse. None found: say so and list what is connected. More than one: ask for `--port`.
 - **`dipstick 40m`** (antenna; built 2026-11-15 except the plots): sweeps the band, then prints the lowest-SWR frequency and its SWR, SWR at the band edges and middle, the 2:1 bandwidth, the resonant frequency (X = 0) if there is one in the band, and R + jX there, each with a line saying what it means and what to do (e.g. "resonant below the band: shorten the wire"). Saves an SWR plot and a Smith chart as SVG in `output/`.
-- **`dipstick cable --far-end open|short`** (feed line): you confirm there's no antenna on the cable. A wide sweep finds the distance to the far end or a fault (time-domain reflectometry, TDR: the time an echo takes to come back, times the speed of the signal in that coax, its velocity factor) and estimates the cable's loss.
+- **`dipstick cable --no-antenna --vf 0.66 | --length 50ft`** (feed line; built 2026-11-15): you confirm there's no antenna on the cable. A wide sweep finds the length to the far end or a fault from the echo's delay (the idea behind time-domain reflectometry, done here by fitting the phase), detects whether the end is open or shorted, and estimates the cable's loss. There's no `--far-end` option: it detects the end itself.
 - **Leaves the NanoVNA as it found it:** `scan` replaces the NanoVNA's own frequency list and point count, and afterward `sweep` still reports the old start and stop (found on firmware 1.2.43, 2026-11-15). So dipstick reads the settings before each scan and always puts them back, even if the scan fails; if that fails too, it tells you what to set by hand. It never sends calibration, save, power or reset commands.
 - **Calibration:** dipstick uses the NanoVNA's own saved calibration. The README explains when to recalibrate (a different frequency range, cable or adapter).
 - **Failure:** NanoVNA unplugged mid-sweep, no answer within a timeout, a garbled or too-long reply, or a reading that can't be real: one clear line, exit code 2, and never a believable but wrong result.
@@ -124,7 +140,7 @@ Personal tool on your own machine; no network. It controls a device that puts RF
 | T2 | A value with a carriage return in it ends one command and starts another (`7000000\rclearconfig`): command injection | A05 Injection | Command arguments must be whole numbers; names must be on the allowlist | `test_arguments_must_be_whole_numbers`, `test_a_command_name_cant_carry_a_second_command` |
 | T3 | dipstick opens the wrong serial port, such as a radio's CAT port, and sends it text | A06 Insecure Design | Only a port with the NanoVNA's USB ID (0483:5740) whose name also says NanoVNA (that ID is ST's generic one, shared by other STM32 gadgets); otherwise you name the port | `test_never_picks_something_that_isnt_a_nanovna`, `test_two_nanovnas_ask_which` |
 | T4 | A garbled, endless or hostile reply from the device crashes the tool or shows wrong numbers | A10 Mishandling of Exceptional Conditions | 5 s timeout; replies capped at 64 KB; plain printable ASCII only; the echo must match the command sent; impossible readings refused | `test_silence_times_out`, `test_it_gives_up_after_the_timeout_not_later`, `test_an_endless_reply_is_cut_off`, `test_garbled_bytes_are_refused`, `test_a_wrong_echo_means_out_of_step`, `test_impossible_measurements_are_refused` |
-| T5 | A wide sweep goes out through an antenna, onto non-amateur frequencies | none (radio rules) | Antenna sweeps locked inside one amateur band; wide sweeps only after you confirm no antenna | `test_sweeps_that_leave_a_band_are_refused`, `test_antenna_scans_stay_inside_one_band`; the confirmation with `cable` |
+| T5 | A wide sweep goes out through an antenna, onto non-amateur frequencies | none (radio rules) | Antenna sweeps locked inside one amateur band; wide sweeps only after you confirm no antenna | `test_sweeps_that_leave_a_band_are_refused`, `test_antenna_scans_stay_inside_one_band`, `test_refused_without_no_antenna_and_nothing_is_sent` |
 | T6 | A compromised dependency | A03 Software Supply Chain Failures | One dependency, pinned; `pip-audit`, Dependabot | CI |
 
 No secrets: nothing needs a key or password, so there's no `.env`.
@@ -135,5 +151,5 @@ No secrets: nothing needs a key or password, so there's no `.env`.
 2. ~~`scan` a range into readings, putting the settings back~~ (done 2026-11-15). The 33cm entry also covers 915 MHz MeshCore antennas (902-928 MHz is both the 33 cm amateur band and the Part 15 ISM band); a friendlier name like `915` could come with the command.
 3. ~~`dipstick 40m`: the summary and the explanations~~ (done 2026-11-15). First real-antenna check: your 2m/70cm HT antenna (`dipstick 2m`, `dipstick 70cm`).
 4. ~~SVG plots: SWR across the band and the Smith chart~~ (done 2026-11-15).
-5. `dipstick cable`: TDR distance and loss, with velocity factors for your coax (from the manufacturer's data sheet).
+5. ~~`dipstick cable`: length, far end and loss~~ (done 2026-11-15; not yet run on a real cable). Later: a true distance-to-fault plot (an inverse FFT of the sweep), to find a fault partway along a cable that's still connected at the far end.
 6. Later: a standalone app for Mac, Windows and Linux (decided 2026-11-15, instead of a web page; pywebview + PyInstaller like ft8-forecast, so the same SVG plots show in its window; Linux needs a GTK or Qt system package) with a live SWR curve, for trimming an antenna in the yard; and saving sweeps for antenna-model to compare with its predictions.
