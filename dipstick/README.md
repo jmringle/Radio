@@ -6,6 +6,8 @@ The name: an antenna's resonance shows up as a dip in the SWR curve, and the cla
 
 **Status:** talks to the NanoVNA: finds it, sends allowed commands and reads the replies, with timeouts and checks on every reply. The math that turns its measurement into SWR, impedance and return loss is built and tested, as are the rules for what may be sent and where antenna sweeps may go. `dipstick 40m` sweeps a band and explains the result: best match, SWR across the band, 2:1 bandwidth, where X = 0, and how much to trim. It also saves an SWR plot and a Smith chart as SVG. `dipstick cable` measures a coax cable's length (or velocity factor), what's at its far end, and its loss. Your NanoVNA's own sweep settings are put back afterward. The app adds a guided calibration (open, short, load) for the band you'll measure.
 
+**Download:** the app for macOS, Windows and Linux is on the [Releases page](https://github.com/jmringle/Radio/releases): pick the newest release named **dipstick** (this repository also holds other radio tools' releases) and download only the `dipstick-` file for your computer. The Source code links there are GitHub's automatic snapshot of the whole Radio repository; you don't need them. See [Building the app](#building-the-app) for the first-launch warning and checking the checksum.
+
 **Tested with:** NanoVNA-H, firmware 1.2.43 (DiSlord-based; `info` says "Version: 1.2.43 [p:101, IF:12k, ADC:192k, Lcd:320x240]", built Feb 19 2025), on macOS as `/dev/cu.usbmodem4001`, USB ID 0483:5740.
 
 ## Setup
