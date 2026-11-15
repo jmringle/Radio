@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=84"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dipstick"
+version = "0.1.0"
+description = "Reads your NanoVNA over USB and explains what it measured: SWR, impedance, resonance, feed line length and faults"
+requires-python = ">=3.12"
+# pyserial 3.5 (2020-11-23, checked on PyPI 2026-11-15): the standard serial library; old but stable.
+# requirements-dev.txt pins the exact version.
+dependencies = ["pyserial>=3.5,<4"]
+
+[tool.pytest.ini_options]
+# Lets tests import the src/ package without installing it.
+pythonpath = ["src"]
+testpaths = ["tests"]

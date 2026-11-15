@@ -1,0 +1,28 @@
+name: dipstick tests
+on:
+  push:
+    paths: ["dipstick/**", ".github/workflows/dipstick-tests.yml"]
+  pull_request:
+    paths: ["dipstick/**", ".github/workflows/dipstick-tests.yml"]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest Python pyproject.toml allows and the newest, so both ends are tested.
+        python: ["3.12", "3.15"]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dipstick
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -r requirements-dev.txt
+      - run: pytest
+      # --skip-editable: our own package isn't on PyPI; a stranger's "dipstick" there mustn't be audited as ours.
+      - run: pip-audit --skip-editable
