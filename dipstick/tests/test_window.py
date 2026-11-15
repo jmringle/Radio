@@ -2,11 +2,13 @@
 evaluate skips the page's security policy, and the fake bridge isn't pywebview's.
 
 Opens a small window for a few seconds, checks the page reached Python (band list filled in,
-Sweep enabled), closes it. No NanoVNA needed: nothing is swept. Run it when you ask:
+Sweep and Live enabled, the NanoVNA line filled in), closes it. No NanoVNA needed: nothing is
+swept. Run it when you ask:
 
     DIPSTICK_WINDOW=1 .venv/bin/pytest tests/test_window.py
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -28,15 +30,17 @@ def probe(window):
         try:
             result = window.evaluate_js(
                 "({bands: document.getElementById('band').options.length,"
-                " disabled: document.getElementById('sweep').disabled})")
+                " disabled: document.getElementById('sweep').disabled,"
+                " live: document.getElementById('live').disabled,"
+                " connection: document.getElementById('connection').textContent})")
         except Exception as error:
             result = {"error": str(error)}
-        if result.get("bands", 0) > 1 and result.get("disabled") is False:
+        if result.get("bands", 0) > 1 and result.get("disabled") is False and result.get("connection"):
             break
     print(json.dumps(result), flush=True)
     window.destroy()
 
-window = webview.create_window("dipstick window test", PAGE.as_uri(), js_api=Api(connect=None), width=500, height=250)
+window = webview.create_window("dipstick window test", PAGE.as_uri(), js_api=Api(connect=None, ports=lambda: []), width=500, height=250)
 webview.start(probe, window)
 """
 
@@ -45,4 +49,7 @@ def test_the_window_reaches_python():
     # Its own process: pywebview must own the main thread, and pytest's would be the wrong one.
     done = subprocess.run([sys.executable, "-c", PROBE], capture_output=True, text=True, timeout=60)
     last = done.stdout.strip().splitlines()[-1] if done.stdout.strip() else done.stderr
-    assert '"bands": 16' in last and '"disabled": false' in last, last  # "Choose a band" + 15 bands
+    assert last.startswith("{"), last
+    assert json.loads(last) == {"bands": 16,  # "Choose a band" + 15 bands
+                                "disabled": False, "live": False,
+                                "connection": "No NanoVNA found. Is it plugged in and switched on?"}  # no ports given

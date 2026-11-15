@@ -4,6 +4,9 @@
 
 const $ = (id) => document.getElementById(id);
 const POINTS = 101;
+const CHECK_EVERY_MS = 2000;  // how often to look for the NanoVNA (reads the port list only)
+const LIVE_PAUSE_MS = 300;    // breathing room between live passes
+let live = false;             // true while live mode runs; Stop sets it false
 
 function ready() {
   window.pywebview.api.bands().then((bands) => {
@@ -18,8 +21,36 @@ function ready() {
       select.append(option);
     }
     select.value = "";  // or type a target: Python works out its band
-    $("sweep").disabled = false;  // only now can a sweep reach Python
+    $("sweep").disabled = $("live").disabled = false;  // only now can a sweep reach Python
   });
+  checkConnection();
+  setInterval(checkConnection, CHECK_EVERY_MS);
+}
+
+async function checkConnection() {
+  try {
+    const answer = await window.pywebview.api.nanovna();
+    $("connection").textContent = answer.text;
+    $("connection").className = answer.connected ? "connected" : "missing";
+  } catch (error) {
+    $("connection").textContent = `Couldn't check for the NanoVNA: ${error}`;
+    $("connection").className = "missing";
+  }
+}
+
+async function sweepOnce() {
+  try {
+    const answer = await window.pywebview.api.sweep($("band").value, $("target").value, POINTS);
+    show(answer);
+    return answer.ok;
+  } catch (error) {
+    show({ ok: false, error: `Couldn't reach dipstick's Python side: ${error}` });
+    return false;
+  }
+}
+
+function lock(locked) {
+  for (const id of ["band", "target", "sweep"]) $(id).disabled = locked;
 }
 
 function show(answer) {
@@ -34,16 +65,36 @@ function show(answer) {
 $("controls").addEventListener("submit", async (event) => {
   event.preventDefault();
   // A disabled submit button also blocks Enter in the target field, so one sweep runs at a time.
-  $("sweep").disabled = true;
+  $("sweep").disabled = $("live").disabled = true;
   $("status").textContent = "Sweeping…";
-  try {
-    show(await window.pywebview.api.sweep($("band").value, $("target").value, POINTS));
-  } catch (error) {
-    show({ ok: false, error: `Couldn't reach dipstick's Python side: ${error}` });
-  } finally {
-    $("sweep").disabled = false;
-    $("status").textContent = "";
+  await sweepOnce();
+  $("sweep").disabled = $("live").disabled = false;
+  $("status").textContent = "";
+});
+
+// Live: sweep, show, sweep again, until Stop or an error. Stop doesn't cut a pass off halfway:
+// each pass puts the NanoVNA's settings back at its end, so the loop finishes the pass first.
+$("live").addEventListener("click", async () => {
+  const button = $("live");
+  if (live) {
+    live = false;
+    button.textContent = "Stopping…";
+    button.disabled = true;
+    return;
   }
+  live = true;
+  lock(true);
+  button.textContent = "Stop";
+  for (let pass = 1; live; pass++) {
+    $("status").textContent = `Live: pass ${pass}`;
+    if (!(await sweepOnce())) break;  // the error is on the page; don't keep trying
+    await new Promise((resolve) => setTimeout(resolve, LIVE_PAUSE_MS));
+  }
+  live = false;
+  lock(false);
+  button.textContent = "Live";
+  button.disabled = false;
+  $("status").textContent = "";
 });
 
 // pywebview creates window.pywebview.api as an empty object first, adds the functions later, then

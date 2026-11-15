@@ -39,6 +39,11 @@ button { background: var(--trace); color: var(--panel); border-color: var(--trac
 #target { width: 9em; }
 button:disabled { opacity: 0.55; cursor: progress; }
 :focus-visible { outline: 2px solid var(--trace); outline-offset: 2px; }
+#live { background: var(--panel); color: var(--trace); }
+#connection { margin: 0; font-size: 0.9rem; color: var(--muted); }
+#connection.connected::before, #connection.missing::before { content: "● "; }
+#connection.connected::before { color: var(--good); }
+#connection.missing { color: var(--best); }
 #status { color: var(--muted); min-height: 1.4em; margin: 0.6rem 0 0; }
 #error { color: var(--best); margin: 0.2rem 0 0; font-weight: 600; }
 #error:empty { display: none; }

@@ -6,7 +6,7 @@ The fake link plays back replies recorded byte for byte from a NanoVNA-H, firmwa
 from dataclasses import dataclass
 
 import pytest
-from fakes import FakeLink, recorded
+from fakes import FakeLink, UnpluggedLink, recorded
 
 from dipstick.device import DeviceError, NanoVNA, find_port
 
@@ -108,6 +108,21 @@ def test_garbled_bytes_are_refused(junk):
     # Not plain printable ASCII: noise on the line, or something that isn't the NanoVNA (T4).
     with pytest.raises(DeviceError, match="garbled"):
         device({b"version": junk}).ask("version")
+
+
+# --- unplugged mid-conversation (pyserial raises its own SerialException) --------------------
+
+def test_unplugged_while_waiting_for_the_reply():
+    nano = NanoVNA(UnpluggedLink({}, unplug_on=b"version"))
+    with pytest.raises(DeviceError, match="The NanoVNA disconnected.*Plug it back in"):
+        nano.ask("version")
+
+
+def test_unplugged_before_sending():
+    nano = NanoVNA(UnpluggedLink({}, unplug_on=b"version"))
+    nano.link.gone = True  # already gone: the write itself fails
+    with pytest.raises(DeviceError, match="The NanoVNA disconnected"):
+        nano.ask("version")
 
 
 # --- finding the NanoVNA ----------------------------------------------------------------------

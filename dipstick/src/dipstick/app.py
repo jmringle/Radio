@@ -8,12 +8,14 @@ pywebview loads only when a window opens, so tests and the command don't need it
 
 import sys
 import threading
+
+from serial.tools import list_ports
 import traceback
 from pathlib import Path
 
 from dipstick.bands import BANDS
 from dipstick.cli import connect as connect_nanovna
-from dipstick.device import DeviceError
+from dipstick.device import DeviceError, nanovna_ports
 from dipstick.measure import band_for_target, measure_band
 from dipstick.plots import smith_svg, swr_svg
 
@@ -25,12 +27,23 @@ class Api:
     """What the page may call. pywebview exposes public methods and walks public attributes, so
     everything else here is private (a leading underscore)."""
 
-    def __init__(self, connect=connect_nanovna):
+    def __init__(self, connect=connect_nanovna, ports=list_ports.comports):
         self._connect = connect
+        self._ports = ports
         self._busy = threading.Lock()
 
     def bands(self) -> list[str]:
         return list(BANDS)
+
+    def nanovna(self) -> dict:
+        """Is a NanoVNA plugged in? Reads only the computer's list of USB serial ports; never opens
+        one, so the page can ask every couple of seconds, even during a sweep."""
+        found = nanovna_ports(self._ports())
+        if len(found) == 1:
+            return {"connected": True, "text": f"NanoVNA connected ({found[0]})"}
+        if found:
+            return {"connected": False, "text": f"More than one NanoVNA is plugged in ({', '.join(found)}); unplug one"}
+        return {"connected": False, "text": "No NanoVNA found. Is it plugged in and switched on?"}
 
     def sweep(self, band, target, points) -> dict:
         """Measure a band (or, with no band, the band the target is in); answers

@@ -6,8 +6,9 @@ page can show; nothing is raised into the page."""
 import threading
 
 import pytest
-from fakes import FakeLink, recorded
+from fakes import FakeLink, UnpluggedLink, recorded
 from test_analysis import antenna
+from test_device import Port
 
 from dipstick.app import Api
 from dipstick.device import DeviceError, NanoVNA
@@ -101,6 +102,14 @@ def test_device_errors_come_back_as_messages():
     assert Api(connect=no_nanovna).sweep("40m", "", 101) == {"ok": False, "error": "No NanoVNA found. Is it plugged in?"}
 
 
+def test_unplugged_mid_sweep_is_explained_not_unexpected():
+    nano = NanoVNA(UnpluggedLink({b"sweep": SETTINGS}, unplug_on=b"scan"))
+    answer = Api(connect=lambda port: nano).sweep("40m", "", 101)
+    assert answer["ok"] is False
+    assert "The NanoVNA disconnected" in answer["error"]
+    assert "set it by hand: 1.5 to 30 MHz, 101 points" in answer["error"]
+
+
 def test_an_unexpected_error_is_a_message_too(capsys):
     def broken(port):
         raise RuntimeError("bug")
@@ -130,9 +139,42 @@ def test_only_one_sweep_at_a_time():
     assert results["first"]["ok"] is True
 
 
+# --- is a NanoVNA plugged in? (the page asks every couple of seconds) --------------------------
+# Only the computer's list of USB serial ports is read: the port is never opened, so asking can't
+# disturb a sweep or send the NanoVNA anything.
+
+NANO = Port("/dev/cu.usbmodem401", 0x0483, 0x5740, "NanoVNA-H")
+RADIO = Port("/dev/cu.usbserial-1410", 0x10C4, 0xEA60, "CP2102 USB to UART")
+
+
+def status(ports):
+    return Api(connect=None, ports=lambda: ports).nanovna()
+
+
+def test_status_connected_names_the_port():
+    assert status([RADIO, NANO]) == {"connected": True, "text": "NanoVNA connected (/dev/cu.usbmodem401)"}
+
+
+def test_status_not_found():
+    assert status([RADIO]) == {"connected": False, "text": "No NanoVNA found. Is it plugged in and switched on?"}
+
+
+def test_status_more_than_one():
+    other = Port("/dev/cu.usbmodem402", 0x0483, 0x5740, "NanoVNA-H")
+    answer = status([NANO, other])
+    assert answer["connected"] is False
+    assert answer["text"] == "More than one NanoVNA is plugged in (/dev/cu.usbmodem401, /dev/cu.usbmodem402); unplug one"
+
+
+def test_status_never_connects():
+    def connect(port):
+        raise AssertionError("status must not open the port")
+    Api(connect=connect, ports=lambda: [NANO]).nanovna()
+
+
 def test_the_page_can_only_reach_public_methods():
     # pywebview exposes an object's public methods (and walks its public attributes): keep the
     # connection and lock private so the page can't reach them.
     public = {name for name in vars(Api(connect=None)) if not name.startswith("_")}
     assert public == set()
-    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "sweep"}
+    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "nanovna", "sweep"}

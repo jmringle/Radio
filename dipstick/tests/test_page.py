@@ -23,6 +23,7 @@ window.__answer = {ok: true, band: "40m", report: "40m: 7.000-7.300 MHz, 101 poi
                    swr_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-swr" viewBox="0 0 10 10"><polyline class="swr" points="0,0 10,10"/></svg>',
                    smith_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-smith" viewBox="0 0 10 10"><circle class="edge" cx="5" cy="5" r="5"/></svg>'};
 window.__hold = false;
+window.__nanovna = {connected: true, text: "NanoVNA connected (/dev/cu.usbmodem401)"};
 window.__release = null;
 // Like real pywebview (its js/api.js and js/finish.js, 6.2.1): window.pywebview.api starts as an
 // EMPTY object, the functions are added later, and only then does "pywebviewready" fire.
@@ -30,6 +31,7 @@ window.pywebview = {api: {}};
 setTimeout(() => {
   Object.assign(window.pywebview.api, {
     bands: async () => ["160m", "80m", "40m", "20m", "2m", "70cm"],
+    nanovna: async () => window.__nanovna,
     sweep: (band, target, points) => {
       window.__calls.push([band, target, points]);
       if (!window.__hold) return Promise.resolve(window.__answer);
@@ -119,12 +121,12 @@ def test_one_sweep_at_a_time_from_the_page(app: Page):
     sweep = app.get_by_role("button", name="Sweep")
     sweep.click()
     expect(sweep).to_be_disabled()
-    expect(app.get_by_role("status")).to_have_text(re.compile("Sweeping"))
+    expect(app.get_by_role("status", name="Sweep status")).to_have_text(re.compile("Sweeping"))
     sweep.click(force=True)  # a second click while it runs does nothing
     app.get_by_label("Target", exact=True).press("Enter")  # nor does Enter in the target field
     app.evaluate("window.__release()")
     expect(sweep).to_be_enabled()
-    expect(app.get_by_role("status")).to_have_text("")
+    expect(app.get_by_role("status", name="Sweep status")).to_have_text("")
     assert len(app.evaluate("window.__calls")) == 1
 
 
@@ -149,3 +151,73 @@ def test_the_pages_security_policy():
     assert rules["script-src"] == ["'self'", "'unsafe-eval'"]  # no 'unsafe-inline', no hosts
     assert rules["style-src"] == ["'self'"]
     assert rules["form-action"] == ["'none'"] and rules["base-uri"] == ["'none'"]
+
+
+# --- is a NanoVNA plugged in? ------------------------------------------------------------------
+
+def test_the_connection_line_follows_the_nanovna(app: Page):
+    connection = app.get_by_role("status", name="NanoVNA")
+    expect(connection).to_have_text("NanoVNA connected (/dev/cu.usbmodem401)")
+    app.evaluate('window.__nanovna = {connected: false, text: "No NanoVNA found. Is it plugged in and switched on?"}')
+    expect(connection).to_have_text("No NanoVNA found. Is it plugged in and switched on?")  # within a poll or two
+    expect(connection).to_have_class(re.compile("missing"))
+
+
+# --- live mode: sweep again and again while you trim -------------------------------------------
+# page.wait_for_function retries a JavaScript condition until it's true, the way expect() retries
+# an assertion (like Robot's `Wait Until Keyword Succeeds`).
+
+def test_live_sweeps_again_and_again_until_stopped(app: Page):
+    app.get_by_label("Band", exact=True).select_option("40m")
+    app.get_by_role("button", name="Live").click()
+    app.wait_for_function("window.__calls.length >= 3")
+    expect(app.get_by_role("status", name="Sweep status")).to_have_text(re.compile(r"Live: pass \d+"))
+    app.get_by_role("button", name="Stop").click()
+    expect(app.get_by_role("button", name="Live")).to_be_enabled()
+    passes = len(app.evaluate("window.__calls"))
+    app.wait_for_timeout(1000)
+    assert len(app.evaluate("window.__calls")) == passes  # stopped means stopped
+    assert all(call == ["40m", "", 101] for call in app.evaluate("window.__calls"))
+
+
+def test_stop_lets_the_pass_in_progress_finish(app: Page):
+    # A pass can't be cut off halfway: the NanoVNA's settings are put back at the end of each one.
+    app.evaluate("window.__hold = true")
+    app.get_by_role("button", name="Live").click()
+    app.get_by_role("button", name="Stop").click()
+    stopping = app.get_by_role("button", name="Stopping…")
+    expect(stopping).to_be_disabled()
+    app.evaluate("window.__release()")
+    expect(app.get_by_role("button", name="Live")).to_be_enabled()
+    expect(app.locator("#report")).not_to_be_empty()  # the last pass is still shown
+    assert len(app.evaluate("window.__calls")) == 1
+
+
+def test_the_controls_are_locked_during_live(app: Page):
+    app.evaluate("window.__hold = true")
+    app.get_by_role("button", name="Live").click()
+    for control in (app.get_by_label("Band", exact=True), app.get_by_label("Target", exact=True),
+                    app.get_by_role("button", name="Sweep")):
+        expect(control).to_be_disabled()
+    app.get_by_role("button", name="Stop").click()
+    app.evaluate("window.__release()")
+    for control in (app.get_by_label("Band", exact=True), app.get_by_label("Target", exact=True),
+                    app.get_by_role("button", name="Sweep")):
+        expect(control).to_be_enabled()
+
+
+def test_an_error_stops_live_and_says_why(app: Page):
+    app.get_by_role("button", name="Live").click()
+    app.wait_for_function("window.__calls.length >= 2")
+    app.evaluate('window.__answer = {ok: false, error: "The NanoVNA disconnected (read failed). Plug it back in and try again."}')
+    expect(app.get_by_role("alert")).to_have_text(re.compile("The NanoVNA disconnected"))
+    expect(app.get_by_role("button", name="Live")).to_be_enabled()
+    passes = len(app.evaluate("window.__calls"))
+    app.wait_for_timeout(1000)
+    assert len(app.evaluate("window.__calls")) == passes
+
+
+def test_live_waits_until_python_is_reachable(page: Page):
+    page.add_init_script(FAKE_API.replace("}, 50);", "}, 10_000);"))
+    page.goto(PAGE)
+    expect(page.get_by_role("button", name="Live")).to_be_disabled()

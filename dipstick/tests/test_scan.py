@@ -8,7 +8,7 @@ settings are read before the scan and put back after it, whatever happens in bet
 import math
 
 import pytest
-from fakes import FakeLink, recorded
+from fakes import FakeLink, UnpluggedLink, recorded
 
 from dipstick.device import DeviceError, NanoVNA
 from dipstick.scan import scan
@@ -53,6 +53,13 @@ def test_a_failed_restore_says_what_to_set_by_hand():
     nano = NanoVNA(FakeLink({b"sweep": SETTINGS, SCAN_40M: recorded("scan_40m_11_3"), RESTORE: b""}),
                    timeout_s=0.5, read_timeout_s=0.25)
     with pytest.raises(DeviceError, match="1.5 to 30 MHz, 101 points"):
+        scan(nano, 7_000_000, 7_300_000, 11)
+
+
+def test_unplugged_mid_scan_says_what_to_set_by_hand():
+    # The NanoVNA-H runs on its battery, so it stays on with the scan's settings.
+    nano = NanoVNA(UnpluggedLink({b"sweep": SETTINGS}, unplug_on=b"scan"))
+    with pytest.raises(DeviceError, match=r"(?s)disconnected.*set it by hand: 1.5 to 30 MHz, 101 points"):
         scan(nano, 7_000_000, 7_300_000, 11)
 
 

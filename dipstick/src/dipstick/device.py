@@ -21,17 +21,23 @@ PROMPT = b"ch> "
 # STMicroelectronics' generic USB serial ID: the NanoVNA uses it, and so can any other STM32
 # gadget, so the name must say NanoVNA too (T3).
 USB_ID = (0x0483, 0x5740)
+_DISCONNECTED = "The NanoVNA disconnected ({}). Plug it back in and try again."
 
 
 class DeviceError(Exception):
     """Something went wrong talking to the NanoVNA; the message says what to do."""
 
 
+def nanovna_ports(ports) -> list[str]:
+    """The ports in pyserial's list_ports.comports() that are NanoVNAs: the USB ID and the name."""
+    return [p.device for p in ports
+            if (p.vid, p.pid) == USB_ID and "nanovna" in f"{p.product or ''} {p.description or ''}".lower()]
+
+
 def find_port(ports) -> str:
     """The NanoVNA's port, from pyserial's list_ports.comports(). Never guesses (T3): writing
     NanoVNA commands to the wrong port, such as a radio's CAT port, could change its settings."""
-    found = [p.device for p in ports
-             if (p.vid, p.pid) == USB_ID and "nanovna" in f"{p.product or ''} {p.description or ''}".lower()]
+    found = nanovna_ports(ports)
     if len(found) == 1:
         return found[0]
     if found:
@@ -67,16 +73,16 @@ class NanoVNA:
     def sync(self) -> None:
         """Get to a clean prompt: send an empty line and drain whatever was left in the buffer
         from an earlier, interrupted session."""
-        self.link.write(b"\r")
+        self._write(b"\r")
         self._read_to_prompt("an empty line")
-        while self.link.read(4096):  # leftovers after the prompt; stops at the first quiet read
+        while self._read():  # leftovers after the prompt; stops at the first quiet read
             pass
 
     def ask(self, name: str, *args: int) -> list[str]:
         """Send one allowed command and return its answer lines (without the echo and prompt)."""
         sent = command(name, *args)  # raises ValueError for anything off the allowlist (T1, T2)
         text = sent.decode("ascii").removesuffix("\r")
-        self.link.write(sent)
+        self._write(sent)
         reply = self._read_to_prompt(text)
         try:
             decoded = reply.decode("ascii")
@@ -97,10 +103,24 @@ class NanoVNA:
             raise DeviceError(f"This NanoVNA's firmware doesn't know {name!r}")
         return answer
 
+    # pyserial raises SerialException when the port vanishes mid-conversation (USB cable pulled);
+    # say that plainly instead of letting it surface as an unexplained error.
+    def _write(self, data: bytes) -> None:
+        try:
+            self.link.write(data)
+        except serial.SerialException as error:
+            raise DeviceError(_DISCONNECTED.format(error)) from None
+
+    def _read(self) -> bytes:
+        try:
+            return self.link.read(4096)
+        except serial.SerialException as error:
+            raise DeviceError(_DISCONNECTED.format(error)) from None
+
     def _read_to_prompt(self, what: str) -> bytes:
         reply, silent = b"", 0
         while not reply.endswith(PROMPT):
-            chunk = self.link.read(4096)
+            chunk = self._read()
             if chunk:
                 reply, silent = reply + chunk, 0
             else:

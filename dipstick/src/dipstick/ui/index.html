@@ -20,9 +20,11 @@
       <label for="band">Band</label> <select id="band"></select>
       <label for="target">Target</label> <input id="target" inputmode="decimal" placeholder="e.g. 146.520" autocomplete="off">
       <button id="sweep" type="submit" disabled>Sweep</button>  <!-- enabled once Python is reachable -->
+      <button id="live" type="button" disabled>Live</button>  <!-- sweeps again and again; becomes Stop -->
     </form>
+    <p id="connection" role="status" aria-label="NanoVNA"></p>
   </header>
-  <p id="status" role="status" aria-live="polite"></p>
+  <p id="status" role="status" aria-label="Sweep status" aria-live="polite"></p>
   <p id="error" role="alert"></p>
   <main>
     <div class="plots">
