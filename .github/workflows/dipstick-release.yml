@@ -1,0 +1,62 @@
+name: dipstick release
+# Pushing a tag like dipstick-v0.1.0 (or dipstick-v0.1.0-beta.1) builds the app for all three
+# systems and makes a DRAFT release with the downloads and SHA256SUMS.txt. Nothing is public until
+# you look the draft over and press Publish on GitHub.
+on:
+  push:
+    tags: ["dipstick-v*"]
+permissions:
+  contents: read
+jobs:
+  check-tag:
+    # Before 20 minutes of builds: the tag must be a plain version that matches the code's.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag's version matches pyproject.toml and the Mac app's
+        env:
+          TAG: ${{ github.ref_name }}  # through env, never pasted into the script (no injection)
+        run: |
+          [[ "$TAG" =~ ^dipstick-v([0-9]+\.[0-9]+\.[0-9]+)(-(alpha|beta|rc)\.[0-9]+)?$ ]] \
+            || { echo "::error::$TAG isn't like dipstick-v0.1.0 or dipstick-v0.1.0-beta.1"; exit 1; }
+          version="${BASH_REMATCH[1]}"
+          grep -qx "version = \"$version\"" dipstick/pyproject.toml \
+            || { echo "::error::dipstick/pyproject.toml doesn't say version $version"; exit 1; }
+          grep -q "\"CFBundleShortVersionString\": \"$version\"" dipstick/packaging/dipstick.spec \
+            || { echo "::error::dipstick/packaging/dipstick.spec doesn't say version $version"; exit 1; }
+
+  build:
+    needs: check-tag
+    uses: ./.github/workflows/dipstick-app.yml  # the same builds and self-tests as every push
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # only this job, only to create the draft release
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dipstick-*
+          path: dist
+          merge-multiple: true
+      - name: Check every download against its checksum, then list them all in one file
+        working-directory: dist
+        run: |
+          ls -l
+          test "$(ls *.sha256 | wc -l)" -eq 3 || { echo "::error::expected 3 builds"; exit 1; }
+          sha256sum -c *.sha256
+          cat *.sha256 > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+      - name: Create the draft release
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#dipstick-v}"
+          prerelease=""; [[ "$version" == *-* ]] && prerelease="--prerelease"
+          gh release create "$TAG" --verify-tag --draft $prerelease --title "dipstick $version" \
+            --notes "dipstick $version: the NanoVNA explainer as an app for macOS, Windows and Linux. Built by GitHub Actions from this tag; each build opened its window and passed its self-test. Not code-signed, so your computer warns once (see the README's Building the app). Check a download with SHA256SUMS.txt: \`shasum -a 256 -c --ignore-missing SHA256SUMS.txt\` (macOS), \`sha256sum -c --ignore-missing SHA256SUMS.txt\` (Linux) or \`Get-FileHash <file>\` (Windows)." \
+            dipstick-macOS.dmg dipstick-Windows.zip dipstick-Linux.tar.gz SHA256SUMS.txt

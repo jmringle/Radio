@@ -57,7 +57,7 @@ class NanoVNA:
         when `read_timeout_s` passes with nothing to read)."""
         self.link = link
         self.timeout_s = timeout_s
-        self._max_silent_reads = math.ceil(timeout_s / read_timeout_s)
+        self._read_timeout_s = read_timeout_s
 
     @classmethod
     def open(cls, port: str, read_timeout_s: float = 0.25) -> "NanoVNA":
@@ -76,16 +76,17 @@ class NanoVNA:
         """Get to a clean prompt: send an empty line and drain whatever was left in the buffer
         from an earlier, interrupted session."""
         self._write(b"\r")
-        self._read_to_prompt("an empty line")
+        self._read_to_prompt("an empty line", self.timeout_s)
         while self._read():  # leftovers after the prompt; stops at the first quiet read
             pass
 
-    def ask(self, name: str, *args: int) -> list[str]:
-        """Send one allowed command and return its answer lines (without the echo and prompt)."""
+    def ask(self, name: str, *args: int | str, timeout_s: float | None = None) -> list[str]:
+        """Send one allowed command and return its answer lines (without the echo and prompt).
+        `timeout_s`: wait longer than usual for this one (a calibration step sweeps first)."""
         sent = command(name, *args)  # raises ValueError for anything off the allowlist (T1, T2)
         text = sent.decode("ascii").removesuffix("\r")
         self._write(sent)
-        reply = self._read_to_prompt(text)
+        reply = self._read_to_prompt(text, timeout_s or self.timeout_s)
         try:
             decoded = reply.decode("ascii")
         except UnicodeDecodeError:
@@ -119,16 +120,16 @@ class NanoVNA:
         except serial.SerialException as error:
             raise DeviceError(_DISCONNECTED.format(error)) from None
 
-    def _read_to_prompt(self, what: str) -> bytes:
-        reply, silent = b"", 0
+    def _read_to_prompt(self, what: str, timeout_s: float) -> bytes:
+        reply, silent, max_silent = b"", 0, math.ceil(timeout_s / self._read_timeout_s)
         while not reply.endswith(PROMPT):
             chunk = self._read()
             if chunk:
                 reply, silent = reply + chunk, 0
             else:
                 silent += 1
-                if silent >= self._max_silent_reads:
-                    raise DeviceError(f"The NanoVNA didn't answer {what!r} within {self.timeout_s:g} s; "
+                if silent >= max_silent:
+                    raise DeviceError(f"The NanoVNA didn't answer {what!r} within {timeout_s:g} s; "
                                       "is it switched on and not in a menu?")
             if len(reply) > self.MAX_REPLY:
                 raise DeviceError(f"The NanoVNA's reply to {what!r} is too long (over "

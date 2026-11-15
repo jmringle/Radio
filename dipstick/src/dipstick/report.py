@@ -30,8 +30,9 @@ def report(s: Summary, band: str) -> str:
     ]
     lines += _two_to_one(s) + [""] + _reactance(s) + [""] + _trim(s) + [""]
     lines += [
-        "Measured with the NanoVNA's saved calibration. If you calibrated over a different range, or",
-        "added a cable or adapter since, recalibrate for the most accurate numbers.",
+        "Measured with the NanoVNA's current calibration. If it was made over a different range, or you",
+        "added a cable or adapter since, recalibrate for this band (the app's Calibrate tab) for the most",
+        "accurate numbers.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -61,8 +62,16 @@ def _reactance(s: Summary) -> list[str]:
 
 def _trim(s: Summary) -> list[str]:
     target = _mhz(s.target_hz)
-    explain = ("  A wire antenna's best-match frequency moves the opposite way to its length: longer goes lower.\n"
-               "  Trim a little at a time and measure again; the percent is of the whole antenna's length.")
+    if s.flat:
+        return [f"No clear dip: SWR stays between {_swr(s.best.swr)} and {_swr(s.worst.swr)} across the band, so there's",
+                "  no best match to move, and trimming won't fix it. The antenna is probably resonant well outside",
+                "  this band (made for another band, or a multiband antenna that needs a tuner here), or something",
+                "  is missing or wrong: a counterpoise or ground an antenna needs, a bad connector, or a lossy cable."]
+    explain = ("  This assumes an antenna you can trim (a wire dipole or end-fed, or an adjustable whip): its\n"
+               "  best-match frequency moves the opposite way to its length, so longer goes lower. Trim a little at\n"
+               "  a time and measure again; the percent is of the whole antenna's length.\n"
+               "  A fixed antenna (a rubber duck or a bought whip) can't be trimmed: a best match away from your\n"
+               "  target means it was made for somewhat different frequencies.")
     if s.best_at_edge:
         where, fix = ("below", "too long") if s.best_at_edge == "low" else ("above", "too short")
         verb = "Shorten" if s.best_at_edge == "low" else "Lengthen"

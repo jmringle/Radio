@@ -30,5 +30,6 @@ def test_the_window_reaches_python():
     assert json.loads(last) == {"bands": 16,  # "Choose a band" + 15 bands
                                 "disabled": False, "live": False,
                                 "connection": "No NanoVNA found. Is it plugged in and switched on?",  # no ports given
-                                "cable": False}  # Check cable enabled: the box is ticked and Python is reachable
+                                "cable": False,  # Check cable enabled: the box is ticked and Python is reachable
+                                "calibrate_bands": 16}  # the Calibrate tab's band list, filled in too
     assert done.returncode == 0

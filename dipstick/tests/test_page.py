@@ -26,6 +26,8 @@ window.__hold = false;
 window.__nanovna = {connected: true, text: "NanoVNA connected (/dev/cu.usbmodem401)"};
 window.__release = null;
 window.__cableCalls = [];
+window.__calCalls = [];
+window.__calError = null;
 window.__cableAnswer = {ok: true, report: "Cable: 1.000-48.000 MHz sweep, 101 points\\n\\nFar end: open\\n",
                         smith_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-cable-smith" viewBox="0 0 10 10"><circle class="edge" cx="5" cy="5" r="5"/></svg>'};
 // Like real pywebview (its js/api.js and js/finish.js, 6.2.1): window.pywebview.api starts as an
@@ -44,6 +46,13 @@ setTimeout(() => {
       window.__cableCalls.push([noAntenna, vf, length, longest]);
       if (!window.__hold) return Promise.resolve(window.__cableAnswer);
       return new Promise(resolve => { window.__release = () => resolve(window.__cableAnswer); });
+    },
+    calibrate: (band, step) => {
+      window.__calCalls.push([band, step]);
+      const answer = window.__calError ? {ok: false, error: window.__calError}
+                                       : {ok: true, next: {open: "short", short: "load", load: null}[step]};
+      if (!window.__hold) return Promise.resolve(answer);
+      return new Promise(resolve => { window.__release = () => resolve(answer); });
     },
   });
   window.dispatchEvent(new CustomEvent("pywebviewready"));
@@ -332,3 +341,91 @@ def test_check_cable_waits_until_python_is_reachable(page: Page):
     cable_tab(page)
     page.get_by_label("No antenna connected").check()
     expect(page.get_by_role("button", name="Check cable")).to_be_disabled()
+
+
+# --- the Calibrate tab: open, short, load over one band ----------------------------------------
+
+def calibrate_tab(page):
+    page.get_by_role("tab", name="Calibrate").click()
+    return page
+
+
+def test_calibrate_needs_a_band(app: Page):
+    calibrate_tab(app)
+    band, measure = app.get_by_label("Band to calibrate"), app.get_by_role("button", name="Measure open")
+    expect(band.locator("option")).to_have_count(7)  # "Choose a band" + 6 from Python
+    expect(measure).to_be_disabled()
+    band.select_option("40m")
+    expect(measure).to_be_enabled()
+
+
+def test_calibrating_walks_through_open_short_load(app: Page):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    step = app.locator("#cal-instruction")
+    expect(step).to_contain_text("Step 1 of 3")
+    expect(step).to_contain_text("open standard")
+    app.get_by_role("button", name="Measure open").click()
+    expect(step).to_contain_text("Step 2 of 3")
+    expect(step).to_contain_text("short standard")
+    app.get_by_role("button", name="Measure short").click()
+    expect(step).to_contain_text("Step 3 of 3")
+    expect(step).to_contain_text("load standard")
+    app.get_by_role("button", name="Measure load").click()
+    expect(step).to_contain_text("Calibrated for 40m")
+    expect(step).to_contain_text("switch the NanoVNA off and on")
+    expect(app.get_by_role("button", name="Measure open")).to_be_enabled()  # ready to start a new one
+    assert app.evaluate("window.__calCalls") == [["40m", "open"], ["40m", "short"], ["40m", "load"]]
+
+
+def test_a_failed_step_stays_on_that_step(app: Page):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    app.get_by_role("button", name="Measure open").click()
+    app.evaluate('window.__calError = "The NanoVNA disconnected"')
+    app.get_by_role("button", name="Measure short").click()
+    expect(app.get_by_role("alert")).to_have_text("The NanoVNA disconnected")
+    expect(app.locator("#cal-instruction")).to_contain_text("Step 2 of 3")
+    app.evaluate("window.__calError = null")
+    app.get_by_role("button", name="Measure short").click()
+    expect(app.locator("#error")).to_be_empty()  # an empty alert leaves the accessibility tree
+    expect(app.locator("#cal-instruction")).to_contain_text("Step 3 of 3")
+
+
+def test_choosing_another_band_starts_over(app: Page):
+    calibrate_tab(app)
+    band = app.get_by_label("Band to calibrate")
+    band.select_option("40m")
+    app.get_by_role("button", name="Measure open").click()
+    band.select_option("20m")
+    expect(app.locator("#cal-instruction")).to_contain_text("Step 1 of 3")
+    app.get_by_role("button", name="Measure open").click()
+    assert app.evaluate("window.__calCalls")[-1] == ["20m", "open"]
+
+
+def test_nothing_else_can_start_while_a_standard_is_measured(app: Page):
+    app.evaluate("window.__hold = true")
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    app.get_by_role("button", name="Measure open").click()
+    expect(app.get_by_role("status", name="Sweep status")).to_have_text(re.compile("Measuring the open standard"))
+    for control in (app.get_by_role("tab", name="Antenna"), app.get_by_role("tab", name="Cable"),
+                    app.get_by_role("button", name="Measure open"), app.get_by_label("Band to calibrate")):
+        expect(control).to_be_disabled()
+    app.evaluate("window.__release()")
+    expect(app.get_by_role("tab", name="Antenna")).to_be_enabled()
+    expect(app.get_by_role("status", name="Sweep status")).to_have_text("")
+
+
+def test_the_arrow_keys_reach_the_calibrate_tab(app: Page):
+    antenna = app.get_by_role("tab", name="Antenna")
+    antenna.press("ArrowLeft")  # wraps round from the first tab to the last
+    expect(app.get_by_role("tab", name="Calibrate")).to_have_attribute("aria-selected", "true")
+    expect(app.get_by_label("Band to calibrate")).to_be_visible()
+
+
+def test_calibrate_waits_until_python_is_reachable(page: Page):
+    page.add_init_script(FAKE_API.replace("}, 50);", "}, 10_000);"))
+    page.goto(PAGE)
+    calibrate_tab(page)
+    expect(page.get_by_role("button", name="Measure open")).to_be_disabled()

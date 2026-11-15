@@ -76,6 +76,14 @@ def test_it_gives_up_after_the_timeout_not_later():
     assert nano.link.empty_reads == 4
 
 
+def test_one_command_can_wait_longer():
+    # A calibration step sweeps once at a narrow bandwidth before it answers.
+    nano = NanoVNA(FakeLink({b"version": b""}), timeout_s=1.0, read_timeout_s=0.25)
+    with pytest.raises(DeviceError, match="within 3 s"):
+        nano.ask("version", timeout_s=3.0)
+    assert nano.link.empty_reads == 12
+
+
 def test_a_reply_that_stops_halfway_times_out():
     nano = device({b"version": b"version\r\n1.2."})
     with pytest.raises(DeviceError, match="didn't answer"):

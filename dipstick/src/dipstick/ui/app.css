@@ -46,6 +46,7 @@ button:disabled { opacity: 0.55; cursor: progress; }
 [role="tabpanel"] { margin-top: 0.75rem; }
 .confirm { color: var(--ink); font-weight: 600; }
 .hint { color: var(--muted); font-size: 0.9rem; margin: 0.5rem 0 0; max-width: 60em; }
+.instruction { color: var(--ink); font-weight: 600; margin: 0.75rem 0 0; max-width: 60em; }
 #vf, #length, #max-length { width: 8em; }
 #connection { margin: 0; font-size: 0.9rem; color: var(--muted); }
 #connection.connected::before, #connection.missing::before { content: "● "; }

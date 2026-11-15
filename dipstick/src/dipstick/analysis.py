@@ -13,6 +13,9 @@ from dipstick.s11 import Reading
 
 NOTHING_SWR = 10  # best SWR above this everywhere: nothing connected, or something badly wrong
 TWO_TO_ONE = 2.0
+# Highest SWR in the band under 1.25 times the lowest, with the lowest above 2: no dip to move.
+# A dipole even 10% off frequency rises far more than that across a band.
+FLAT_RATIO = 1.25
 
 
 @dataclass(frozen=True)
@@ -29,6 +32,8 @@ class Summary:
     target_hz: int
     trim_percent: float | None  # + lengthen, - shorten, to move the best match to the target
     nothing_connected: bool
+    worst: Reading  # highest SWR
+    flat: bool  # SWR high and nearly the same across the band: no clear dip, so no trim advice
     points: int
 
 
@@ -46,8 +51,10 @@ def summarize(readings: list[Reading], target_hz: int) -> Summary:
     edge = "low" if best_index == 0 else "high" if best_index == len(readings) - 1 else None
     two_to_one, reaches_low, reaches_high = (None, False, False) if nothing else _two_to_one(readings, best_index)
     trim = None if nothing else (best.hz / target_hz - 1) * 100
+    worst = max(readings, key=lambda r: r.swr)
+    flat = not nothing and best.swr > TWO_TO_ONE and worst.swr < best.swr * FLAT_RATIO
     return Summary(low, middle, high, best, edge, two_to_one, reaches_low, reaches_high,
-                   _zero_reactance(readings), target_hz, trim, nothing, len(readings))
+                   _zero_reactance(readings), target_hz, trim, nothing, worst, flat, len(readings))
 
 
 def _two_to_one(readings: list[Reading], best: int) -> tuple[tuple[float, float] | None, bool, bool]:

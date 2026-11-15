@@ -5,6 +5,7 @@ NanoVNA, a device problem) or the command was used wrongly.
 """
 
 import argparse
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -13,7 +14,7 @@ from serial.tools import list_ports
 
 from dipstick.bands import BANDS
 from dipstick.device import DeviceError, NanoVNA, find_port
-from dipstick.measure import BandMeasurement, measure_band, measure_cable
+from dipstick.measure import BandMeasurement, band_for_target, measure_band, measure_cable
 from dipstick.scan import MAX_POINTS
 
 
@@ -29,14 +30,20 @@ def main(argv: list[str] | None = None, connect=connect) -> int:
     parser = argparse.ArgumentParser(
         prog="dipstick", description="Sweep an antenna across one amateur band and explain the NanoVNA's readings.",
         epilog="To check a coax cable instead: dipstick cable --help")
-    parser.add_argument("band", help=f"one of: {', '.join(BANDS)}")
+    parser.add_argument("band", help=f"one of: {', '.join(BANDS)}; or a frequency in MHz, e.g. 915, to sweep its "
+                                     "band and trim for it")
     parser.add_argument("--target", metavar="MHZ", help="frequency to trim for, e.g. 7.074 (default: the band's middle)")
     parser.add_argument("--points", type=int, default=MAX_POINTS, help=f"2 to {MAX_POINTS} (default {MAX_POINTS})")
     parser.add_argument("--port", help="the NanoVNA's serial port, if dipstick can't find it")
     parser.add_argument("--out", type=Path, default=Path("output"), help="folder for the SVG plots (default: output)")
     args = parser.parse_args(argv)
     try:
-        measured = measure_band(args.band, args.target, args.points, connect, args.port)
+        band, target = args.band, args.target
+        if band not in BANDS and re.fullmatch(r"[0-9.]+", band):  # a frequency: its band, trimmed for it
+            if target is not None:
+                raise ValueError(f"{band} is already the target; give a band with --target, or the frequency alone")
+            band, target = band_for_target(band), band
+        measured = measure_band(band, target, args.points, connect, args.port)
         print(measured.report, end="")
         print(f"\nPlots: {', '.join(str(p) for p in _save_plots(measured, args.out))}")
         return 0

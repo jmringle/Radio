@@ -22,9 +22,12 @@ function ready() {
       select.append(option);
     }
     select.value = "";  // or type a target: Python works out its band
+    $("cal-band").append(...[...select.options].map((option) => option.cloneNode(true)));
+    $("cal-band").value = "";
     $("sweep").disabled = $("live").disabled = false;  // only now can a sweep reach Python
     pythonReady = true;
     allowCableCheck();
+    showCalibrationStep();
   });
   checkConnection();
   setInterval(checkConnection, CHECK_EVERY_MS);
@@ -112,8 +115,8 @@ $("live").addEventListener("click", async () => {
   $("status").textContent = "";
 });
 
-// --- tabs: Antenna (band sweeps) and Cable ---------------------------------------------------
-const tabs = [$("tab-antenna"), $("tab-cable")];
+// --- tabs: Antenna (band sweeps), Cable and Calibrate -----------------------------------------
+const tabs = [$("tab-antenna"), $("tab-cable"), $("tab-calibrate")];
 
 function selectTab(tab) {
   if (tab.getAttribute("aria-selected") === "true") return;
@@ -161,6 +164,55 @@ $("cable-controls").addEventListener("submit", async (event) => {
   allowCableCheck();
   running(false);
   $("status").textContent = "";
+});
+
+// --- calibrating: open, short, load, in that order, over one band ------------------------------
+const CAL_STEPS = {
+  open: "Step 1 of 3: screw the open standard onto the port. An open reflects all of the signal straight " +
+        "back, in step: it shows the NanoVNA what nothing connected looks like at its connector.",
+  short: "Step 2 of 3: swap it for the short standard. A short also reflects all of the signal, but " +
+         "turned upside down (inverted): the opposite side of the Smith chart.",
+  load: "Step 3 of 3: swap it for the load standard (50 ohms). A load takes in all of the signal and " +
+        "reflects none: a perfect match, SWR 1.0, the middle of the Smith chart.",
+};
+let calStep = "open";  // the next standard to measure
+let calDone = "";      // the band just calibrated, until another calibration starts
+
+function showCalibrationStep() {
+  $("cal-step").textContent = `Measure ${calStep}`;
+  $("cal-step").disabled = !(pythonReady && $("cal-band").value);
+  $("cal-instruction").textContent = calDone && calStep === "open"
+    ? `Calibrated for ${calDone}. Put your antenna back on and sweep ${calDone} on the Antenna tab. The ` +
+      "calibration lasts until you switch the NanoVNA off and on, which goes back to its saved one."
+    : $("cal-band").value ? CAL_STEPS[calStep] : "Choose the band you'll measure.";
+}
+
+$("cal-band").addEventListener("change", () => {
+  calStep = "open";  // a calibration covers one band: another band starts over
+  calDone = "";
+  showCalibrationStep();
+});
+
+$("cal-controls").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const band = $("cal-band").value;
+  $("cal-step").disabled = $("cal-band").disabled = true;
+  running(true);
+  $("status").textContent = `Measuring the ${calStep} standard…`;
+  try {
+    const answer = await window.pywebview.api.calibrate(band, calStep);
+    $("error").textContent = answer.ok ? "" : answer.error;
+    if (answer.ok) {
+      calDone = answer.next ? "" : band;
+      calStep = answer.next || "open";
+    }
+  } catch (error) {
+    $("error").textContent = `Couldn't reach dipstick's Python side: ${error}`;
+  }
+  $("cal-band").disabled = false;
+  running(false);
+  $("status").textContent = "";
+  showCalibrationStep();
 });
 
 // pywebview creates window.pywebview.api as an empty object first, adds the functions later, then

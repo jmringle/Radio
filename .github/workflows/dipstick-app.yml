@@ -7,6 +7,7 @@ on:
       - "dipstick/requirements-*.txt"
       - ".github/workflows/dipstick-app.yml"
   workflow_dispatch:  # the Actions tab's "Run workflow" button
+  workflow_call:  # dipstick-release.yml builds through this, so a release gets the same checks
 permissions:
   contents: read
 jobs:

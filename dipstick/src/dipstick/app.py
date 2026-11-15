@@ -13,16 +13,21 @@ from serial.tools import list_ports
 import traceback
 from pathlib import Path
 
-from dipstick.bands import BANDS
+from dipstick.bands import BANDS, band_range
 from dipstick.device import DeviceError, NanoVNA, find_port, nanovna_ports
 from dipstick.measure import band_for_target, measure_band, measure_cable
 from dipstick.plots import smith_svg, swr_svg
+from dipstick.scan import MAX_POINTS
 
 APP_NAME = "dipstick"
 PAGE = Path(__file__).parent / "ui" / "index.html"
 # The cable tab's labels, so errors name the field to fix (index.html must match).
 _FIELDS = {"no_antenna": "tick No antenna connected", "vf": "Velocity factor", "length": "Length",
            "max_length": "Longest cable"}
+CAL_ORDER = ("open", "short", "load")
+# A calibration step answers only after the NanoVNA has swept the standard once, at 100 Hz
+# bandwidth or narrower (hugen79/NanoVNA-H cal_collect, read 2026-11-15): slower than a reply.
+CAL_STEP_TIMEOUT_S = 20.0
 
 
 def connect_nanovna(port: str | None, ports=list_ports.comports) -> NanoVNA:
@@ -38,6 +43,7 @@ class Api:
         self._connect = connect
         self._ports = ports
         self._busy = threading.Lock()
+        self._calibration = None  # (band, the next step) between calibration steps
 
     def bands(self) -> list[str]:
         return list(BANDS)
@@ -77,6 +83,41 @@ class Api:
             return {"report": measured.report, "smith_svg": smith_svg(measured.readings, standalone=False)}
         return self._one_at_a_time(measure)
 
+    def calibrate(self, band, step) -> dict:
+        """One calibration step over a band: "open" (which always starts over), then "short", then
+        "load", which also applies the new calibration. Answers {"ok": True, "next": the next step
+        or None when finished} or {"ok": False, error}. Changes only the calibration in the
+        NanoVNA's memory (never `save`), and leaves the NanoVNA sweeping the band it covers."""
+        def measure():
+            if step not in CAL_ORDER:
+                raise ValueError(f"Unknown calibration step {step!r}")
+            if not isinstance(band, str):
+                raise ValueError("Choose a band")
+            start, stop = band_range(band)
+            if step != "open":
+                expected = self._calibration
+                if expected is None:
+                    raise ValueError("Start with the open standard")
+                if expected[0] != band:
+                    raise ValueError(f"This calibration is for {expected[0]}. Start with the open standard to calibrate {band}")
+                if expected[1] != step:
+                    raise ValueError(f"Measure the {expected[1]} next")
+            nano = self._connect(None)
+            try:
+                if step == "open":
+                    self._calibration = None
+                    nano.ask("sweep", start, stop, MAX_POINTS)  # a standard is measured over the NanoVNA's own sweep
+                    nano.ask("cal", "reset")
+                nano.ask("cal", step, timeout_s=CAL_STEP_TIMEOUT_S)
+                if step == "load":
+                    nano.ask("cal", "done")
+            finally:
+                nano.close()
+            following = CAL_ORDER.index(step) + 1
+            self._calibration = (band, CAL_ORDER[following]) if following < len(CAL_ORDER) else None
+            return {"next": self._calibration and self._calibration[1]}
+        return self._one_at_a_time(measure)
+
     def _one_at_a_time(self, measure) -> dict:
         """pywebview runs each call from the page on its own thread, and there's one NanoVNA."""
         if not self._busy.acquire(blocking=False):
@@ -110,7 +151,8 @@ box.checked = true; box.dispatchEvent(new Event('change'));
   disabled: document.getElementById('sweep').disabled,
   live: document.getElementById('live').disabled,
   connection: document.getElementById('connection').textContent,
-  cable: document.getElementById('check-cable').disabled})
+  cable: document.getElementById('check-cable').disabled,
+  calibrate_bands: document.getElementById('cal-band').options.length})
 """
 
 

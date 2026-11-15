@@ -195,7 +195,7 @@ def test_the_page_can_only_reach_public_methods():
     # connection and lock private so the page can't reach them.
     public = {name for name in vars(Api(connect=None)) if not name.startswith("_")}
     assert public == set()
-    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "nanovna", "sweep"}
+    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "nanovna", "sweep"}
 
 
 # --- the cable check: a wide sweep, so only with no antenna connected (T5) ---------------------
@@ -307,3 +307,143 @@ def test_cable_unexpected_error_is_a_message(capsys):
         raise RuntimeError("bug")
     answer = Api(connect=broken).cable(True, "0.66", "", "50")
     assert answer["ok"] is False and "Unexpected error (RuntimeError)" in answer["error"]
+
+
+# Calibrating (the Calibrate tab): open, short, load, in that order, over one band. Only the
+# calibration in the NanoVNA's memory changes; nothing is saved (no `save`), so switching it off
+# and on brings the saved calibration back.
+def echo(*commands):
+    return {c: c + b"\r\nch> " for c in commands}
+
+
+class Calibrator:
+    """A fake NanoVNA per step, recording everything sent across steps."""
+
+    def __init__(self, link_class=FakeLink, **kwargs):
+        self.sent, self.connects = [], 0
+        self.link_class, self.kwargs = link_class, kwargs
+
+    def __call__(self, port):
+        self.connects += 1
+        link = self.link_class(echo(b"", b"sweep 7000000 7300000 101", b"sweep 14000000 14350000 101",
+                                    *(b"cal " + s for s in (b"reset", b"open", b"short", b"load", b"done"))),
+                               **self.kwargs)
+        link.written = self.sent
+        return NanoVNA(link)
+
+    def commands(self):
+        return [c.removesuffix(b"\r") for c in self.sent if c != b"\r"]  # \r alone: the connect sync
+
+
+def test_calibrating_open_short_load_over_the_band():
+    nano = Calibrator()
+    api = Api(connect=nano)
+    assert api.calibrate("40m", "open") == {"ok": True, "next": "short"}
+    assert api.calibrate("40m", "short") == {"ok": True, "next": "load"}
+    assert api.calibrate("40m", "load") == {"ok": True, "next": None}
+    assert nano.commands() == [b"sweep 7000000 7300000 101", b"cal reset", b"cal open",
+                               b"cal short", b"cal load", b"cal done"]
+    assert not any(c.startswith((b"save", b"recall")) for c in nano.commands())
+
+
+def test_open_always_starts_over():
+    nano = Calibrator()
+    api = Api(connect=nano)
+    api.calibrate("40m", "open")
+    api.calibrate("40m", "short")
+    assert api.calibrate("20m", "open") == {"ok": True, "next": "short"}
+    assert nano.commands()[-3:] == [b"sweep 14000000 14350000 101", b"cal reset", b"cal open"]
+    assert api.calibrate("20m", "short") == {"ok": True, "next": "load"}
+
+
+@pytest.mark.parametrize("before, step, words", [
+    ([], "short", "Start with the open"),
+    ([], "load", "Start with the open"),
+    (["open"], "load", "Measure the short next"),
+    (["open", "short", "load"], "short", "Start with the open"),  # finished: a new calibration starts with open
+])
+def test_steps_out_of_order_are_refused_and_never_connect(before, step, words):
+    nano = Calibrator()
+    api = Api(connect=nano)
+    for done in before:
+        api.calibrate("40m", done)
+    connects = nano.connects
+    answer = api.calibrate("40m", step)
+    assert answer["ok"] is False and words in answer["error"]
+    assert nano.connects == connects
+
+
+def test_changing_band_partway_is_refused():
+    nano = Calibrator()
+    api = Api(connect=nano)
+    api.calibrate("40m", "open")
+    answer = api.calibrate("20m", "short")
+    assert answer["ok"] is False and "40m" in answer["error"] and "Start with the open" in answer["error"]
+
+
+@pytest.mark.parametrize("band, step", [("60m", "open"), ("", "open"), (None, "open"), (7, "open"),
+                                        ("40m", "save"), ("40m", "thru"), ("40m", "done"), ("40m", "reset"),
+                                        ("40m", ""), ("40m", None), ("40m", 1), ("40m", "open\rsave 0")])
+def test_bad_calibration_requests_are_answered_and_never_connect(band, step):
+    nano = Calibrator()
+    answer = Api(connect=nano).calibrate(band, step)
+    assert answer["ok"] is False and answer["error"]
+    assert nano.connects == 0
+
+
+def test_a_failed_step_can_be_tried_again():
+    nano = Calibrator()
+    api = Api(connect=nano)
+    api.calibrate("40m", "open")
+    api._connect = Calibrator(UnpluggedLink, unplug_on=b"cal short")
+    answer = api.calibrate("40m", "short")
+    assert answer["ok"] is False and "The NanoVNA disconnected" in answer["error"]
+    api._connect = nano
+    assert api.calibrate("40m", "short") == {"ok": True, "next": "load"}
+
+
+class MeasuringLink(FakeLink):
+    """Quiet for 30 reads (7.5 s at the 0.25 s read timeout, past the usual 5 s) while measuring a standard."""
+
+    def write(self, data):
+        self.quiet = 30 if data.startswith((b"cal open", b"cal short", b"cal load")) else 0
+        return super().write(data)
+
+    def read(self, size=1):
+        if getattr(self, "quiet", 0):
+            self.quiet -= 1
+            return b""
+        return super().read(size)
+
+
+def test_calibration_steps_wait_longer_for_the_measurement():
+    # The NanoVNA answers a step only after sweeping the standard, which is slower than a reply.
+    assert Api(connect=Calibrator(MeasuringLink)).calibrate("40m", "open") == {"ok": True, "next": "short"}
+
+
+def test_calibrating_and_sweeping_take_turns():
+    started, release = threading.Event(), threading.Event()
+
+    def slow(port):
+        started.set()
+        release.wait(5)
+        return good_40m()
+
+    api = Api(connect=slow)
+    results = {}
+    first = threading.Thread(target=lambda: results.update(band=api.sweep("40m", "", 101)))
+    first.start()
+    assert started.wait(5)
+    results["cal"] = api.calibrate("40m", "open")
+    release.set()
+    first.join(5)
+    assert results["cal"] == {"ok": False, "error": "A sweep is already running"}
+
+
+def test_a_failed_open_means_starting_over():
+    # The open step resets the calibration in memory first, so after it fails nothing is half done.
+    api = Api(connect=Calibrator())
+    api.calibrate("40m", "open")
+    api._connect = Calibrator(UnpluggedLink, unplug_on=b"cal open")
+    assert api.calibrate("40m", "open")["ok"] is False
+    assert "Start with the open" in api.calibrate("40m", "short")["error"]

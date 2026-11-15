@@ -91,3 +91,36 @@ def test_an_open_port_says_all_of_the_signal_comes_back():
 
 def test_calibration_reminder():
     assert "recalibrate" in text(7_150_000)
+
+
+def test_a_flat_curve_says_no_clear_dip_and_gives_no_trim_advice():
+    # Like the 2m HT antenna (2026-11-15): SWR about 5 everywhere, no dip to move.
+    out = text(7_150_000, half_width=5_000_000, r=250)
+    assert "No clear dip: SWR stays between 5.00 and 5.0" in out
+    assert "resonant well outside" in out and "counterpoise" in out
+    assert "Shorten" not in out and "Lengthen" not in out and "No trim needed" not in out
+
+
+def test_a_flat_curve_beats_the_best_at_an_edge_advice():
+    out = text(6_000_000, half_width=5_000_000, r=250)  # lowest SWR at the low edge, but barely
+    assert "No clear dip" in out and "below the band" not in out
+
+
+def test_a_real_dip_with_high_swr_still_gets_trim_advice():
+    out = text(7_051_000, half_width=20_000, r=130)  # best SWR 2.6, climbing far higher at the edges
+    assert "No clear dip" not in out and "Shorten the antenna about 1.4%" in out
+
+
+def test_a_low_flat_curve_is_not_called_a_problem():
+    assert "No clear dip" not in text(7_150_000, half_width=5_000_000)  # SWR about 1.0 everywhere
+
+
+def test_trim_advice_says_it_is_for_antennas_you_can_trim():
+    out = text(7_051_000)
+    assert "an antenna you can trim (a wire dipole or end-fed, or an adjustable whip)" in out
+    assert "A fixed antenna (a rubber duck or a bought whip) can't be trimmed" in out
+
+
+def test_flat_means_the_highest_swr_is_under_a_quarter_above_the_lowest():
+    assert "No clear dip: SWR stays between 3.00 and 3.64" in text(7_150_000, half_width=80_000, r=150)  # 1.22x
+    assert "No clear dip" not in text(7_150_000, half_width=70_000, r=150)  # 3.00 to 3.84: 1.28x, a dip
