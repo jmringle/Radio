@@ -1,0 +1,76 @@
+name: dipstick Windows download check
+# Installs a released Windows build the way a person does: download, extract with Explorer's zip
+# handling, run. Browsers mark downloads as "from the internet" (a Zone.Identifier stream, the
+# Mark of the Web), Explorer copies that mark onto every file it extracts, and .NET then refuses
+# to load pythonnet's Python.Runtime.dll ("Failed to resolve Python.Runtime.Loader.Initialize").
+# CI's own builds are never downloaded, so the build workflow can't see this. Run it from the
+# Actions tab ("Run workflow").
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to check"
+        default: "dipstick-v0.1.0-beta.1"
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}  # through env, never pasted into the script
+    steps:
+      - name: Download the release's Windows zip and check its checksum
+        shell: bash
+        run: |
+          [[ "$TAG" =~ ^dipstick-v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || { echo "::error::bad tag $TAG"; exit 1; }
+          mkdir download && cd download
+          gh release download "$TAG" -p dipstick-Windows.zip -p SHA256SUMS.txt
+          sha256sum -c --ignore-missing SHA256SUMS.txt
+
+      - name: Mark it as downloaded from the internet and extract it with Explorer's zip handling
+        run: |
+          $zip = (Resolve-Path download\dipstick-Windows.zip).Path
+          Set-Content -Path $zip -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3"  # 3 = Internet, as a browser writes it
+          New-Item -ItemType Directory installed | Out-Null
+          $shell = New-Object -ComObject Shell.Application
+          $shell.Namespace((Resolve-Path installed).Path).CopyHere($shell.Namespace($zip).Items(), 0x14)  # no dialogs
+          $files = Get-ChildItem installed -Recurse -File
+          $marked = @($files | Where-Object { Get-Item $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue })
+          "extracted $($files.Count) files; $($marked.Count) carry the internet mark"
+          if ($files.Count -eq 0) { throw "nothing extracted" }
+          if ($marked.Count -eq 0) {
+            # Report it plainly rather than pretend: mark them by hand so the next step still tests the mark.
+            "::warning::Explorer's extraction didn't copy the mark on this runner; marking the files by hand"
+            $files | ForEach-Object { Set-Content -Path $_.FullName -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" }
+          }
+
+      - name: Run it with the files still marked (expected to fail if the mark is the cause)
+        id: marked
+        continue-on-error: true
+        run: |
+          $app = Start-Process -FilePath "installed\Dipstick\Dipstick.exe" -ArgumentList "--self-test" -PassThru
+          $handle = $app.Handle  # without this, ExitCode stays empty
+          if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "still running after 60 s: an error dialog, as on a real PC" }
+          if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
+          "the marked build started fine"
+
+      - name: Unblock the files and run it again (must pass)
+        run: |
+          Get-ChildItem installed -Recurse | Unblock-File
+          $app = Start-Process -FilePath "installed\Dipstick\Dipstick.exe" -ArgumentList "--self-test" -PassThru
+          $handle = $app.Handle
+          if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "still running after 60 s, probably an error dialog" }
+          if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
+          "the unblocked build passed its self-test"
+
+      - name: Result
+        shell: bash
+        run: |
+          if [ "${{ steps.marked.outcome }}" = failure ]; then
+            echo "Marked files fail and unblocked files pass: the internet mark is the cause."
+          else
+            echo "::warning::The marked build started fine, so the mark is NOT what broke it on the user's PC."
+          fi
