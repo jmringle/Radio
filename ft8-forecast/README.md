@@ -183,7 +183,7 @@ python packaging/check_build.py dist          # fails if a log, database or .env
 
 To run it from source without building: `python -m ft8_forecast.desktop`.
 
-**Downloading a build.** Ready-made builds are on the [Releases](https://github.com/jmringle/Radio/releases) page (the first, `ft8-forecast-v0.1.0-beta.1`, is a pre-release). Pick the newest release named **FT8 Forecast** (this repository also holds other radio tools' releases) and download only the `FT8-Forecast-` file for your computer; the Source code links there are GitHub's automatic snapshot of the whole Radio repository, not needed to use the app. They aren't code-signed yet, so the computer can't confirm who made them and warns once:
+**Downloading a build.** Ready-made builds are on the [Releases](https://github.com/jmringle/Radio/releases) page (pre-releases for now). Pick the newest release named **FT8 Forecast** (this repository also holds other radio tools' releases) and download only the `FT8-Forecast-` file for your computer; the Source code links there are GitHub's automatic snapshot of the whole Radio repository, not needed to use the app. They aren't code-signed yet, so the computer can't confirm who made them and warns once:
 
 - **macOS:** the first open is blocked. Go to System Settings → Privacy & Security, scroll down, click **Open Anyway** next to FT8 Forecast and confirm. (Right-click → Open no longer skips this on macOS 15 and later.)
 - **Windows:** SmartScreen says "Windows protected your PC". Click **More info → Run anyway**.
