@@ -4,7 +4,7 @@ Reads your NanoVNA over USB and tells you, in plain words, what it measured: whe
 
 The name: an antenna's resonance shows up as a dip in the SWR curve, and the classic tool for finding it was the grid-dip meter. Like a car's dipstick, it's the quick check you pull out and read.
 
-**Status:** talks to the NanoVNA: finds it, sends allowed commands and reads the replies, with timeouts and checks on every reply. The math that turns its measurement into SWR, impedance and return loss is built and tested, as are the rules for what may be sent and where antenna sweeps may go. `dipstick 40m` sweeps a band and explains the result: best match, SWR across the band, 2:1 bandwidth, where X = 0, and how much to trim. Your NanoVNA's own sweep settings are put back afterward. No plots or cable checks yet (see Next).
+**Status:** talks to the NanoVNA: finds it, sends allowed commands and reads the replies, with timeouts and checks on every reply. The math that turns its measurement into SWR, impedance and return loss is built and tested, as are the rules for what may be sent and where antenna sweeps may go. `dipstick 40m` sweeps a band and explains the result: best match, SWR across the band, 2:1 bandwidth, where X = 0, and how much to trim. It also saves an SWR plot and a Smith chart as SVG. Your NanoVNA's own sweep settings are put back afterward. No cable checks yet (see Next).
 
 **Tested with:** NanoVNA-H, firmware 1.2.43 (DiSlord-based; `info` says "Version: 1.2.43 [p:101, IF:12k, ADC:192k, Lcd:320x240]", built Feb 19 2025), on macOS as `/dev/cu.usbmodem4001`, USB ID 0483:5740.
 
@@ -46,6 +46,8 @@ Across the band: 7.000 MHz SWR 1.81 | 7.150 MHz SWR 3.03 | 7.300 MHz SWR 10.52
 Shorten the antenna about 1.4% to move the best match to 7.150 MHz.
   ...
 ```
+
+Each run also saves two SVG plots (open them in a browser) and lists them at the end: `output/40m-20261115-100621-swr.svg` (SWR across the band, log scale 1 to 10, with the 2:1 line and the best match marked) and `...-smith.svg` (the Smith chart, with a key). Use `--out FOLDER` to save them elsewhere. File names come from the band and the time, never from anything typed. `output/` is gitignored.
 
 Exit codes: `0` measured (whatever the SWR), `2` no NanoVNA, a device problem, or bad arguments (one line on stderr starting `dipstick:`). With nothing on the port it says so ("SWR is infinite everywhere: all of the signal comes back") instead of giving advice.
 
@@ -90,13 +92,14 @@ The same command runs in GitHub Actions on every push that touches this folder (
 | `tests/test_scan.py` | A recorded 40 m scan becomes readings; settings read first and always put back, even when the scan fails; a failed restore says what to set by hand; antenna scans refused outside one band before anything is sent; 2-101 points; every reply line checked (count, numbers, order, range, impossible S11), naming the bad line |
 | `tests/test_analysis.py` | The numbers, from a made-up antenna with exact answers (R = 50, X rising steadily; SWR 2 where X = 35.36 ohms): best match, edges, 2:1 bandwidth (interpolated, open-ended, none), X = 0 crossings, trim percent and direction, best match beyond either edge, nothing connected (threshold SWR 10) |
 | `tests/test_report.py` | The wording: ratings, shorten or lengthen with the percent, "at least" when the best match is beyond an edge, 2:1 cases, the coax explanation for X, nothing connected gives no advice, the calibration reminder |
-| `tests/test_cli.py` | The command end to end with a fake NanoVNA: your recorded open-port scan, a good antenna, `--target`, `--port`; bad arguments refused before connecting; device errors are one line and exit 2; the port is closed and settings put back |
+| `tests/test_cli.py` | The command end to end with a fake NanoVNA: your recorded open-port scan, a good antenna, `--target`, `--port`, plots saved and listed (`--out`, default `output/`); bad arguments refused before connecting; device and file errors are one line and exit 2; the port is closed and settings put back |
+| `tests/test_plots.py` | Positions read back from the SVG against known answers: edge to edge, SWR 1 on the bottom, SWR 2 on the 2:1 line at log10(2) of the height, off-scale and infinite SWR at the top; Smith chart S11 = 0 at the center, 1 at the open edge, -1 at the short edge, +j at the top, noise kept on the edge, the SWR-2 circle at a third of the radius, the R = 50 circle through the center, the best match marked |
 | `tests/test_hardware.py` | The real NanoVNA answers, is a NanoVNA, reports its sweep settings, stays in step, and a 40 m scan puts its settings back (only with `DIPSTICK_HARDWARE=1`) |
 | `tests/test_bands.py` | Band edges (47 CFR 97.301); antenna sweeps must stay inside one band, checked 1 Hz past each edge |
 
 ## Design notes
 
-**Language** (decided 2026-11-15): Python with pyserial. The NanoVNA's USB port is a serial port with a text shell, which pyserial handles on Mac and Windows; the math is a few formulas. Python matches the other Radio tools and is your strongest language. Alternatives: NanoVNA-Saver (an existing app; it shows plots but doesn't explain them and isn't built to be tested), or TypeScript with the browser's Web Serial API (it would put the page first, but you chose the command line first).
+**Language** (decided 2026-11-15): Python with pyserial. The NanoVNA's USB port is a serial port with a text shell, which pyserial handles on Mac and Windows; the math is a few formulas. Python matches the other Radio tools and is your strongest language. Alternatives: NanoVNA-Saver (an existing app; it shows plots but doesn't explain them and isn't built to be tested), or TypeScript with the browser's Web Serial API (it would put the page first, but you chose the command line first). Later the command grows into a standalone app (Mac, Windows, Linux), built on the same tested pieces.
 
 **Versions** (checked on PyPI 2026-11-15, 2-week rule): pyserial 3.5 (2020-11-23; old, but the standard and stable), pytest 9.2.0, pip-audit 2.10.1.
 
@@ -131,6 +134,6 @@ No secrets: nothing needs a key or password, so there's no `.env`.
 1. ~~Talk to the NanoVNA~~ (done 2026-11-15). On Windows the port may not be named NanoVNA, so you may need `--port COM3` (untested there).
 2. ~~`scan` a range into readings, putting the settings back~~ (done 2026-11-15). The 33cm entry also covers 915 MHz MeshCore antennas (902-928 MHz is both the 33 cm amateur band and the Part 15 ISM band); a friendlier name like `915` could come with the command.
 3. ~~`dipstick 40m`: the summary and the explanations~~ (done 2026-11-15). First real-antenna check: your 2m/70cm HT antenna (`dipstick 2m`, `dipstick 70cm`).
-4. SVG plots: SWR across the band and the Smith chart.
+4. ~~SVG plots: SWR across the band and the Smith chart~~ (done 2026-11-15).
 5. `dipstick cable`: TDR distance and loss, with velocity factors for your coax (from the manufacturer's data sheet).
-6. Later: a local web page with a live SWR curve, for trimming an antenna in the yard; and saving sweeps for antenna-model to compare with its predictions.
+6. Later: a standalone app for Mac, Windows and Linux (decided 2026-11-15, instead of a web page; pywebview + PyInstaller like ft8-forecast, so the same SVG plots show in its window; Linux needs a GTK or Qt system package) with a live SWR curve, for trimming an antenna in the yard; and saving sweeps for antenna-model to compare with its predictions.

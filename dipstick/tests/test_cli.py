@@ -16,6 +16,11 @@ SETTINGS = b"sweep\r\n1500000 30000000 101\r\nch> "
 RESTORE = b"sweep 1500000 30000000 101"
 
 
+@pytest.fixture(autouse=True)
+def in_a_temporary_folder(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # plots go to ./output: keep them out of the repo
+
+
 def fake_nano(scan_command, scan_reply):
     return NanoVNA(FakeLink({b"sweep": SETTINGS, scan_command: scan_reply, RESTORE: RESTORE + b"\r\nch> "}))
 
@@ -108,3 +113,27 @@ def test_the_installed_command_runs():
     command = Path(sys.executable).parent / "dipstick"
     result = subprocess.run([command, "--help"], capture_output=True, text=True)
     assert result.returncode == 0 and "40m" in result.stdout
+
+
+def test_plots_are_saved_and_listed(capsys, tmp_path):
+    command = b"scan 7000000 7300000 101 3"
+    nano = fake_nano(command, reply_for(command, antenna(7_153_000, 60_000)))
+    _, out, _, _ = run(capsys, ["40m", "--out", str(tmp_path / "plots")], nano)
+    saved = sorted((tmp_path / "plots").glob("40m-*.svg"))
+    assert [p.name.rsplit("-", 1)[1] for p in saved] == ["smith.svg", "swr.svg"]
+    assert all(p.read_text().startswith("<svg") for p in saved)
+    assert "Plots: " in out and str(saved[0].parent) in out
+
+
+def test_plots_go_to_output_by_default(capsys, tmp_path):
+    nano = fake_nano(b"scan 7000000 7300000 11 3", recorded("scan_40m_11_3"))
+    run(capsys, ["40m", "--points", "11"], nano)
+    assert len(list((tmp_path / "output").glob("40m-*.svg"))) == 2
+
+
+def test_a_folder_that_cant_be_written_is_one_line_and_exit_2(capsys, tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("not a folder")
+    nano = fake_nano(b"scan 7000000 7300000 11 3", recorded("scan_40m_11_3"))
+    code, _, err, _ = run(capsys, ["40m", "--points", "11", "--out", str(blocker)], nano)
+    assert code == 2 and err.startswith("dipstick: ") and err.count("\n") == 1

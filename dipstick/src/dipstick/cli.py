@@ -7,13 +7,16 @@ NanoVNA, a device problem) or the command was used wrongly.
 import argparse
 import re
 import sys
+from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 
 from serial.tools import list_ports
 
 from dipstick.analysis import summarize
 from dipstick.bands import BANDS, band_range
 from dipstick.device import DeviceError, NanoVNA, find_port
+from dipstick.plots import smith_svg, swr_svg
 from dipstick.report import report
 from dipstick.scan import MAX_POINTS, scan
 
@@ -31,6 +34,7 @@ def main(argv: list[str] | None = None, connect=connect) -> int:
     parser.add_argument("--target", metavar="MHZ", help="frequency to trim for, e.g. 7.074 (default: the band's middle)")
     parser.add_argument("--points", type=int, default=MAX_POINTS, help=f"2 to {MAX_POINTS} (default {MAX_POINTS})")
     parser.add_argument("--port", help="the NanoVNA's serial port, if dipstick can't find it")
+    parser.add_argument("--out", type=Path, default=Path("output"), help="folder for the SVG plots (default: output)")
     args = parser.parse_args(argv)
     try:
         # Everything that can be checked without the NanoVNA is checked first.
@@ -44,8 +48,9 @@ def main(argv: list[str] | None = None, connect=connect) -> int:
         finally:
             nano.close()
         print(report(summarize(readings, target_hz=target), args.band), end="")
+        print(f"\nPlots: {', '.join(str(p) for p in _save_plots(readings, args.band, args.out))}")
         return 0
-    except (DeviceError, ValueError) as error:
+    except (DeviceError, ValueError, OSError) as error:
         print(f"dipstick: {error}", file=sys.stderr)
         return 2
 
@@ -59,3 +64,14 @@ def _target(text: str | None, start: int, stop: int) -> int:
     if not start <= hz <= stop:
         raise ValueError(f"--target {text} MHz is outside the band ({start / 1e6:g}-{stop / 1e6:g} MHz)")
     return hz
+
+
+def _save_plots(readings, band: str, folder: Path) -> list[Path]:
+    """File names are made here from the band (already checked against the band list) and the
+    time, never from anything typed, so they can't point outside the folder."""
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    paths = [folder / f"{band}-{stamp}-swr.svg", folder / f"{band}-{stamp}-smith.svg"]
+    paths[0].write_text(swr_svg(readings, band), encoding="utf-8")
+    paths[1].write_text(smith_svg(readings), encoding="utf-8")
+    return paths
