@@ -29,8 +29,17 @@ jobs:
     needs: check-tag
     uses: ./.github/workflows/dipstick-app.yml  # the same builds and self-tests as every push
 
-  release:
+  windows-download-check:
+    # The Windows zip, installed the way a person does (marked as downloaded, extracted with
+    # Explorer, unblocked as the release notes say): it must start, or no draft is made.
     needs: build
+    uses: ./.github/workflows/windows-download-check.yml
+    with:
+      tag: ${{ github.ref_name }}
+      artifact: dipstick-Windows
+
+  release:
+    needs: [build, windows-download-check]
     runs-on: ubuntu-24.04
     permissions:
       contents: write  # only this job, only to create the draft release

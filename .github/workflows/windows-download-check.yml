@@ -4,13 +4,25 @@ name: Windows download check (dipstick, ft8-forecast)
 # Mark of the Web), Explorer copies that mark onto every file it extracts, and .NET then refuses
 # to load pythonnet's Python.Runtime.dll ("Failed to resolve Python.Runtime.Loader.Initialize").
 # CI's own builds are never downloaded, so the build workflow can't see this. Run it from the
-# Actions tab ("Run workflow").
+# Actions tab ("Run workflow") for a published release, or dipstick-release.yml runs it on the
+# zip it just built, before making the draft: the unblocked run must pass or there's no draft.
 on:
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag to check"
         default: "dipstick-v0.1.0-beta.1"
+  workflow_call:
+    inputs:
+      tag:
+        description: "The release's tag (picks the app)"
+        type: string
+        required: true
+      artifact:
+        description: "Check this run's build artifact instead of a published release"
+        type: string
+        required: false
+        default: ""
 permissions:
   contents: read
 jobs:
@@ -21,8 +33,15 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
       TAG: ${{ inputs.tag }}  # through env, never pasted into the script
+      ARTIFACT: ${{ inputs.artifact }}
     steps:
-      - name: Download the release's Windows zip and check its checksum
+      - name: The build artifact to check (before a release)
+        if: inputs.artifact != ''
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.artifact }}
+          path: download
+      - name: Download the Windows zip and check its checksum
         shell: bash
         run: |
           [[ "$TAG" =~ ^(dipstick|ft8-forecast)-v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || { echo "::error::bad tag $TAG"; exit 1; }
@@ -32,9 +51,13 @@ jobs:
             ft8-forecast) zip=FT8-Forecast-Windows.zip; exe='installed\FT8 Forecast\FT8 Forecast.exe'; proc='FT8 Forecast' ;;
           esac
           { echo "ZIP=$zip"; echo "EXE=$exe"; echo "PROC=$proc"; } >> "$GITHUB_ENV"
-          mkdir download && cd download
-          gh release download "$TAG" -p "$zip" -p SHA256SUMS.txt
-          sha256sum -c --ignore-missing SHA256SUMS.txt
+          mkdir -p download && cd download
+          if [ -n "$ARTIFACT" ]; then
+            sha256sum -c "$zip.sha256"  # the build's own checksum file, as the release will list it
+          else
+            gh release download "$TAG" -p "$zip" -p SHA256SUMS.txt
+            sha256sum -c --ignore-missing SHA256SUMS.txt
+          fi
 
       - name: Mark it as downloaded from the internet and extract it with Explorer's zip handling
         run: |
@@ -84,11 +107,10 @@ jobs:
           "the unblocked build passed its self-test"
 
       - name: Result
-        if: always()
-        shell: bash
+        shell: bash  # runs only when the unblocked build passed
         run: |
           if [ "${{ steps.marked.outcome }}" = failure ]; then
-            echo "Marked files fail and unblocked files pass: the internet mark is the cause."
+            echo "Marked files fail and unblocked files pass: Unblock (as the install steps say) is still needed."
           else
-            echo "::warning::The marked build started fine, so the mark is NOT what broke it on the user's PC."
+            echo "::warning::The marked build started fine too: the internet mark no longer stops it, so the Unblock step may not be needed any more."
           fi
