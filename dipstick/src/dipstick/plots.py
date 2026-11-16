@@ -72,7 +72,18 @@ def swr_svg(readings: list[Reading], band: str, standalone: bool = True, target_
     return _svg(W, H, parts, standalone)
 
 
-def smith_svg(readings: list[Reading], standalone: bool = True) -> str:
+ANTENNA_KEY = ("Center: a perfect match. Red dot: best match.",
+               "Inside the dashed circle: SWR under 2.",
+               "Solid circle through the center: R = 50 ohms.")
+# A cable with an open or shorted end: its echo's phase turns a full lap for every extra half
+# wavelength of cable, and loss pulls the trace in from the edge as the frequency rises.
+CABLE_KEY = ("Center: a perfect match. Edge: all comes back.",
+             "An open or shorted cable laps near the edge,",
+             "a lap per half wave; loss pulls it inward.")
+
+
+def smith_svg(readings: list[Reading], standalone: bool = True, cable: bool = False) -> str:
+    """`cable`: a cable's trace, with no best-match dot and a key about its laps."""
     _need_two(readings)
     pts = [_smith_xy(r.s11) for r in readings]
     best = min(range(len(readings)), key=lambda i: readings[i].swr)
@@ -83,16 +94,13 @@ def smith_svg(readings: list[Reading], standalone: bool = True) -> str:
         f'<line class="axis" x1="{CX - R}" y1="{CY}" x2="{CX + R}" y2="{CY}"/>',  # pure resistance, X = 0
         f'<circle class="swr-2" cx="{CX}" cy="{CY}" r="{R / 3:.4f}"/>',  # inside: SWR under 2
         _polyline("trace", pts),
-        f'<circle class="best" cx="{bx:.4f}" cy="{by:.4f}" r="4"/>',
+        *([] if cable else [f'<circle class="best" cx="{bx:.4f}" cy="{by:.4f}" r="4"/>']),
         f'<text x="{CX - R}" y="{CY - 6}" text-anchor="start">short</text>',
         f'<text x="{CX + R}" y="{CY - 6}" text-anchor="end">open</text>',
         f'<text x="{CX}" y="{CY - R - 8}" text-anchor="middle">+jX (inductive)</text>',
         f'<text x="{CX}" y="{CY + R + 18}" text-anchor="middle">-jX (capacitive)</text>',
-        *(f'<text x="10" y="{SIZE + 16 + 18 * i}">{line}</text>' for i, line in enumerate((
-            "Center: a perfect match. Red dot: best match.",
-            "Inside the dashed circle: SWR under 2.",
-            "Solid circle through the center: R = 50 ohms.",
-        ))),
+        *(f'<text x="10" y="{SIZE + 16 + 18 * i}">{line}</text>'
+          for i, line in enumerate(CABLE_KEY if cable else ANTENNA_KEY)),
     ]
     return _svg(SIZE, SIZE + KEY, parts, standalone)
 

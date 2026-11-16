@@ -102,7 +102,7 @@ class Api:
         {"ok": True, report, smith_svg} or {"ok": False, error}."""
         def measure():
             measured = measure_cable(no_antenna, vf, length, max_length, self._connect, names=_FIELDS)
-            return {"report": measured.report, "smith_svg": smith_svg(measured.readings, standalone=False)}
+            return {"report": measured.report, "smith_svg": smith_svg(measured.readings, standalone=False, cable=True)}
         return self._one_at_a_time(measure)
 
     def calibrate(self, band, step) -> dict:

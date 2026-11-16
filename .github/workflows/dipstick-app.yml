@@ -68,14 +68,25 @@ jobs:
           mkdir dist/dmg
           ditto dist/Dipstick.app dist/dmg/Dipstick.app
           ln -s /Applications dist/dmg/Applications
-          hdiutil create -volname "Dipstick" -srcfolder dist/dmg -format UDZO dist/dipstick-macOS.dmg
+          # macOS 27 deprecates hdiutil's create and attach (it warns and names `diskutil image`;
+          # seen 2026-11-16, while the runner was on macOS 26). Use `diskutil image` where the runner
+          # has it, hdiutil where it doesn't; the log says which. Both paths were tried on macOS 27.
+          if diskutil image create from --help >/dev/null 2>&1; then
+            echo "Making the dmg with diskutil image"
+            diskutil image create from --format UDZO --volumeName Dipstick dist/dmg dist/dipstick-macOS.dmg
+            attach() { diskutil image attach --readOnly --nobrowse --mountPoint "$1" "$2"; }
+          else
+            echo "Making the dmg with hdiutil (this runner has no diskutil image)"
+            hdiutil create -volname "Dipstick" -srcfolder dist/dmg -format UDZO dist/dipstick-macOS.dmg
+            attach() { hdiutil attach -nobrowse -readonly -mountpoint "$1" "$2"; }
+          fi
           # Check what a person gets: mount the finished dmg and look (any failure stops the build).
           mount="$RUNNER_TEMP/dmg-check"
           mkdir "$mount"
-          hdiutil attach -nobrowse -readonly -mountpoint "$mount" dist/dipstick-macOS.dmg
+          attach "$mount" dist/dipstick-macOS.dmg
           test -d "$mount/Dipstick.app"
           test "$(readlink "$mount/Applications")" = /Applications
-          hdiutil detach "$mount"
+          diskutil eject "$mount"
           cd dist && shasum -a 256 dipstick-macOS.dmg > dipstick-macOS.dmg.sha256
       - name: Package (Linux)
         if: runner.os == 'Linux'

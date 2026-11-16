@@ -170,6 +170,21 @@ def test_smith_key_lines_sit_inside_the_chart_height():
     assert all(float(t.get("y")) <= height - 4 for t in root.iter(SVG + "text"))
 
 
+def test_a_cable_smith_chart_has_no_best_match_dot_and_explains_the_laps():
+    # A cable's trace laps the chart; "best match" and "SWR under 2" mean nothing for it (UI review 2026-11-16).
+    root = parse(smith_svg(antenna(7_150_000, 60_000), cable=True))
+    assert not [e for e in root.iter(SVG + "circle") if "best" in e.get("class", "")]
+    key = " ".join(t.text for t in root.iter(SVG + "text") if t.get("text-anchor") is None)
+    assert "half wave" in key and "best match" not in key and "SWR under 2" not in key
+
+
+def test_the_cable_key_fits_inside_the_chart_too():
+    root = parse(smith_svg(antenna(7_150_000, 60_000), cable=True))
+    width = float(root.get("viewBox").split()[2])
+    for line in (t for t in root.iter(SVG + "text") if t.get("text-anchor") is None):
+        assert float(line.get("x")) + 7 * len(line.text) <= width, line.text
+
+
 @pytest.mark.parametrize("make", [swr_svg, smith_svg])
 def test_needs_two_readings(make):
     with pytest.raises(ValueError):

@@ -128,11 +128,21 @@ FOOT = 0.3048
 def cable_report(r: CableResult, start_hz: int, stop_hz: int, points: int, max_length_m: float,
                  longer: str = "--max-length") -> str:
     """`longer` names the setting for a longer cable: the command's option or the app's field."""
-    lines = [f"Cable: {_mhz(start_hz)}-{_mhz(stop_hz)} MHz sweep, {points} points", ""]
+    measured = [f"What the NanoVNA measured: {points} frequencies from {_mhz(start_hz)} to {_mhz(stop_hz)} MHz",
+                "  At each one it sent a tiny test signal into the cable and measured the echo from the far end.",
+                "  This sweep goes outside the ham bands, which is why the antenna must be off.", ""]
     if r.end == "matched":
-        lines += ["Nothing comes back from the far end (a dummy load, an antenna, or a cable with a lot of loss),",
-                  "so the length can't be measured. Leave the far end open or short it, and run again."]
+        lines = ["Cable: no echo from the far end", "", *measured,
+                 "Nothing comes back from the far end (a dummy load, an antenna, or a cable with a lot of loss),",
+                 "so the length can't be measured. Leave the far end open or short it, and run again."]
         return "\n".join(lines) + "\n"
+    if r.length_m is None:
+        answer = f"far end {r.end}; the length couldn't be measured"
+    elif r.vf_given:
+        answer = f"{r.length_m:.2f} m ({r.length_m / FOOT:.1f} ft) long, far end {r.end}"
+    else:
+        answer = f"velocity factor {r.vf:.2f}, far end {r.end}"
+    lines = [f"Cable: {answer}" + ("" if r.clean else " (rough: see the warning)"), "", *measured]
     lines += [f"Far end: {r.end}",
               "  An open end reflects the signal in phase; a short reflects it inverted. If you left the end open",
               "  and it reads short (or the other way round), look for a fault in the cable or connector.", ""]

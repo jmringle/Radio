@@ -47,7 +47,8 @@ button:disabled { opacity: 0.55; cursor: progress; }
 .confirm { color: var(--ink); font-weight: 600; }
 .hint { color: var(--muted); font-size: 0.9rem; margin: 0.5rem 0 0; max-width: 60em; }
 .instruction { color: var(--ink); font-weight: 600; margin: 0.75rem 0 0; max-width: 60em; }
-#vf, #length, #max-length { width: 8em; }
+#vf, #max-length { width: 8em; }
+#length { width: 10em; }
 #connection { margin: 0; font-size: 0.9rem; color: var(--muted); }
 #connection.connected::before, #connection.missing::before { content: "● "; }
 #connection.connected::before { color: var(--good); }
@@ -61,6 +62,8 @@ button:disabled { opacity: 0.55; cursor: progress; }
 figure { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 0.5rem; }
 figure:empty { display: none; }
 figure svg { display: block; width: 100%; height: auto; }
+/* Alone (a cable has no SWR plot) it would fill the wide column and blow its labels up. */
+#smith { max-width: 26rem; }
 #report { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; margin: 1rem 0 0;
   font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 #report:empty { display: none; }

@@ -38,11 +38,12 @@
     <form id="cable-controls">
       <label class="confirm"><input id="no-antenna" type="checkbox" aria-describedby="cable-hint"> No antenna connected</label>
       <label for="vf">Velocity factor</label> <input id="vf" inputmode="decimal" placeholder="e.g. 0.66" autocomplete="off">
-      <label for="length">Length</label> <input id="length" placeholder="e.g. 15.2, 50ft or 6in" autocomplete="off">
+      <label for="length">Length</label> <input id="length" placeholder="e.g. 15.2 or 50ft" autocomplete="off">
       <label for="max-length">Longest cable</label> <input id="max-length" value="50 m" autocomplete="off">
       <button id="check-cable" type="submit" disabled>Check cable</button>  <!-- needs the box and Python -->
     </form>
-    <p id="cable-hint" class="hint">Sweeps 1 to 200 MHz, outside the ham bands. Take the antenna off and leave the
+    <p id="cable-hint" class="hint">Sweeps from 1 MHz up to 200 MHz (how high depends on Longest cable), outside the
+      ham bands. Take the antenna off and leave the
       cable's far end open or shorted. Give the velocity factor to measure the length, or the length to measure the
       velocity factor.</p>
   </section>
@@ -54,10 +55,11 @@
       <button id="cal-step" type="submit" disabled>Measure open</button>  <!-- needs a band and Python -->
     </form>
     <p id="cal-instruction" class="instruction"></p>
-    <p class="hint">Calibrating shows the NanoVNA what its own connector and cable look like, so it can take them
-      out of every measurement. Use the calibration kit that came with it (open, short and 50-ohm load), screwed
-      onto the port you measure antennas on, with any adapter or jumper you'll measure through. The new calibration
-      covers this band only and isn't saved: switch the NanoVNA off and on to go back to its saved one.</p>
+    <p id="cal-partway" class="hint" hidden></p>  <!-- during short and load: how to stop partway -->
+    <p id="cal-hint" class="hint">Calibrating shows the NanoVNA what its own connector and cable look like, so it can
+      take them out of every measurement. Use the calibration kit that came with it (open, short and 50-ohm load),
+      screwed onto CH0, the port you measure antennas on, with any adapter or jumper you'll measure through. The new
+      calibration covers this band only and isn't saved in the NanoVNA.</p>
   </section>
   <p id="status" role="status" aria-label="Sweep status" aria-live="polite"></p>
   <p id="error" role="alert"></p>

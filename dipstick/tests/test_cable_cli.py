@@ -135,3 +135,28 @@ def test_help_mentions_cable(capsys):
 
 def test_loss_helper_matches_the_model():
     assert loss_db(10e6, 0.5) == 0.5
+
+
+# --- UI review 2026-11-16: the answer first, then what the NanoVNA measured -----------------------
+
+def test_the_first_line_is_the_answer_for_a_length(capsys):
+    _, out, _, _ = run(capsys, ["cable", "--no-antenna", "--vf", "0.66"], fake_nano(planned(12.0, 0.66)))
+    assert out.splitlines()[0] == "Cable: 12.00 m (39.4 ft) long, far end open"
+
+
+def test_the_first_line_is_the_answer_for_a_velocity_factor(capsys):
+    nano = fake_nano(planned(15.24, 0.78, plan_vf=None))  # planned for an unknown VF, as above
+    _, out, _, _ = run(capsys, ["cable", "--no-antenna", "--length", "50ft"], nano)
+    assert out.splitlines()[0] == "Cable: velocity factor 0.78, far end open"
+
+
+def test_the_first_line_says_when_nothing_echoes(capsys):
+    readings = [type(r)(r.hz, r.s11 * 0.05, r.impedance, r.swr, r.return_loss_db) for r in planned(10.0, 0.66)]
+    _, out, _, _ = run(capsys, ["cable", "--no-antenna", "--vf", "0.66"], fake_nano(readings))
+    assert out.splitlines()[0] == "Cable: no echo from the far end"
+
+
+def test_says_what_the_nanovna_measured_and_why_the_antenna_is_off(capsys):
+    _, out, _, _ = run(capsys, ["cable", "--no-antenna", "--vf", "0.66"], fake_nano(planned(12.0, 0.66)))
+    assert "What the NanoVNA measured: 101 frequencies from 1.000 to " in out
+    assert "echo" in out and "outside the ham bands" in out

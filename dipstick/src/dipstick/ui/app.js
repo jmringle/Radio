@@ -195,7 +195,7 @@ $("cable-controls").addEventListener("submit", async (event) => {
 
 // --- calibrating: open, short, load, in that order, over one band ------------------------------
 const CAL_STEPS = {
-  open: "Step 1 of 3: screw the open standard onto the port. An open reflects all of the signal straight " +
+  open: "Step 1 of 3: screw the open standard onto CH0. An open reflects all of the signal straight " +
         "back, in step: it shows the NanoVNA what nothing connected looks like at its connector.",
   short: "Step 2 of 3: swap it for the short standard. A short also reflects all of the signal, but " +
          "turned upside down (inverted): the opposite side of the Smith chart.",
@@ -205,7 +205,7 @@ const CAL_STEPS = {
 let calStep = "open";  // the next standard to measure
 let calDone = "";      // the band just calibrated, until another calibration starts
 let calibratedBand = "";  // the band the NanoVNA holds this session's calibration for, until the next open resets it
-const PARTWAY = " The other tabs open again after the load step. To stop partway, set the band back to " +
+const PARTWAY = "The other tabs open again after the load step. To stop partway, set the band back to " +
   "Choose a band and switch the NanoVNA off and on (it goes back to its saved calibration).";
 
 function showCalibrationStep() {
@@ -214,8 +214,11 @@ function showCalibrationStep() {
   $("cal-instruction").textContent = calDone && calStep === "open"
     ? `Calibrated for ${calDone}. Put your antenna back on and sweep ${calDone} on the Antenna tab. The ` +
       "calibration lasts until you switch the NanoVNA off and on, which goes back to its saved one."
-    : $("cal-band").value ? CAL_STEPS[calStep] + (calStep === "open" ? "" : PARTWAY)
+    : $("cal-band").value ? CAL_STEPS[calStep]
     : "Choose the band you'll measure.";
+  // Apart from the step, and smaller: the step is what to do now (UI review 2026-11-16).
+  $("cal-partway").textContent = PARTWAY;
+  $("cal-partway").hidden = !($("cal-band").value && calStep !== "open");
 }
 
 $("cal-band").addEventListener("change", () => {

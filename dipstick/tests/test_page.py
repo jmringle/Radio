@@ -184,6 +184,49 @@ def test_the_live_button_says_it_repeats_before_and_after(app: Page):
     expect(app.locator("#live")).to_have_text("Live (repeat)")
 
 
+# --- UI review 2026-11-16: the Cable and Calibrate tabs ----------------------------------------
+
+def test_a_cable_smith_chart_stays_chart_sized(app: Page):
+    # With no SWR plot beside it, it stretched across two-thirds of the window and its labels doubled.
+    cable_tab(app)
+    app.get_by_label("Velocity factor").fill("0.66")
+    app.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Check cable").click()
+    expect(app.locator("#smith svg")).to_be_visible()
+    assert app.locator("#smith").bounding_box()["width"] <= 450
+
+
+def test_the_cable_hint_says_up_to_200_mhz(app: Page):
+    cable_tab(app)
+    expect(app.locator("#cable-hint")).to_contain_text("up to 200 MHz")
+
+
+def test_the_length_example_fits_its_field(app: Page):
+    cable_tab(app)
+    field = app.get_by_label("Length", exact=True)
+    expect(field).to_have_attribute("placeholder", "e.g. 15.2 or 50ft")  # checked by eye: it fits
+
+
+def test_the_step_is_bold_and_the_stop_partway_note_is_apart(app: Page):
+    start_calibrating(app)
+    expect(app.locator("#cal-instruction")).to_contain_text("Step 2 of 3")
+    expect(app.locator("#cal-instruction")).not_to_contain_text("stop partway")
+    expect(app.locator("#cal-partway")).to_contain_text("To stop partway")
+
+
+def test_no_stop_partway_note_before_or_after(app: Page):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    expect(app.locator("#cal-partway")).to_be_hidden()  # at the open step, nothing to stop yet
+
+
+def test_calibrating_names_the_port_and_says_off_and_on_once(app: Page):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    expect(app.locator("#calibrate-panel")).to_contain_text("CH0")
+    expect(app.locator("#cal-hint")).not_to_contain_text("off and on")
+
+
 def test_report_text_is_shown_as_text_not_markup(app: Page):
     # The report is plain text: markup in it must show as characters, never run (defense in depth).
     app.evaluate('window.__answer = {ok: true, report: "<img src=x onerror=alert(1)>", swr_svg: "", smith_svg: ""}')
@@ -469,7 +512,7 @@ def test_the_other_tabs_stay_shut_partway_through_a_calibration(app: Page):
     start_calibrating(app)
     for name in ("Antenna", "Cable"):
         expect(app.get_by_role("tab", name=name)).to_be_disabled()
-    expect(app.locator("#cal-instruction")).to_contain_text("other tabs open again")
+    expect(app.locator("#cal-partway")).to_contain_text("other tabs open again")
     app.get_by_role("button", name="Measure short").click()
     expect(app.get_by_role("tab", name="Antenna")).to_be_disabled()
     app.get_by_role("button", name="Measure load").click()
