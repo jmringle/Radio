@@ -1,4 +1,4 @@
-name: dipstick Windows download check
+name: Windows download check (dipstick, ft8-forecast)
 # Installs a released Windows build the way a person does: download, extract with Explorer's zip
 # handling, run. Browsers mark downloads as "from the internet" (a Zone.Identifier stream, the
 # Mark of the Web), Explorer copies that mark onto every file it extracts, and .NET then refuses
@@ -25,14 +25,20 @@ jobs:
       - name: Download the release's Windows zip and check its checksum
         shell: bash
         run: |
-          [[ "$TAG" =~ ^dipstick-v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || { echo "::error::bad tag $TAG"; exit 1; }
+          [[ "$TAG" =~ ^(dipstick|ft8-forecast)-v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || { echo "::error::bad tag $TAG"; exit 1; }
+          # Each app's download and program names, from its own app workflow.
+          case "${BASH_REMATCH[1]}" in
+            dipstick) zip=dipstick-Windows.zip; exe='installed\Dipstick\Dipstick.exe'; proc=Dipstick ;;
+            ft8-forecast) zip=FT8-Forecast-Windows.zip; exe='installed\FT8 Forecast\FT8 Forecast.exe'; proc='FT8 Forecast' ;;
+          esac
+          { echo "ZIP=$zip"; echo "EXE=$exe"; echo "PROC=$proc"; } >> "$GITHUB_ENV"
           mkdir download && cd download
-          gh release download "$TAG" -p dipstick-Windows.zip -p SHA256SUMS.txt
+          gh release download "$TAG" -p "$zip" -p SHA256SUMS.txt
           sha256sum -c --ignore-missing SHA256SUMS.txt
 
       - name: Mark it as downloaded from the internet and extract it with Explorer's zip handling
         run: |
-          $zip = (Resolve-Path download\dipstick-Windows.zip).Path
+          $zip = (Resolve-Path "download\$env:ZIP").Path
           Set-Content -Path $zip -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3"  # 3 = Internet, as a browser writes it
           New-Item -ItemType Directory installed | Out-Null
           $shell = New-Object -ComObject Shell.Application
@@ -54,7 +60,7 @@ jobs:
         # the kill below (found on the first run, which hung until the job's limit).
         timeout-minutes: 3
         run: |
-          $app = Start-Process -FilePath "installed\Dipstick\Dipstick.exe" -ArgumentList "--self-test" -PassThru
+          $app = Start-Process -FilePath $env:EXE -ArgumentList "--self-test" -PassThru
           $handle = $app.Handle  # without this, ExitCode stays empty
           if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "still running after 60 s: an error dialog, as on a real PC" }
           if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
@@ -63,15 +69,15 @@ jobs:
       - name: Close anything the marked run left open
         if: always()
         run: |
-          Get-Process Dipstick, msedgewebview2, WerFault -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, MainWindowTitle -AutoSize | Out-String
-          Get-Process Dipstick, WerFault -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process $env:PROC, msedgewebview2, WerFault -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, MainWindowTitle -AutoSize | Out-String
+          Get-Process $env:PROC, WerFault -ErrorAction SilentlyContinue | Stop-Process -Force
 
       - name: Unblock the files and run it again (must pass)
         if: always()
         timeout-minutes: 3
         run: |
           Get-ChildItem installed -Recurse | Unblock-File
-          $app = Start-Process -FilePath "installed\Dipstick\Dipstick.exe" -ArgumentList "--self-test" -PassThru
+          $app = Start-Process -FilePath $env:EXE -ArgumentList "--self-test" -PassThru
           $handle = $app.Handle
           if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "still running after 60 s, probably an error dialog" }
           if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
