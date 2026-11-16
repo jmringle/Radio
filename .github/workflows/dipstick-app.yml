@@ -96,10 +96,19 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
-          Compress-Archive -Path "dist\Dipstick" -DestinationPath dist\dipstick-Windows.zip
+          # An installer, not a zip: Explorer copies a download's internet mark onto every file it
+          # extracts from a zip, and .NET then refuses the window's library (the old Unblock step).
+          # Files an installer writes don't get the mark; windows-download-check.yml confirms it on
+          # every release. Inno Setup comes with GitHub's Windows images (6.7.1 on windows-2025 and
+          # windows-2025-vs2026, runner-images readmes checked 2026-11-16); no download here.
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "Inno Setup 6 isn't on this runner image any more ($iscc); install a pinned version" }
+          $version = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"$').Matches[0].Groups[1].Value
+          & $iscc /Qp "/DAppVersion=$version" packaging\dipstick.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed: exit $LASTEXITCODE" }
           # The standard "hash  name" line (lowercase, LF, no BOM), so `shasum -c` and `sha256sum -c` read it.
-          $hash = (Get-FileHash dist\dipstick-Windows.zip -Algorithm SHA256).Hash.ToLower()
-          [IO.File]::WriteAllText("$PWD\dist\dipstick-Windows.zip.sha256", "$hash  dipstick-Windows.zip`n")
+          $hash = (Get-FileHash dist\dipstick-Windows-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          [IO.File]::WriteAllText("$PWD\dist\dipstick-Windows-Setup.exe.sha256", "$hash  dipstick-Windows-Setup.exe`n")
       - name: Check the checksum file reads with the standard tools
         shell: bash  # Git Bash on Windows
         run: |

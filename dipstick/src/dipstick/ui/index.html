@@ -23,6 +23,16 @@
       <button id="tab-calibrate" type="button" role="tab" aria-selected="false" aria-controls="calibrate-panel" tabindex="-1">Calibrate</button>
     </div>
     <p id="connection" role="status" aria-label="NanoVNA"></p>
+    <!-- Shown only when no NanoVNA is found but other USB serial ports are plugged in: some NanoVNAs
+         use a generic chip (such as the CH340) that Dipstick can't tell from a radio's cable. -->
+    <div id="port-picker" hidden>
+      <label for="port-choice">Is your NanoVNA one of these?</label> <select id="port-choice"></select>
+      <button id="port-use" type="button">Yes, use this one</button>
+      <p class="hint">Dipstick sends commands to the NanoVNA. Pick only your NanoVNA: sent to a radio's cable, they could
+        change the radio's settings. Dipstick remembers the choice and will treat any device with the same USB ID as a NanoVNA.</p>
+    </div>
+    <p id="port-remembered" hidden>Remembered USB ID: <span id="port-ids"></span>
+      <button id="port-forget" type="button">Forget</button></p>
   </header>
   <section id="antenna-panel" role="tabpanel" aria-labelledby="tab-antenna">
     <form id="controls">

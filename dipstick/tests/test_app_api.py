@@ -198,8 +198,9 @@ def test_the_page_can_only_reach_public_methods():
     # connection and lock private so the page can't reach them.
     public = {name for name in vars(Api(connect=None)) if not name.startswith("_")}
     assert public == set()
-    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "nanovna",
-                                                                         "set_quiz", "settings", "sweep"}
+    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "forget_ports", "nanovna",
+                                                                         "serial_ports", "set_quiz", "settings", "sweep",
+                                                                         "use_port"}
 
 
 # --- the cable check: a wide sweep, so only with no antenna connected (T5) ---------------------
@@ -729,3 +730,74 @@ def test_it_can_be_changed_during_a_sweep(tmp_path):
 ])
 def test_the_settings_file_lives_where_each_system_keeps_settings(platform, env, expected):
     assert settings_file(platform, env, home=lambda: PurePosixPath("/home/n0call")).as_posix() == expected
+
+
+# --- a NanoVNA with a generic USB chip (CH340): the person says it's theirs, once (2026-11-16) ---------
+
+CH340 = Port("COM7", 0x1A86, 0x7523, None, "USB-SERIAL CH340 (COM7)")  # a clone, as Windows reports it
+
+
+def test_a_ch340_is_not_guessed_at():
+    # The CH340 is also in radio cables (T3), so it's a choice for the person, never a match.
+    assert status([CH340])["connected"] is False
+    api = Api(connect=None, ports=lambda: [CH340, RADIO])
+    assert api.serial_ports() == {"ports": [
+        {"device": "COM7", "id": "1A86:7523", "label": "COM7: USB-SERIAL CH340 (COM7)"},
+        {"device": "/dev/cu.usbserial-1410", "id": "10C4:EA60", "label": "/dev/cu.usbserial-1410: CP2102 USB to UART"}],
+        "remembered": []}
+
+
+def test_serial_ports_leaves_out_ports_without_a_usb_id_and_known_nanovnas():
+    bluetooth = Port("/dev/cu.Bluetooth-Incoming-Port")
+    assert Api(connect=None, ports=lambda: [bluetooth, NANO, CH340]).serial_ports()["ports"] == [
+        {"device": "COM7", "id": "1A86:7523", "label": "COM7: USB-SERIAL CH340 (COM7)"}]
+
+
+def test_choosing_the_port_is_remembered_across_launches(tmp_path):
+    path = tmp_path / "dipstick" / "settings.json"
+    api = Api(connect=None, ports=lambda: [CH340, RADIO], settings_path=path)
+    assert api.use_port("COM7") == {"ok": True}
+    assert api.nanovna() == {"connected": True, "text": "NanoVNA connected (COM7)"}
+    again = Api(connect=None, ports=lambda: [CH340, RADIO], settings_path=path)  # the next launch
+    assert again.nanovna() == {"connected": True, "text": "NanoVNA connected (COM7)"}
+    assert again.serial_ports() == {"ports": [{"device": "/dev/cu.usbserial-1410", "id": "10C4:EA60",
+                                               "label": "/dev/cu.usbserial-1410: CP2102 USB to UART"}],
+                                    "remembered": ["1A86:7523"]}
+    assert again.settings() == {"quiz": True}  # the page's settings are still only the quiz
+
+
+def test_a_sweep_connects_to_the_remembered_port():
+    api = Api(connect=connect_nanovna, ports=lambda: [CH340])
+    assert "No NanoVNA found" in api.sweep("40m", "", 101)["error"]
+    assert api.use_port("COM7") == {"ok": True}
+    # There's no COM7 here, so opening it fails; the error naming it shows the app tried that port.
+    assert "Can't open COM7" in api.sweep("40m", "", 101)["error"]
+
+
+def test_use_port_only_for_a_usb_serial_port_that_is_plugged_in(tmp_path):
+    api = Api(connect=None, ports=lambda: [CH340, Port("/dev/cu.Bluetooth-Incoming-Port")], settings_path=tmp_path / "s.json")
+    for device in ("COM9", "/dev/cu.Bluetooth-Incoming-Port", None, 7, ["COM7"]):
+        assert api.use_port(device)["ok"] is False
+    assert api.serial_ports()["remembered"] == []
+    assert not (tmp_path / "s.json").exists()
+
+
+def test_forget_ports():
+    api = Api(connect=None, ports=lambda: [CH340])
+    api.use_port("COM7")
+    assert api.forget_ports() == {"ok": True}
+    assert api.nanovna()["connected"] is False
+    assert api.serial_ports()["remembered"] == []
+
+
+def test_a_settings_file_with_odd_ports_is_ignored(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"ports": ["1a86:7523", "1A86:7523", "1A86:7523", 7, "../etc", "0483:5740"]}')
+    assert Api(connect=None, settings_path=path).serial_ports()["remembered"] == ["1A86:7523", "0483:5740"]
+
+
+def test_the_port_choice_is_refused_when_the_window_has_left_the_page():
+    api = Api(connect=None, ports=lambda: [CH340])
+    api._current_url = lambda: "https://example.com/"
+    assert "Only Dipstick's own page" in api.use_port("COM7")["error"]
+    assert "Only Dipstick's own page" in api.forget_ports()["error"]

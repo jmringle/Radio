@@ -31,17 +31,21 @@ class DeviceError(Exception):
     """Something went wrong talking to the NanoVNA; the message says what to do."""
 
 
-def nanovna_ports(ports) -> list[str]:
-    """The ports in pyserial's list_ports.comports() that are NanoVNAs: the USB ID and the name."""
+def nanovna_ports(ports, approved=()) -> list[str]:
+    """The ports in pyserial's list_ports.comports() that are NanoVNAs: the USB ID and the name, or
+    a USB ID the person approved (`approved`: (vendor, product) pairs). Clones often use a generic
+    chip, such as the CH340, whose ID says nothing about a NanoVNA; only the person can say that
+    one is theirs (T3), and it's their say-so that counts, not the name."""
     return [p.device for p in ports
-            if (p.vid, p.pid) == USB_ID and "nanovna" in f"{p.product or ''} {p.description or ''}".lower()]
+            if ((p.vid, p.pid) == USB_ID and "nanovna" in f"{p.product or ''} {p.description or ''}".lower())
+            or (p.vid is not None and (p.vid, p.pid) in approved)]
 
 
-def find_port(ports, port_option: bool = True) -> str:
+def find_port(ports, port_option: bool = True, approved=()) -> str:
     """The NanoVNA's port, from pyserial's list_ports.comports(). Never guesses (T3): writing
     NanoVNA commands to the wrong port, such as a radio's CAT port, could change its settings.
     `port_option`: whether the person can give --port (the command can; the app can't)."""
-    found = nanovna_ports(ports)
+    found = nanovna_ports(ports, approved)
     if len(found) == 1:
         return found[0]
     if found:
@@ -70,7 +74,13 @@ class NanoVNA:
             # command) could otherwise open the port too and mix its commands with ours. It's an
             # advisory lock (flock), so it stops programs that ask for it; Windows ports are always
             # exclusive. QA 2026-11-16, F2.
-            link = serial.Serial(port, 115200, timeout=read_timeout_s, exclusive=True)  # USB ignores the speed
+            # DTR and RTS low before opening: pyserial raises both on open, and many radio interfaces
+            # wire one to PTT, so a radio's cable opened by mistake could transmit before sync() finds
+            # it isn't a NanoVNA (review 2026-11-16). No port given here, so nothing opens until open().
+            link = serial.Serial(baudrate=115200, timeout=read_timeout_s, exclusive=True)  # USB ignores the speed
+            link.dtr = link.rts = False
+            link.port = port
+            link.open()
         except serial.SerialException as error:
             if error.errno in (errno.EWOULDBLOCK, errno.EAGAIN) or "Access is denied" in str(error):
                 raise DeviceError(f"Another program is using the NanoVNA ({port}). Close it (another "

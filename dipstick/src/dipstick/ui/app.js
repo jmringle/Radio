@@ -48,7 +48,56 @@ async function checkConnection() {
     $("connection").textContent = `Couldn't check for the NanoVNA: ${error}`;
     $("connection").className = "missing";
   }
+  await showPortChoice();
 }
+
+// "Is your NanoVNA one of these?": for a NanoVNA that uses a generic USB chip, which Dipstick won't
+// guess at (it could be a radio's cable). Rebuilt only when the list changes, so the open menu isn't
+// reset every few seconds. The ports' names come from the USB devices, so they go in as text.
+let portSignature = "";
+async function showPortChoice() {
+  let answer;
+  try {
+    answer = await window.pywebview.api.serial_ports();
+  } catch (error) {
+    return;  // the port choice is optional; the connection line already says what's wrong
+  }
+  const missing = $("connection").className === "missing";
+  const signature = JSON.stringify([missing, answer.ports, answer.remembered]);
+  if (signature === portSignature) return;
+  portSignature = signature;
+  $("port-picker").hidden = !(missing && answer.ports.length > 0);
+  $("port-choice").replaceChildren(...answer.ports.map((port) => {
+    const option = document.createElement("option");
+    option.value = port.device;
+    option.textContent = `${port.label} (USB ID ${port.id})`;
+    return option;
+  }));
+  $("port-remembered").hidden = answer.remembered.length === 0;
+  $("port-ids").textContent = answer.remembered.join(", ");
+}
+
+$("port-use").addEventListener("click", async () => {
+  try {
+    const answer = await window.pywebview.api.use_port($("port-choice").value);
+    if (!answer.ok) $("error").textContent = answer.error;
+  } catch (error) {
+    $("error").textContent = `Couldn't save the port choice: ${error}`;
+  }
+  portSignature = "";
+  checkConnection();
+});
+
+$("port-forget").addEventListener("click", async () => {
+  try {
+    const answer = await window.pywebview.api.forget_ports();
+    if (!answer.ok) $("error").textContent = answer.error;
+  } catch (error) {
+    $("error").textContent = `Couldn't forget the port choice: ${error}`;
+  }
+  portSignature = "";
+  checkConnection();
+});
 
 // Asks Python and shows the answer; true if it worked.
 async function ask(call) {

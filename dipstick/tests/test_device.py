@@ -212,26 +212,35 @@ def test_unplugged_before_sending():
 # On macOS two programs could open the port at once; their commands mixed and the loser was told to
 # plug the NanoVNA back in. Opening with a lock refuses the second program instead.
 
-class BusySerial:
-    """Stands in for serial.Serial when another program already holds the port. The messages are
-    pyserial 3.5's: serialposix.py's flock failure (errno EWOULDBLOCK) and serialwin32.py's
-    CreateFile failure (Windows ports are always exclusive)."""
-    def __init__(self, error):
-        self.error = error
-
-    def __call__(self, port, *args, **kwargs):
-        raise self.error
+def failing_open(error):
+    """Stands in for opening the port: pyserial's real Serial class does everything up to the
+    moment it would open the device, then this raises `error` and records what the port was about
+    to be opened with."""
+    seen = {}
+    def open_(self):
+        seen.update(port=self.port, exclusive=self.exclusive, dtr=self.dtr, rts=self.rts)
+        raise error
+    return open_, seen
 
 
 def test_the_port_is_opened_with_a_lock(monkeypatch):
-    seen = {}
-    def fake_serial(port, *args, **kwargs):
-        seen.update(kwargs)
-        raise serial.SerialException("stop here")
-    monkeypatch.setattr(serial, "Serial", fake_serial)
+    open_, seen = failing_open(serial.SerialException("stop here"))
+    monkeypatch.setattr(serial.Serial, "open", open_)
     with pytest.raises(DeviceError):
         NanoVNA.open("/dev/cu.usbmodem-test")
-    assert seen.get("exclusive") is True
+    assert seen["exclusive"] is True and seen["port"] == "/dev/cu.usbmodem-test"
+
+
+def test_the_port_opens_with_dtr_and_rts_low(monkeypatch):
+    # Review 2026-11-16: pyserial raises DTR and RTS when it opens a port (serialutil.py sets both
+    # True; serialposix.py and serialwin32.py apply them on open). Many radio interfaces wire RTS or
+    # DTR to PTT, so opening a radio's cable by mistake could key the transmitter before dipstick
+    # finds out it isn't a NanoVNA. Both lines are set low before the port opens.
+    open_, seen = failing_open(serial.SerialException("stop here"))
+    monkeypatch.setattr(serial.Serial, "open", open_)
+    with pytest.raises(DeviceError):
+        NanoVNA.open("/dev/cu.usbmodem-test")
+    assert seen["dtr"] is False and seen["rts"] is False
 
 
 @pytest.mark.parametrize("error", [
@@ -240,7 +249,9 @@ def test_the_port_is_opened_with_a_lock(monkeypatch):
     serial.SerialException("could not open port 'COM3': PermissionError(13, 'Access is denied.', None, 5)"),
 ], ids=["mac-linux", "windows"])
 def test_a_port_in_use_says_another_program_has_it(monkeypatch, error):
-    monkeypatch.setattr(serial, "Serial", BusySerial(error))
+    # The messages are pyserial 3.5's: serialposix.py's flock failure (errno EWOULDBLOCK) and
+    # serialwin32.py's CreateFile failure (Windows ports are always exclusive).
+    monkeypatch.setattr(serial.Serial, "open", failing_open(error)[0])
     with pytest.raises(DeviceError) as raised:
         NanoVNA.open("/dev/cu.usbmodem-test")
     message = str(raised.value)
@@ -249,7 +260,7 @@ def test_a_port_in_use_says_another_program_has_it(monkeypatch, error):
 
 
 def test_other_open_failures_keep_their_reason(monkeypatch):
-    monkeypatch.setattr(serial, "Serial", BusySerial(serial.SerialException(errno.ENOENT, "No such file")))
+    monkeypatch.setattr(serial.Serial, "open", failing_open(serial.SerialException(errno.ENOENT, "No such file"))[0])
     with pytest.raises(DeviceError, match="Can't open /dev/cu.usbmodem-test: .*No such file"):
         NanoVNA.open("/dev/cu.usbmodem-test")
 
@@ -308,3 +319,16 @@ def test_two_nanovnas_ask_which():
 def test_no_serial_ports_at_all():
     with pytest.raises(DeviceError, match="No NanoVNA found.*no USB serial ports"):
         find_port([])
+
+
+def test_an_approved_usb_id_is_a_nanovna_whatever_its_name():
+    clone = Port("COM7", 0x1A86, 0x7523, None, "USB-SERIAL CH340 (COM7)")
+    assert find_port([clone], approved=[(0x1A86, 0x7523)]) == "COM7"
+    with pytest.raises(DeviceError, match="No NanoVNA found"):  # not approved: still not guessed (T3)
+        find_port([clone])
+    with pytest.raises(DeviceError, match="No NanoVNA found"):  # approving one ID doesn't approve another
+        find_port([Port("/dev/cu.usbserial-1", 0x10C4, 0xEA60, "CP2102 USB to UART")], approved=[(0x1A86, 0x7523)])
+
+
+def test_a_port_with_no_usb_id_is_never_approved():
+    assert find_port([NANO, Port("/dev/cu.Bluetooth-Incoming-Port")], approved=[(0x1A86, 0x7523)]) == NANO.device

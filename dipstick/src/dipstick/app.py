@@ -50,9 +50,27 @@ def is_app_page(url, page: Path = PAGE) -> bool:
         return False
 
 
-def connect_nanovna(port: str | None, ports=list_ports.comports) -> NanoVNA:
-    """Opens the NanoVNA. The app has no --port option, so its errors never suggest one."""
-    return NanoVNA.open(port or find_port(ports(), port_option=False))
+def connect_nanovna(port: str | None, ports=list_ports.comports, approved=()) -> NanoVNA:
+    """Opens the NanoVNA. The app has no --port option, so its errors never suggest one.
+    `approved`: (vendor, product) USB IDs the person said are their NanoVNA."""
+    return NanoVNA.open(port or find_port(ports(), port_option=False, approved=approved))
+
+
+def _usb_id_text(port) -> str:
+    return f"{port.vid:04X}:{port.pid:04X}"
+
+
+def _what_it_says(port) -> str:
+    """How the device describes itself; pyserial says "n/a" when it doesn't."""
+    for text in (port.description, port.product):
+        if text and text != "n/a":
+            return text
+    return "USB serial"
+
+
+def _usb_id_pair(text: str) -> tuple[int, int]:
+    vendor, product = text.split(":")
+    return int(vendor, 16), int(product, 16)
 
 
 class Api:
@@ -60,8 +78,11 @@ class Api:
     everything else here is private (a leading underscore)."""
 
     def __init__(self, connect=connect_nanovna, ports=list_ports.comports, settings_path: Path | None = None):
-        self._connect = connect
         self._ports = ports
+        # The app's own connection looks at the IDs the person approved when it connects (they can
+        # change while the app runs); a connection given by a test is used as it is.
+        self._connect = (lambda port: connect_nanovna(port, ports, self._approved())) \
+            if connect is connect_nanovna else connect
         self._busy = threading.Lock()
         self._calibration = None  # (band, the next step) between calibration steps
         self._current_url = None  # the window's address, set by _open_window; checked before the NanoVNA
@@ -77,12 +98,48 @@ class Api:
     def nanovna(self) -> dict:
         """Is a NanoVNA plugged in? Reads only the computer's list of USB serial ports; never opens
         one, so the page can ask every couple of seconds, even during a sweep."""
-        found = nanovna_ports(self._ports())
+        found = nanovna_ports(self._ports(), self._approved())
         if len(found) == 1:
             return {"connected": True, "text": f"NanoVNA connected ({found[0]})"}
         if found:
             return {"connected": False, "text": f"More than one NanoVNA is plugged in ({', '.join(found)}); unplug one"}
         return {"connected": False, "text": "No NanoVNA found. Is it plugged in and switched on?"}
+
+    def serial_ports(self) -> dict:
+        """For the page's "Is your NanoVNA one of these?" choice: {"ports": [{"device", "id", "label"}],
+        "remembered": [USB IDs]}. The USB serial ports that aren't already a NanoVNA, and the IDs the
+        person approved earlier. Reads only the computer's port list; never opens a port."""
+        approved = self._approved()
+        known = set(nanovna_ports(self._ports(), approved))
+        ports = [{"device": p.device, "id": _usb_id_text(p), "label": f"{p.device}: {_what_it_says(p)}"}
+                 for p in self._ports() if p.vid is not None and p.pid is not None and p.device not in known]
+        return {"ports": ports, "remembered": list(self._settings["ports"])}
+
+    def use_port(self, device) -> dict:
+        """The person says the USB serial port `device` is their NanoVNA: remember its USB ID, so any
+        port with that ID counts as a NanoVNA from now on. Answers {"ok": True} or {"ok": False, error}.
+        Never opens the port, and never picks one itself (T3)."""
+        if refusal := self._left_page():
+            return refusal
+        match = [p for p in self._ports() if isinstance(device, str) and p.device == device
+                 and p.vid is not None and p.pid is not None]
+        if not match:
+            return {"ok": False, "error": f"{shown(device)} isn't a USB serial port that's plugged in now"}
+        usb_id = _usb_id_text(match[0])
+        with self._saving:
+            if usb_id not in self._settings["ports"] and len(self._settings["ports"]) >= saved.MAX_PORTS:
+                return {"ok": False, "error": "Too many remembered ports; forget them first"}
+            if usb_id not in self._settings["ports"]:
+                self._settings["ports"] = [*self._settings["ports"], usb_id]
+            return self._save_settings("the port choice")
+
+    def forget_ports(self) -> dict:
+        """Forget the USB IDs the person approved; only the NanoVNAs Dipstick knows by name are found again."""
+        if refusal := self._left_page():
+            return refusal
+        with self._saving:
+            self._settings["ports"] = []
+            return self._save_settings("forgetting the port choice")
 
     def sweep(self, band, target, points) -> dict:
         """Measure a band (or, with no band, the band the target is in); answers
@@ -159,8 +216,8 @@ class Api:
         return self._one_at_a_time(measure)
 
     def settings(self) -> dict:
-        """The saved choices: {"quiz": True or False}."""
-        return dict(self._settings)
+        """The saved choices the page shows: {"quiz": True or False}."""
+        return {"quiz": self._settings["quiz"]}
 
     def set_quiz(self, on) -> dict:
         """Show the "Check yourself" questions or not; remembered for the next launch. Answers
@@ -171,14 +228,21 @@ class Api:
             return {"ok": False, "error": f"Check yourself must be on or off, got {shown(on)}"}
         with self._saving:
             self._settings["quiz"] = on
-            if self._settings_path is None:
-                return {"ok": True}
-            try:
-                saved.save(self._settings_path, self._settings)
-            except OSError as error:
-                return {"ok": False, "error": f"Couldn't save the Check yourself setting ({error.strerror or error}), "
-                                              "so it lasts only until you quit."}
+            return self._save_settings("the Check yourself setting")
+
+    def _save_settings(self, what: str) -> dict:
+        """Writes the settings file (when there is one); the caller holds _saving."""
+        if self._settings_path is None:
+            return {"ok": True}
+        try:
+            saved.save(self._settings_path, self._settings)
+        except OSError as error:
+            return {"ok": False, "error": f"Couldn't save {what} ({error.strerror or error}), "
+                                          "so it lasts only until you quit."}
         return {"ok": True}
+
+    def _approved(self) -> tuple[tuple[int, int], ...]:
+        return tuple(_usb_id_pair(text) for text in self._settings["ports"])
 
     def _left_page(self) -> dict | None:
         """The refusal when the window is showing something other than dipstick's own page."""

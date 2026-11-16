@@ -31,6 +31,11 @@ window.__calError = null;
 window.__settings = {quiz: true};
 window.__saved = [];
 window.__saveAnswer = {ok: true};
+window.__ports = {ports: [], remembered: []};
+window.__portCalls = 0;
+window.__used = [];
+window.__forgot = 0;
+window.__portAnswer = {ok: true};
 window.__cableAnswer = {ok: true, report: "Cable: 1.000-48.000 MHz sweep, 101 points\\n\\nFar end: open\\n",
                         smith_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-cable-smith" viewBox="0 0 10 10"><circle class="edge" cx="5" cy="5" r="5"/></svg>'};
 // Like real pywebview (its js/api.js and js/finish.js, 6.2.1): window.pywebview.api starts as an
@@ -42,6 +47,9 @@ setTimeout(() => {
     nanovna: async () => window.__nanovna,
     settings: async () => window.__settings,
     set_quiz: async (on) => { window.__saved.push(on); return window.__saveAnswer; },
+    serial_ports: async () => { window.__portCalls++; if (window.__portsFail) throw new Error("port list failed"); return window.__ports; },
+    use_port: async (device) => { window.__used.push(device); return window.__portAnswer; },
+    forget_ports: async () => { window.__forgot++; return window.__portAnswer; },
     sweep: (band, target, points) => {
       window.__calls.push([band, target, points]);
       if (!window.__hold) return Promise.resolve(window.__answer);
@@ -785,3 +793,118 @@ def test_cable_questions_follow_the_box_too(app: Page):
     app.get_by_role("button", name="Check cable").click()
     expect(app.locator("#report")).not_to_be_empty()
     expect(app.locator("#quiz")).to_be_hidden()
+
+
+# --- "Is your NanoVNA one of these?" (2026-11-16) ---------------------------------------------------
+# For a NanoVNA whose USB chip Dipstick won't guess at. Python lists the ports and remembers the choice;
+# the page offers the choice only when no NanoVNA is found, and never picks one itself (T3).
+
+MISSING = 'window.__nanovna = {connected: false, text: "No NanoVNA found. Is it plugged in and switched on?"};'
+CH340 = '{device: "COM7", id: "1A86:7523", label: "COM7: USB-SERIAL CH340 (COM7)"}'
+FTDI = '{device: "COM9", id: "0403:6001", label: "COM9: USB Serial Port (COM9)"}'
+
+
+def open_with(page: Page, setup: str) -> Page:
+    """The page with the fake bridge plus `setup`, failing the test on any console error, like `app`."""
+    errors = []
+    page.on("pageerror", lambda exc: errors.append(str(exc)))
+    page.add_init_script(FAKE_API + setup)
+    page.goto(PAGE)
+    page.wait_for_function("window.__portCalls >= 1")
+    assert errors == []
+    return page
+
+
+def test_no_choice_while_a_nanovna_is_found(page: Page):
+    open_with(page, f"window.__ports = {{ports: [{CH340}], remembered: []}};")
+    expect(page.locator("#connection")).to_have_class("connected")
+    expect(page.get_by_label("Is your NanoVNA one of these?")).to_be_hidden()
+
+
+def test_no_choice_when_nothing_else_is_plugged_in(page: Page):
+    open_with(page, MISSING)
+    expect(page.locator("#connection")).to_have_class("missing")
+    expect(page.get_by_label("Is your NanoVNA one of these?")).to_be_hidden()
+
+
+def test_the_choice_lists_the_other_usb_serial_ports_with_their_ids(page: Page):
+    open_with(page, MISSING + f"window.__ports = {{ports: [{CH340}, {FTDI}], remembered: []}};")
+    choice = page.get_by_label("Is your NanoVNA one of these?")
+    expect(choice).to_be_visible()
+    expect(choice.locator("option")).to_have_text(["COM7: USB-SERIAL CH340 (COM7) (USB ID 1A86:7523)",
+                                                   "COM9: USB Serial Port (COM9) (USB ID 0403:6001)"])
+    expect(page.locator("#port-picker")).to_contain_text("could change the radio's settings")
+
+
+def test_nothing_is_chosen_until_you_press_yes(page: Page):
+    open_with(page, MISSING + f"window.__ports = {{ports: [{CH340}, {FTDI}], remembered: []}};")
+    page.wait_for_function("window.__portCalls >= 3")  # a few checks go by
+    assert page.evaluate("window.__used") == []
+
+
+def test_yes_sends_the_chosen_port_and_checks_again(page: Page):
+    open_with(page, MISSING + f"window.__ports = {{ports: [{CH340}, {FTDI}], remembered: []}};")
+    page.get_by_label("Is your NanoVNA one of these?").select_option("COM9")
+    page.evaluate('window.__nanovna = {connected: true, text: "NanoVNA connected (COM9)"};'
+                  'window.__ports = {ports: [], remembered: ["0403:6001"]};')
+    page.get_by_role("button", name="Yes, use this one").click()
+    expect(page.locator("#connection")).to_have_text("NanoVNA connected (COM9)")
+    assert page.evaluate("window.__used") == ["COM9"]
+    expect(page.get_by_label("Is your NanoVNA one of these?")).to_be_hidden()
+    expect(page.locator("#port-remembered")).to_contain_text("Remembered USB ID: 0403:6001")
+
+
+def test_a_refused_choice_is_shown(page: Page):
+    open_with(page, MISSING + f"window.__ports = {{ports: [{CH340}], remembered: []}};"
+              'window.__portAnswer = {ok: false, error: "COM7 isn\'t a USB serial port that\'s plugged in now"};')
+    page.get_by_role("button", name="Yes, use this one").click()
+    expect(page.get_by_role("alert")).to_have_text("COM7 isn't a USB serial port that's plugged in now")
+
+
+def test_the_open_choice_isnt_reset_by_the_checks_every_2_seconds(page: Page):
+    open_with(page, MISSING + f"window.__ports = {{ports: [{CH340}, {FTDI}], remembered: []}};")
+    choice = page.get_by_label("Is your NanoVNA one of these?")
+    choice.select_option("COM9")
+    calls = page.evaluate("window.__portCalls")
+    page.wait_for_function(f"window.__portCalls >= {calls + 2}")  # two more checks, list unchanged
+    expect(choice).to_have_value("COM9")
+
+
+def test_a_new_port_updates_the_list(page: Page):
+    open_with(page, MISSING + f"window.__ports = {{ports: [{CH340}], remembered: []}};")
+    page.evaluate(f"window.__ports = {{ports: [{CH340}, {FTDI}], remembered: []}};")
+    expect(page.get_by_label("Is your NanoVNA one of these?").locator("option")).to_have_count(2)
+
+
+def test_a_remembered_id_is_shown_and_can_be_forgotten(page: Page):
+    open_with(page, 'window.__ports = {ports: [], remembered: ["1A86:7523"]};')
+    remembered = page.locator("#port-remembered")
+    expect(remembered).to_contain_text("Remembered USB ID: 1A86:7523")
+    page.evaluate("window.__ports = {ports: [], remembered: []};")
+    page.get_by_role("button", name="Forget").click()
+    expect(remembered).to_be_hidden()
+    assert page.evaluate("window.__forgot") == 1
+
+
+def test_a_failed_forget_is_shown(page: Page):
+    open_with(page, 'window.__ports = {ports: [], remembered: ["1A86:7523"]};'
+              'window.__portAnswer = {ok: false, error: "Couldn\'t save forgetting the port choice (disk full)."};')
+    page.get_by_role("button", name="Forget").click()
+    expect(page.get_by_role("alert")).to_contain_text("Couldn't save forgetting")
+
+
+def test_port_names_from_usb_devices_are_shown_as_text_not_markup(page: Page):
+    # A USB device names itself, so a hostile gadget could call itself anything.
+    evil = '{device: "COM5", id: "1234:5678", label: "COM5: <img src=x onerror=alert(1)>"}'
+    open_with(page, MISSING + f'window.__ports = {{ports: [{evil}], remembered: ["<b>1234:5678</b>"]}};')
+    expect(page.get_by_label("Is your NanoVNA one of these?").locator("option")).to_have_text(
+        "COM5: <img src=x onerror=alert(1)> (USB ID 1234:5678)")
+    expect(page.locator("#port-ids")).to_have_text("<b>1234:5678</b>")
+    expect(page.locator("header img, header b")).to_have_count(0)
+
+
+def test_the_page_keeps_working_if_the_port_list_fails(page: Page):
+    # A Python error (say, Windows failing to list its ports) reaches the page as a rejected call.
+    open_with(page, MISSING + "window.__portsFail = true;")
+    page.wait_for_function("window.__portCalls >= 2")
+    expect(page.locator("#connection")).to_have_text("No NanoVNA found. Is it plugged in and switched on?")

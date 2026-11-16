@@ -30,8 +30,8 @@ jobs:
     uses: ./.github/workflows/dipstick-app.yml  # the same builds and self-tests as every push
 
   windows-download-check:
-    # The Windows zip, installed the way a person does (marked as downloaded, extracted with
-    # Explorer, unblocked as the release notes say): it must start, or no draft is made.
+    # The Windows installer, used the way a person does (marked as downloaded, then installed): no
+    # installed file may carry the mark, and the app must start with no Unblock, or no draft is made.
     needs: build
     uses: ./.github/workflows/windows-download-check.yml
     with:
@@ -70,7 +70,7 @@ jobs:
         with:
           subject-path: |
             dist/dipstick-macOS.dmg
-            dist/dipstick-Windows.zip
+            dist/dipstick-Windows-Setup.exe
             dist/dipstick-Linux.tar.gz
       - name: Create the draft release
         working-directory: dist
@@ -82,5 +82,5 @@ jobs:
           version="${TAG#dipstick-v}"
           prerelease=""; [[ "$version" == *-* ]] && prerelease="--prerelease"
           gh release create "$TAG" --verify-tag --draft $prerelease --title "dipstick $version" \
-            --notes "dipstick $version: the NanoVNA explainer as an app for macOS, Windows and Linux. Built by GitHub Actions from this tag; each build opened its window and passed its self-test. Not code-signed, so your computer warns once. **Windows:** before unzipping, right-click the zip → Properties → tick Unblock → OK, then Extract All and run Dipstick.exe inside the Dipstick folder (without Unblock the window can't start: \"Failed to resolve Python.Runtime.Loader.Initialize\"). **macOS (Apple Silicon only):** open the dmg, drag Dipstick onto the Applications shortcut, then System Settings → Privacy & Security → Open Anyway. **Linux:** extract and run Dipstick/Dipstick (needs WebKitGTK). Details in the README's Building the app. Check a download with SHA256SUMS.txt: \`shasum -a 256 -c --ignore-missing SHA256SUMS.txt\` (macOS), \`sha256sum -c --ignore-missing SHA256SUMS.txt\` (Linux) or \`Get-FileHash <file>\` (Windows). To confirm a file was built here by GitHub Actions from this tag: \`gh attestation verify <file> -R ${{ github.repository }}\`. The app is the \`dipstick-\` files above; the Source code links are GitHub's automatic snapshot of the whole Radio repository, not needed to use Dipstick." \
-            dipstick-macOS.dmg dipstick-Windows.zip dipstick-Linux.tar.gz SHA256SUMS.txt
+            --notes "dipstick $version: the NanoVNA explainer as an app for macOS, Windows and Linux. Built by GitHub Actions from this tag; each build opened its window and passed its self-test. Not code-signed, so your computer warns once. **Windows:** run dipstick-Windows-Setup.exe (installs just for you, no administrator needed; Start menu entry and uninstaller included). SmartScreen may say \"Windows protected your PC\": More info → Run anyway. No Unblock step any more. **macOS (Apple Silicon only):** open the dmg, drag Dipstick onto the Applications shortcut, then System Settings → Privacy & Security → Open Anyway. **Linux:** extract and run Dipstick/Dipstick (needs WebKitGTK). Details in the README's Building the app. Check a download with SHA256SUMS.txt: \`shasum -a 256 -c --ignore-missing SHA256SUMS.txt\` (macOS), \`sha256sum -c --ignore-missing SHA256SUMS.txt\` (Linux) or \`Get-FileHash <file>\` (Windows). To confirm a file was built here by GitHub Actions from this tag: \`gh attestation verify <file> -R ${{ github.repository }}\`. The app is the \`dipstick-\` files above; the Source code links are GitHub's automatic snapshot of the whole Radio repository, not needed to use Dipstick." \
+            dipstick-macOS.dmg dipstick-Windows-Setup.exe dipstick-Linux.tar.gz SHA256SUMS.txt
