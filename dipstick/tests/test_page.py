@@ -226,7 +226,7 @@ def test_the_controls_are_locked_during_live(app: Page):
 def test_an_error_stops_live_and_says_why(app: Page):
     app.get_by_role("button", name="Live").click()
     app.wait_for_function("window.__calls.length >= 2")
-    app.evaluate('window.__answer = {ok: false, error: "The NanoVNA disconnected (read failed). Plug it back in and try again."}')
+    app.evaluate('window.__answer = {ok: false, error: "The NanoVNA disconnected (unplugged or switched off). Reconnect it, switch it on, and try again."}')
     expect(app.get_by_role("alert")).to_have_text(re.compile("The NanoVNA disconnected"))
     expect(app.get_by_role("button", name="Live")).to_be_enabled()
     passes = len(app.evaluate("window.__calls"))

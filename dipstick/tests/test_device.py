@@ -187,17 +187,25 @@ def test_garbled_bytes_are_refused(junk):
 
 # --- unplugged mid-conversation (pyserial raises its own SerialException) --------------------
 
+# The power switch cuts the NanoVNA-H off USB too (hand test 2026-11-16), so the same error means
+# unplugged or switched off; the message names both, without the system's "[Errno 6] Device not
+# configured", which tells the person nothing.
+DISCONNECTED = "The NanoVNA disconnected (unplugged or switched off). Reconnect it, switch it on, and try again."
+
+
 def test_unplugged_while_waiting_for_the_reply():
     nano = NanoVNA(UnpluggedLink({}, unplug_on=b"version"))
-    with pytest.raises(DeviceError, match="The NanoVNA disconnected.*Plug it back in"):
+    with pytest.raises(DeviceError) as raised:
         nano.ask("version")
+    assert str(raised.value) == DISCONNECTED
 
 
 def test_unplugged_before_sending():
     nano = NanoVNA(UnpluggedLink({}, unplug_on=b"version"))
     nano.link.gone = True  # already gone: the write itself fails
-    with pytest.raises(DeviceError, match="The NanoVNA disconnected"):
+    with pytest.raises(DeviceError) as raised:
         nano.ask("version")
+    assert str(raised.value) == DISCONNECTED
 
 
 # --- opening the port: one program at a time (QA 2026-11-16, F2) ---------------------------------

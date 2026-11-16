@@ -23,7 +23,8 @@ PROMPT = b"ch> "
 # STMicroelectronics' generic USB serial ID: the NanoVNA uses it, and so can any other STM32
 # gadget, so the name must say NanoVNA too (T3).
 USB_ID = (0x0483, 0x5740)
-_DISCONNECTED = "The NanoVNA disconnected ({}). Plug it back in and try again."
+# The power switch cuts the NanoVNA-H off USB too (hand test 2026-11-16): the same error either way.
+_DISCONNECTED = "The NanoVNA disconnected (unplugged or switched off). Reconnect it, switch it on, and try again."
 
 
 class DeviceError(Exception):
@@ -128,19 +129,19 @@ class NanoVNA:
             raise DeviceError(f"This NanoVNA's firmware doesn't know {name!r}")
         return answer
 
-    # pyserial raises SerialException when the port vanishes mid-conversation (USB cable pulled);
+    # pyserial raises SerialException when the port vanishes mid-conversation (USB cable pulled, or the NanoVNA switched off);
     # say that plainly instead of letting it surface as an unexplained error.
     def _write(self, data: bytes) -> None:
         try:
             self.link.write(data)
-        except serial.SerialException as error:
-            raise DeviceError(_DISCONNECTED.format(error)) from None
+        except serial.SerialException:
+            raise DeviceError(_DISCONNECTED) from None
 
     def _read(self) -> bytes:
         try:
             return self.link.read(4096)
-        except serial.SerialException as error:
-            raise DeviceError(_DISCONNECTED.format(error)) from None
+        except serial.SerialException:
+            raise DeviceError(_DISCONNECTED) from None
 
     def _read_to_prompt(self, what: str, timeout_s: float) -> bytes:
         reply, silent, max_silent = b"", 0, math.ceil(timeout_s / self._read_timeout_s)
