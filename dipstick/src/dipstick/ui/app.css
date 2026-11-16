@@ -64,6 +64,7 @@ figure svg { display: block; width: 100%; height: auto; }
 #report { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; margin: 1rem 0 0;
   font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 #report:empty { display: none; }
+#report .explain { color: var(--muted); }
 
 /* The plots (dipstick's SVG with standalone=False: no colors of its own). */
 svg text { font: 12px -apple-system, "Segoe UI", system-ui, sans-serif; fill: var(--ink); }
@@ -74,3 +75,5 @@ svg .swr, svg .trace { fill: none; stroke: var(--trace); stroke-width: 2; }
 svg .best { fill: var(--best); }
 svg .edge, svg .r-50, svg .axis { fill: none; stroke: var(--muted); }
 svg .note { fill: var(--good); }
+svg .target { stroke: var(--muted); stroke-dasharray: 2 3; }
+svg .target-label { fill: var(--muted); }

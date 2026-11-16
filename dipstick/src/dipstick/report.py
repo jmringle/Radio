@@ -7,34 +7,46 @@ from dipstick.s11 import Reading
 NO_TRIM_PERCENT = 0.5  # closer than this to the target: leave it alone
 
 
-def report(s: Summary, band: str) -> str:
-    lines = [f"{band}: {_mhz(s.low.hz)}-{_mhz(s.high.hz)} MHz, {s.points} points", ""]
+def report(s: Summary, band: str, calibrated: bool = False) -> str:
+    """`calibrated`: calibrated in this app session, so the reminder to calibrate is left out.
+    The answer comes first; lines that explain start with two spaces (the app shows them dimmer)."""
     if s.nothing_connected:
         worst = ("SWR is infinite everywhere: all of the signal comes back." if s.best.swr == float("inf")
                  else f"SWR is over 10 everywhere (lowest {_swr(s.best.swr)} at {_mhz(s.best.hz)} MHz).")
-        lines += [
-            worst,
+        lines = [
+            f"{band}: {worst}",
+            "Check the connection and measure again.",
             "  That looks like nothing connected (an open or a short), or a broken cable or connector.",
-            "  Check the connection and measure again.",
+            "",
+            *_measured(s),
         ]
         return "\n".join(lines) + "\n"
 
+    lines = [f"{band}: best match SWR {_swr(s.best.swr)} at {_mhz(s.best.hz)} MHz ({_rating(s.best.swr)})"]
+    lines += _trim(s) + [""] + _measured(s) + [""]
     lines += [
-        f"Best match: SWR {_swr(s.best.swr)} at {_mhz(s.best.hz)} MHz ({_rating(s.best.swr)})",
+        "Across the band: " + " | ".join(f"{_mhz(r.hz)} MHz SWR {_swr(r.swr)}" for r in (s.low, s.middle, s.high)),
         "  SWR (standing wave ratio) says how well the antenna matches your 50-ohm coax:",
         "  1.0 is a perfect match, and the higher it is, the more power bounces back toward the radio.",
-        "  On low-loss coax it reads the same at both ends of the cable, so this is the antenna's own best match.",
-        "",
-        "Across the band: " + " | ".join(f"{_mhz(r.hz)} MHz SWR {_swr(r.swr)}" for r in (s.low, s.middle, s.high)),
+        "  On low-loss coax it reads the same at both ends of the cable, so this is the antenna's own match.",
         "",
     ]
-    lines += _two_to_one(s) + [""] + _reactance(s) + [""] + _trim(s) + [""]
-    lines += [
+    lines += _two_to_one(s) + [""]
+    lines += [] if calibrated else [
         "Measured with the NanoVNA's current calibration. If it was made over a different range, or you",
         "added a cable or adapter since, recalibrate for this band (the app's Calibrate tab) for the most",
         "accurate numbers.",
+        "",
     ]
+    lines += _reactance(s)
     return "\n".join(lines) + "\n"
+
+
+def _measured(s: Summary) -> list[str]:
+    """What the NanoVNA did, in plain words: the reading is the antenna as the radio sees it."""
+    return [f"What the NanoVNA measured: {s.points} frequencies from {_mhz(s.low.hz)} to {_mhz(s.high.hz)} MHz",
+            "  At each one it sent a tiny test signal into the coax and measured how much came back: the",
+            "  antenna as your radio sees it, through this coax and any adapter."]
 
 
 def _two_to_one(s: Summary) -> list[str]:
@@ -55,8 +67,8 @@ def _reactance(s: Summary) -> list[str]:
                "  changes R and X along its length (but not SWR), so X = 0 here is usually not where the",
                "  antenna itself is resonant. Trim by SWR, not by this."]
     if not s.zero_reactance:
-        return [f"No point in the band has X = 0 (at {_mhz(s.middle.hz)} MHz: {_impedance(s.middle)})."] + explain
-    return [f"X = 0 at {', '.join(_mhz(hz) for hz in s.zero_reactance)} MHz "
+        return ["For the curious, impedance:", f"No point in the band has X = 0 (at {_mhz(s.middle.hz)} MHz: {_impedance(s.middle)})."] + explain
+    return ["For the curious, impedance:", f"X = 0 at {', '.join(_mhz(hz) for hz in s.zero_reactance)} MHz "
             f"(at the best match: {_impedance(s.best)})"] + explain
 
 
@@ -80,7 +92,7 @@ def _trim(s: Summary) -> list[str]:
                 "  (dipstick doesn't sweep outside the band with an antenna connected, so it can't see how far.)",
                 explain]
     if abs(s.trim_percent) < NO_TRIM_PERCENT:
-        return [f"No trim needed: the best match is within {NO_TRIM_PERCENT}% of {target} MHz.", explain]
+        return [f"No trim needed: the best match is within {NO_TRIM_PERCENT}% of {target} MHz."]
     verb = "Lengthen" if s.trim_percent > 0 else "Shorten"
     return [f"{verb} the antenna about {abs(s.trim_percent):.1f}% to move the best match to {target} MHz.", explain]
 

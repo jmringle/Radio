@@ -18,9 +18,9 @@ LEFT, TOP, RIGHT, BOTTOM = 56, 28, 620, 280
 SWR_TOP = 10.0
 SWR_TICKS = (1, 1.5, 2, 3, 5, 10)
 
-# Smith chart, with a two-line key underneath.
+# Smith chart, with a key underneath: short lines, so they fit the chart's width.
 SIZE = 340
-KEY = 44
+KEY = 62
 CX = CY = SIZE / 2
 R = 150
 
@@ -33,10 +33,13 @@ STYLE = """
   .best { fill: #c62828; }
   .edge, .r-50, .axis { fill: none; stroke: #999; }
   .note { fill: #2e7d32; }
+  .target { stroke: #666; stroke-dasharray: 2 3; }
+  .target-label { fill: #666; }
 """
 
 
-def swr_svg(readings: list[Reading], band: str, standalone: bool = True) -> str:
+def swr_svg(readings: list[Reading], band: str, standalone: bool = True, target_hz: int | None = None) -> str:
+    """`target_hz`: the frequency the person wants (already checked to be in the band), marked with a line."""
     _need_two(readings)
     start, stop = readings[0].hz, readings[-1].hz
 
@@ -55,6 +58,13 @@ def swr_svg(readings: list[Reading], band: str, standalone: bool = True) -> str:
     parts.append(f'<text class="note" x="{RIGHT - 4}" y="{y2 - 5:.2f}" text-anchor="end">2:1</text>')
     for hz, anchor in ((start, "start"), ((start + stop) / 2, "middle"), (stop, "end")):  # edge labels stay inside
         parts.append(f'<text x="{x(hz):.2f}" y="{BOTTOM + 18}" text-anchor="{anchor}">{hz / 1e6:.3f}</text>')
+    if target_hz is not None:
+        tx = x(target_hz)
+        parts.append(f'<line class="target" x1="{tx:.2f}" y1="{TOP}" x2="{tx:.2f}" y2="{BOTTOM}"/>')
+        # The label goes on whichever side of the line has more room.
+        side, anchor = (tx + 4, "start") if tx < (LEFT + RIGHT) / 2 else (tx - 4, "end")
+        parts.append(f'<text class="target-label" x="{side:.2f}" y="{TOP + 14}" text-anchor="{anchor}">'
+                     f'target {target_hz / 1e6:.3f}</text>')
     parts.append(_polyline("swr", pts))
     bx, by = pts[best]
     parts.append(f'<circle class="best" cx="{bx:.2f}" cy="{by:.2f}" r="4"/>')
@@ -78,8 +88,11 @@ def smith_svg(readings: list[Reading], standalone: bool = True) -> str:
         f'<text x="{CX + R}" y="{CY - 6}" text-anchor="end">open</text>',
         f'<text x="{CX}" y="{CY - R - 8}" text-anchor="middle">+jX (inductive)</text>',
         f'<text x="{CX}" y="{CY + R + 18}" text-anchor="middle">-jX (capacitive)</text>',
-        f'<text x="10" y="{SIZE + 16}">Center: a perfect match. Inside the dashed circle: SWR under 2.</text>',
-        f'<text x="10" y="{SIZE + 34}">Solid circle through the center: R = 50 ohms. Red dot: best match.</text>',
+        *(f'<text x="10" y="{SIZE + 16 + 18 * i}">{line}</text>' for i, line in enumerate((
+            "Center: a perfect match. Red dot: best match.",
+            "Inside the dashed circle: SWR under 2.",
+            "Solid circle through the center: R = 50 ohms.",
+        ))),
     ]
     return _svg(SIZE, SIZE + KEY, parts, standalone)
 

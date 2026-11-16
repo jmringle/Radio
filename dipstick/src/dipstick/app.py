@@ -64,6 +64,7 @@ class Api:
         self._calibration = None  # (band, the next step) between calibration steps
         self._current_url = None  # the window's address, set by _open_window; checked before the NanoVNA
         self._cal_unfinished = False  # `cal reset` sent and `cal done` not yet: the NanoVNA's memory holds no calibration
+        self._calibrated_band = None  # finished here (open, short, load): reports skip the reminder to calibrate
 
     def bands(self) -> list[str]:
         return list(BANDS)
@@ -88,10 +89,11 @@ class Api:
                 band = band_for_target(text)
             if not isinstance(band, str):
                 raise ValueError("Choose a band")
-            measured = measure_band(band, text, _points(points), self._connect)
+            measured = measure_band(band, text, _points(points), self._connect,
+                                    calibrated=self._calibrated_band is not None)
             # The window's stylesheet colors the plots (its security policy blocks inline styles).
             return {"band": band, "report": measured.report,
-                    "swr_svg": swr_svg(measured.readings, band, standalone=False),
+                    "swr_svg": swr_svg(measured.readings, band, standalone=False, target_hz=measured.target_hz),
                     "smith_svg": smith_svg(measured.readings, standalone=False)}
         return self._one_at_a_time(measure)
 
@@ -129,11 +131,13 @@ class Api:
                         self._calibration = None
                         nano.ask("sweep", start, stop, MAX_POINTS)  # a standard is measured over the NanoVNA's own sweep
                         self._cal_unfinished = True  # from here until `cal done`, even if `reset` fails partway
+                        self._calibrated_band = None
                         nano.ask("cal", "reset")
                     nano.ask("cal", step, timeout_s=CAL_STEP_TIMEOUT_S)
                     if step == "load":
                         nano.ask("cal", "done")
                         self._cal_unfinished = False
+                        self._calibrated_band = band
                 finally:
                     nano.close()
             except DeviceError as error:

@@ -80,10 +80,22 @@ function show(answer) {
       `NanoVNA off and on since, which goes back to its saved calibration). Calibrate ${answer.band} ` +
       "for a reading you can trust.\n\n"
     : "";
-  $("report").textContent = answer.ok ? note + answer.report : "";  // text, never markup
+  showReport(answer.ok ? note + answer.report : "");
   // The SVG comes from dipstick's own plot code, not from the NanoVNA or anything typed.
   $("swr").innerHTML = answer.ok ? answer.swr_svg || "" : "";  // a cable has no SWR plot
   $("smith").innerHTML = answer.ok ? answer.smith_svg : "";
+}
+
+// The report is plain text. Lines starting with two spaces explain (report.py's convention) and are
+// shown dimmer, so the answers stand out. Each line goes in as text, never markup.
+function showReport(text) {
+  const lines = text ? text.split("\n") : [];
+  $("report").replaceChildren(...lines.map((line) => {
+    const span = document.createElement("span");
+    if (line.startsWith("  ")) span.className = "explain";
+    span.textContent = line + "\n";
+    return span;
+  }));
 }
 
 $("controls").addEventListener("submit", async (event) => {
@@ -120,7 +132,7 @@ $("live").addEventListener("click", async () => {
   live = false;
   lock(false);
   running(false);
-  button.textContent = "Live";
+  button.textContent = "Live (repeat)";
   button.disabled = false;
   $("status").textContent = "";
 });

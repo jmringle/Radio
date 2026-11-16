@@ -31,6 +31,7 @@ COMMAND_NAMES = {"no_antenna": "run again with --no-antenna", "vf": "--vf", "len
 class BandMeasurement:
     band: str
     readings: list[Reading]
+    target_hz: int
     report: str
     swr_svg: str
     smith_svg: str
@@ -55,15 +56,18 @@ def check_band(band: str, target: str | None, points: int) -> tuple[int, int, in
     return start, stop, _target(target, start, stop)
 
 
-def measure_band(band: str, target: str | None, points: int, connect, port: str | None = None) -> BandMeasurement:
+def measure_band(band: str, target: str | None, points: int, connect, port: str | None = None,
+                 calibrated: bool = False) -> BandMeasurement:
+    """`calibrated`: the app calibrated in this session, so the report leaves out its reminder."""
     start, stop, target_hz = check_band(band, target, points)
     nano = connect(port)
     try:
         readings = scan(nano, start, stop, points)
     finally:
         nano.close()
-    return BandMeasurement(band, readings, report(summarize(readings, target_hz=target_hz), band),
-                           swr_svg(readings, band), smith_svg(readings))
+    return BandMeasurement(band, readings, target_hz,
+                           report(summarize(readings, target_hz=target_hz), band, calibrated=calibrated),
+                           swr_svg(readings, band, target_hz=target_hz), smith_svg(readings))
 
 
 @dataclass(frozen=True)

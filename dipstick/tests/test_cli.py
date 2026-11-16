@@ -48,7 +48,7 @@ def test_your_recorded_open_port_says_nothing_is_connected(capsys):
     nano = fake_nano(b"scan 7000000 7300000 11 3", recorded("scan_40m_11_3"))
     code, out, err, _ = run(capsys, ["40m", "--points", "11"], nano)
     assert code == 0 and err == ""
-    assert out.startswith("40m: 7.000-7.300 MHz, 11 points")
+    assert out.startswith("40m: SWR")
     assert "nothing connected" in out
 
 
@@ -57,7 +57,7 @@ def test_a_good_antenna_end_to_end(capsys):
     nano = fake_nano(command, reply_for(command, antenna(7_153_000, 60_000)))
     code, out, _, _ = run(capsys, ["40m"], nano)
     assert code == 0
-    assert "Best match: SWR 1.00 at 7.153 MHz (excellent)" in out
+    assert "40m: best match SWR 1.00 at 7.153 MHz (excellent)" in out
     assert "No trim needed" in out
     assert nano.link.written[-1] == RESTORE + b"\r"  # the NanoVNA's settings went back
     assert nano.link.closed
@@ -75,7 +75,7 @@ def test_a_frequency_instead_of_a_band_sweeps_its_band_and_trims_for_it(capsys):
     command = b"scan 902000000 928000000 101 3"
     nano = fake_nano(command, reply_for(command, antenna(910_420_000, 3_000_000, start=902_000_000, stop=928_000_000)))
     code, out, _, _ = run(capsys, ["915"], nano)
-    assert code == 0 and out.startswith("33cm: 902.000-928.000 MHz")
+    assert code == 0 and out.startswith("33cm: best match")
     assert "to move the best match to 915.000 MHz" in out
 
 

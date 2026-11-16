@@ -11,13 +11,36 @@ def text(f0, half_width=60_000, target=7_150_000, **kwargs):
     return report(summarize(antenna(f0, half_width, **kwargs), target_hz=target), "40m")
 
 
-def test_heading_names_the_band_and_points():
-    assert text(7_150_000).splitlines()[0] == "40m: 7.000-7.300 MHz, 101 points"
+# UI review 2026-11-16: the answer first (the best match, then what to do), then what the NanoVNA
+# measured, then the rest. Lines that explain start with two spaces; the app shows them dimmer.
+
+def test_the_first_two_lines_are_the_answer():
+    first, second = text(7_051_000).splitlines()[:2]
+    assert first == "40m: best match SWR 1.00 at 7.051 MHz (excellent)"
+    assert second == "Shorten the antenna about 1.4% to move the best match to 7.150 MHz."
+
+
+def test_says_what_the_nanovna_measured_and_from_where():
+    out = text(7_150_000)
+    assert "What the NanoVNA measured: 101 frequencies from 7.000 to 7.300 MHz" in out
+    assert "tiny test signal" in out and "through this coax" in out
+
+
+def test_no_trim_needed_skips_the_how_to_trim_explanation():
+    out = text(7_150_000)
+    assert "No trim needed" in out
+    assert "an antenna you can trim" not in out
+
+
+def test_impedance_comes_last_as_extra_reading():
+    out = text(7_150_000)
+    assert out.index("For the curious") > out.index("2:1 bandwidth")
+    assert out.index("For the curious") < out.index("X = 0 at")
 
 
 def test_a_well_matched_antenna():
     out = text(7_150_000)
-    assert "Best match: SWR 1.00 at 7.150 MHz (excellent)" in out
+    assert "best match SWR 1.00 at 7.150 MHz (excellent)" in out
     assert "1.0 is a perfect match" in out  # the explanation of SWR
     assert "2:1 bandwidth: 7.090-7.210 MHz (120 kHz)" in out
     assert "No trim needed" in out
@@ -91,6 +114,10 @@ def test_an_open_port_says_all_of_the_signal_comes_back():
 
 def test_calibration_reminder():
     assert "recalibrate" in text(7_150_000)
+
+
+def test_no_calibration_reminder_just_after_calibrating():
+    assert "recalibrate" not in report(summarize(antenna(7_150_000, 60_000), target_hz=7_150_000), "40m", calibrated=True)
 
 
 def test_a_flat_curve_says_no_clear_dip_and_gives_no_trim_advice():

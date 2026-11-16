@@ -27,9 +27,9 @@
   <section id="antenna-panel" role="tabpanel" aria-labelledby="tab-antenna">
     <form id="controls">
       <label for="band">Band</label> <select id="band"></select>
-      <label for="target">Target</label> <input id="target" inputmode="decimal" placeholder="e.g. 146.520" autocomplete="off">
+      <label for="target">Target (MHz, optional)</label> <input id="target" inputmode="decimal" placeholder="e.g. 7.074" autocomplete="off">
       <button id="sweep" type="submit" disabled>Sweep</button>  <!-- enabled once Python is reachable -->
-      <button id="live" type="button" disabled>Live</button>  <!-- sweeps again and again; becomes Stop -->
+      <button id="live" type="button" disabled>Live (repeat)</button>  <!-- sweeps again and again; becomes Stop -->
     </form>
   </section>
   <section id="cable-panel" role="tabpanel" aria-labelledby="tab-cable" hidden>

@@ -82,6 +82,23 @@ def test_the_best_match_is_marked():
     assert (float(best.get("cx")), float(best.get("cy"))) == pytest.approx(pts[51])  # 7.153 MHz
 
 
+def test_the_target_is_marked_with_a_line_and_its_frequency():
+    # So the gap between the dip and where you want it shows at a glance (UI review 2026-11-16).
+    root = parse(swr_svg(antenna(7_150_000, 60_000), "40m", target_hz=7_074_000))
+    [area] = find(root, "rect", "plot-area")
+    left, top, width, height = (float(area.get(k)) for k in ("x", "y", "width", "height"))
+    [line] = find(root, "line", "target")
+    x = left + 74_000 / 300_000 * width  # 7.074 is 74 kHz into the 300 kHz band
+    assert (float(line.get("x1")), float(line.get("x2"))) == pytest.approx((x, x))
+    assert (float(line.get("y1")), float(line.get("y2"))) == pytest.approx((top, top + height))
+    assert "target 7.074" in [t.text for t in root.iter(SVG + "text")]
+
+
+def test_no_target_no_line():
+    root = swr_plot(antenna(7_150_000, 60_000))
+    assert not [e for e in root.iter(SVG + "line") if "target" in e.get("class", "")]
+
+
 def test_axis_labels():
     root = swr_plot(antenna(7_150_000, 60_000))
     labels = [t.text for t in root.iter(SVG + "text")]
@@ -134,6 +151,23 @@ def test_smith_best_match_marked():
     [best] = find(root, "circle", "best")
     s = readings[51].s11
     assert (float(best.get("cx")), float(best.get("cy"))) == pytest.approx((cx + r * s.real, cy - r * s.imag))
+
+
+def test_smith_key_lines_fit_inside_the_chart():
+    # The key was cut off at the right edge in the app (seen 2026-11-16). 12px system text runs
+    # about 5.8 SVG units a character (measured on that screenshot); 7 leaves room for wider fonts.
+    root = parse(smith_svg(antenna(7_150_000, 60_000)))
+    width = float(root.get("viewBox").split()[2])
+    key = [t for t in root.iter(SVG + "text") if t.get("text-anchor") is None]
+    assert len(key) >= 2
+    for line in key:
+        assert float(line.get("x")) + 7 * len(line.text) <= width, line.text
+
+
+def test_smith_key_lines_sit_inside_the_chart_height():
+    root = parse(smith_svg(antenna(7_150_000, 60_000)))
+    height = float(root.get("viewBox").split()[3])
+    assert all(float(t.get("y")) <= height - 4 for t in root.iter(SVG + "text"))
 
 
 @pytest.mark.parametrize("make", [swr_svg, smith_svg])

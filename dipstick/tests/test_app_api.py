@@ -41,7 +41,7 @@ def test_bands_for_the_picker():
 def test_a_sweep_returns_the_report_and_both_plots():
     answer = Api(connect=lambda port: good_40m()).sweep("40m", "", 101)
     assert answer["ok"] is True
-    assert "Best match: SWR 1.00 at 7.153 MHz" in answer["report"]
+    assert "best match SWR 1.00 at 7.153 MHz" in answer["report"]
     assert answer["swr_svg"].startswith("<svg") and answer["smith_svg"].startswith("<svg")
 
 
@@ -58,7 +58,7 @@ def test_a_target_alone_picks_the_band():
     nano = fake_nano(command, reply_for(command, readings))
     answer = Api(connect=lambda port: nano).sweep("", "146.520", 101)
     assert answer["ok"] is True and answer["band"] == "2m"
-    assert "Best match: SWR 1.00 at 146.520 MHz" in answer["report"]
+    assert "best match SWR 1.00 at 146.520 MHz" in answer["report"]
 
 
 def test_the_answer_names_the_band_swept():
@@ -568,3 +568,40 @@ def test_the_app_page_gets_through_the_check():
     api = Api(connect=lambda port: nano)
     api._current_url = lambda: PAGE.as_uri()
     assert api.sweep("40m", "", 11)["ok"] is True
+
+
+# --- UI review 2026-11-16: the target on the plot, and the recalibrate reminder only when it helps --
+
+def test_the_swr_plot_marks_the_target():
+    answer = Api(connect=lambda port: good_40m()).sweep("40m", "7.074", 101)
+    assert 'class="target"' in answer["swr_svg"] and "target 7.074" in answer["swr_svg"]
+
+
+def calibrated_then_swept(steps):
+    cal = Calibrator()
+    nano = [cal]
+    api = Api(connect=lambda port: nano[0](port))
+    for step in steps:
+        assert api.calibrate("40m", step)["ok"] is True
+    nano[0] = lambda port: good_40m()
+    return api.sweep("40m", "", 101)["report"]
+
+
+def test_never_calibrated_here_the_report_reminds_you_to():
+    assert "recalibrate" in calibrated_then_swept([])
+
+
+def test_just_calibrated_the_report_leaves_out_the_reminder():
+    # The page adds its own note if the band swept isn't the one calibrated.
+    assert "recalibrate" not in calibrated_then_swept(["open", "short", "load"])
+
+
+def test_a_calibration_started_and_not_finished_brings_the_reminder_back():
+    # `cal reset` was sent at the open step: the NanoVNA holds no calibration until load finishes.
+    cal = Calibrator()
+    nano = [cal]
+    api = Api(connect=lambda port: nano[0](port))
+    for step in ("open", "short", "load", "open"):
+        api.calibrate("40m", step)
+    nano[0] = lambda port: good_40m()
+    assert "recalibrate" in api.sweep("40m", "", 101)["report"]

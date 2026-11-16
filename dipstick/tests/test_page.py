@@ -68,6 +68,9 @@ WEBKIT_SELECT_QUIRK = ("Refused to apply a stylesheet because its hash, its nonc
                        "does not appear in the style-src directive of the Content Security Policy.")
 
 
+TARGET = "Target (MHz, optional)"  # the field's full label
+
+
 @pytest.fixture
 def app(page: Page, browser_name):
     errors = []
@@ -140,11 +143,45 @@ def test_one_sweep_at_a_time_from_the_page(app: Page):
     expect(sweep).to_be_disabled()
     expect(app.get_by_role("status", name="Sweep status")).to_have_text(re.compile("Sweeping"))
     sweep.click(force=True)  # a second click while it runs does nothing
-    app.get_by_label("Target", exact=True).press("Enter")  # nor does Enter in the target field
+    app.get_by_label(TARGET, exact=True).press("Enter")  # nor does Enter in the target field
     app.evaluate("window.__release()")
     expect(sweep).to_be_enabled()
     expect(app.get_by_role("status", name="Sweep status")).to_have_text("")
     assert len(app.evaluate("window.__calls")) == 1
+
+
+# --- UI review 2026-11-16 ------------------------------------------------------------------------
+
+def test_explanation_lines_are_shown_dimmer_than_the_answers(app: Page):
+    # The report marks explanations with a two-space indent; the answers should stand out.
+    app.evaluate('window.__answer = Object.assign({}, window.__answer, '
+                 '{report: "40m: best match SWR 1.20\\n  SWR says how well it matches\\nAcross the band: 1.3\\n"})')
+    app.get_by_role("button", name="Sweep").click()
+    report = app.locator("#report")
+    expect(report).to_contain_text("40m: best match SWR 1.20")
+    explain = report.locator(".explain")
+    expect(explain).to_have_count(1)
+    expect(explain).to_have_text("  SWR says how well it matches")
+    color = "(el) => getComputedStyle(el).color"
+    assert explain.evaluate(color) != report.evaluate(color)
+
+
+def test_an_explanation_line_with_markup_is_still_text(app: Page):
+    app.evaluate('window.__answer = {ok: true, report: "  <img src=x onerror=alert(1)>", swr_svg: "", smith_svg: ""}')
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#report .explain")).to_have_text("  <img src=x onerror=alert(1)>")
+    expect(app.locator("#report img")).to_have_count(0)
+
+
+def test_the_target_field_says_mhz_and_optional(app: Page):
+    expect(app.get_by_label(TARGET, exact=True)).to_have_attribute("placeholder", "e.g. 7.074")
+
+
+def test_the_live_button_says_it_repeats_before_and_after(app: Page):
+    expect(app.locator("#live")).to_have_text("Live (repeat)")
+    app.locator("#live").click()
+    app.get_by_role("button", name="Stop").click()
+    expect(app.locator("#live")).to_have_text("Live (repeat)")
 
 
 def test_report_text_is_shown_as_text_not_markup(app: Page):
@@ -213,12 +250,12 @@ def test_stop_lets_the_pass_in_progress_finish(app: Page):
 def test_the_controls_are_locked_during_live(app: Page):
     app.evaluate("window.__hold = true")
     app.get_by_role("button", name="Live").click()
-    for control in (app.get_by_label("Band", exact=True), app.get_by_label("Target", exact=True),
+    for control in (app.get_by_label("Band", exact=True), app.get_by_label(TARGET, exact=True),
                     app.get_by_role("button", name="Sweep")):
         expect(control).to_be_disabled()
     app.get_by_role("button", name="Stop").click()
     app.evaluate("window.__release()")
-    for control in (app.get_by_label("Band", exact=True), app.get_by_label("Target", exact=True),
+    for control in (app.get_by_label("Band", exact=True), app.get_by_label(TARGET, exact=True),
                     app.get_by_role("button", name="Sweep")):
         expect(control).to_be_enabled()
 
