@@ -53,6 +53,7 @@ button:disabled { opacity: 0.55; cursor: progress; }
 #connection.connected::before, #connection.missing::before { content: "● "; }
 #connection.connected::before { color: var(--good); }
 #connection.missing { color: var(--best); }
+#quiz-option { margin: 0.6rem 0 0; font-size: 0.9rem; }
 #status { color: var(--muted); min-height: 1.4em; margin: 0.6rem 0 0; }
 #error { color: var(--best); margin: 0.2rem 0 0; font-weight: 600; }
 #error:empty { display: none; }

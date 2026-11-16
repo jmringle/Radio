@@ -28,6 +28,9 @@ window.__release = null;
 window.__cableCalls = [];
 window.__calCalls = [];
 window.__calError = null;
+window.__settings = {quiz: true};
+window.__saved = [];
+window.__saveAnswer = {ok: true};
 window.__cableAnswer = {ok: true, report: "Cable: 1.000-48.000 MHz sweep, 101 points\\n\\nFar end: open\\n",
                         smith_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-cable-smith" viewBox="0 0 10 10"><circle class="edge" cx="5" cy="5" r="5"/></svg>'};
 // Like real pywebview (its js/api.js and js/finish.js, 6.2.1): window.pywebview.api starts as an
@@ -37,6 +40,8 @@ setTimeout(() => {
   Object.assign(window.pywebview.api, {
     bands: async () => ["160m", "80m", "40m", "20m", "2m", "70cm"],
     nanovna: async () => window.__nanovna,
+    settings: async () => window.__settings,
+    set_quiz: async (on) => { window.__saved.push(on); return window.__saveAnswer; },
     sweep: (band, target, points) => {
       window.__calls.push([band, target, points]);
       if (!window.__hold) return Promise.resolve(window.__answer);
@@ -690,3 +695,93 @@ def test_calibrate_waits_until_python_is_reachable(page: Page):
 def test_the_app_is_called_dipstick_with_a_capital_d(app: Page):
     expect(app).to_have_title("Dipstick")
     expect(app.get_by_role("heading", level=1)).to_have_text("Dipstick")
+
+
+# --- turning Check yourself off and on (2026-11-16) -------------------------------------------------
+# Python remembers the choice; the page asks for it at start and tells Python when it changes.
+
+SHOW_QUIZ = "Show Check yourself questions"
+
+
+def test_the_box_starts_ticked_when_python_says_on(app: Page):
+    expect(app.get_by_label(SHOW_QUIZ)).to_be_checked()
+    expect(app.get_by_label(SHOW_QUIZ)).to_be_enabled()
+
+
+def test_the_box_starts_unticked_when_python_remembers_off(page: Page):
+    page.add_init_script(FAKE_API + "window.__settings = {quiz: false};")
+    page.goto(PAGE)
+    expect(page.get_by_label(SHOW_QUIZ)).to_be_enabled()
+    expect(page.get_by_label(SHOW_QUIZ)).not_to_be_checked()
+
+
+def test_the_box_waits_for_python(page: Page):
+    page.add_init_script(FAKE_API.replace("}, 50);", "}, 10_000);"))
+    page.goto(PAGE)
+    expect(page.get_by_label(SHOW_QUIZ)).to_be_disabled()
+
+
+def test_off_means_no_questions_after_a_sweep(page: Page):
+    page.add_init_script(FAKE_API + "window.__settings = {quiz: false};")
+    page.goto(PAGE)
+    expect(page.get_by_label(SHOW_QUIZ)).to_be_enabled()
+    with_quiz(page)
+    page.get_by_role("button", name="Sweep").click()
+    expect(page.locator("#report")).not_to_be_empty()
+    expect(page.locator("#quiz")).to_be_hidden()
+
+
+def test_unticking_hides_the_questions_and_tells_python(app: Page):
+    with_quiz(app)
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#quiz")).to_be_visible()
+    app.get_by_label(SHOW_QUIZ).uncheck()
+    expect(app.locator("#quiz")).to_be_hidden()
+    assert app.evaluate("window.__saved") == [False]
+
+
+def test_ticking_again_brings_back_the_same_questions_with_answers_kept(app: Page):
+    with_quiz(app)
+    app.get_by_role("button", name="Sweep").click()
+    question = app.get_by_role("group", name="Should the antenna be longer or shorter?")
+    question.get_by_role("radio", name="Shorter").check()
+    app.get_by_label(SHOW_QUIZ).uncheck()
+    app.get_by_label(SHOW_QUIZ).check()
+    expect(question.get_by_role("radio", name="Shorter")).to_be_checked()
+    expect(question.get_by_role("status")).to_contain_text("Right.")
+    assert app.evaluate("window.__saved") == [False, True]
+
+
+def test_ticking_with_no_result_shows_nothing(app: Page):
+    app.get_by_label(SHOW_QUIZ).uncheck()
+    app.get_by_label(SHOW_QUIZ).check()
+    expect(app.locator("#quiz")).to_be_hidden()
+
+
+def test_a_failed_save_is_shown_and_the_choice_still_applies(app: Page):
+    app.evaluate('window.__saveAnswer = {ok: false, error: "Couldn\'t save the Check yourself setting (disk full)."}')
+    with_quiz(app)
+    app.get_by_role("button", name="Sweep").click()
+    app.get_by_label(SHOW_QUIZ).uncheck()
+    expect(app.get_by_role("alert")).to_contain_text("Couldn't save")
+    expect(app.locator("#quiz")).to_be_hidden()
+
+
+def test_the_box_is_on_the_cable_tab_too_but_not_calibrate(app: Page):
+    app.get_by_role("tab", name="Cable").click()
+    expect(app.get_by_label(SHOW_QUIZ)).to_be_visible()
+    app.get_by_role("tab", name="Calibrate").click()
+    expect(app.get_by_label(SHOW_QUIZ)).to_be_hidden()
+    app.get_by_role("tab", name="Antenna").click()
+    expect(app.get_by_label(SHOW_QUIZ)).to_be_visible()
+
+
+def test_cable_questions_follow_the_box_too(app: Page):
+    app.evaluate(f"window.__cableAnswer = Object.assign({{}}, window.__cableAnswer, {{quiz: {QUIZ}}})")
+    app.get_by_label(SHOW_QUIZ).uncheck()
+    app.get_by_role("tab", name="Cable").click()
+    app.get_by_label("No antenna connected").check()
+    app.get_by_label("Velocity factor").fill("0.66")
+    app.get_by_role("button", name="Check cable").click()
+    expect(app.locator("#report")).not_to_be_empty()
+    expect(app.locator("#quiz")).to_be_hidden()

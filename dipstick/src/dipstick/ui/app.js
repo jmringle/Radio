@@ -9,6 +9,7 @@ const LIVE_PAUSE_MS = 300;    // breathing room between live passes
 let live = false;             // true while live mode runs; Stop sets it false
 let pythonReady = false;      // the bridge's functions have arrived
 let lastQuiz = [];            // the last result's "Check yourself" questions, shown once Live stops
+let quizOn = true;            // the Show Check yourself box; Python remembers it between launches
 
 function ready() {
   window.pywebview.api.bands().then((bands) => {
@@ -29,6 +30,10 @@ function ready() {
     pythonReady = true;
     allowCableCheck();
     showCalibrationStep();
+  });
+  window.pywebview.api.settings().then((settings) => {
+    quizOn = $("quiz-on").checked = settings.quiz !== false;
+    $("quiz-on").disabled = false;
   });
   checkConnection();
   setInterval(checkConnection, CHECK_EVERY_MS);
@@ -127,8 +132,24 @@ function showQuiz(questions) {
     group.append(feedback);
     return group;
   }));
-  $("quiz").hidden = questions.length === 0;
+  showOrHideQuiz();
 }
+
+// Hiding keeps the questions and your answers, so ticking the box again brings them back as they were.
+function showOrHideQuiz() {
+  $("quiz").hidden = !quizOn || $("quiz-questions").childElementCount === 0;
+}
+
+$("quiz-on").addEventListener("change", async () => {
+  quizOn = $("quiz-on").checked;
+  showOrHideQuiz();
+  try {
+    const answer = await window.pywebview.api.set_quiz(quizOn);
+    if (!answer.ok) $("error").textContent = answer.error;
+  } catch (error) {
+    $("error").textContent = `Couldn't save the Check yourself setting: ${error}`;
+  }
+});
 
 $("controls").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -181,6 +202,7 @@ function selectTab(tab) {
     each.tabIndex = selected ? 0 : -1;  // roving tabindex: Tab reaches only the selected tab
     $(each.getAttribute("aria-controls")).hidden = !selected;
   }
+  $("quiz-option").hidden = tab === $("tab-calibrate");  // calibrating asks no questions
   // A band's results aren't this cable's (or the other way round), and the box is confirmed afresh.
   show({ ok: true, report: "", smith_svg: "" });
   $("no-antenna").checked = false;

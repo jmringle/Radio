@@ -4,6 +4,7 @@ Tested directly with the fake NanoVNA: no window, no hardware. Every answer is a
 page can show; nothing is raised into the page."""
 
 import threading
+from pathlib import PurePosixPath
 
 import pytest
 from fakes import FakeLink, UnpluggedLink, recorded
@@ -13,6 +14,7 @@ from test_cable_cli import planned
 from test_device import Port
 
 from dipstick.app import PAGE, Api, connect_nanovna, is_app_page
+from dipstick.settings import settings_file
 from dipstick.device import DeviceError, NanoVNA
 from dipstick.s11 import reading
 
@@ -196,7 +198,8 @@ def test_the_page_can_only_reach_public_methods():
     # connection and lock private so the page can't reach them.
     public = {name for name in vars(Api(connect=None)) if not name.startswith("_")}
     assert public == set()
-    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "nanovna", "sweep"}
+    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "nanovna",
+                                                                         "set_quiz", "settings", "sweep"}
 
 
 # --- the cable check: a wide sweep, so only with no antenna connected (T5) ---------------------
@@ -628,3 +631,101 @@ def test_nothing_connected_carries_no_questions():
 def test_a_cable_answer_carries_its_questions():
     answer = Api(connect=lambda port: fake_cable_nano(planned(12.0, 0.66))).cable(True, "0.66", "", "50 m")
     assert answer["ok"] is True and 1 <= len(answer["quiz"]) <= 2
+
+
+# --- turning "Check yourself" off and on (2026-11-16): remembered in a small settings file -----------
+# The file is input like any other: anyone with the account can edit it, and a crash or a full disk
+# can leave half of it. Anything odd falls back to the default (on), never an error.
+
+def test_check_yourself_starts_on(tmp_path):
+    assert Api(connect=None, settings_path=tmp_path / "settings.json").settings() == {"quiz": True}
+
+
+def test_turning_it_off_is_remembered_by_the_next_launch(tmp_path):
+    path = tmp_path / "dipstick" / "settings.json"  # the folder doesn't exist yet
+    assert Api(connect=None, settings_path=path).set_quiz(False) == {"ok": True}
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": False}
+    assert Api(connect=None, settings_path=path).set_quiz(True) == {"ok": True}
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": True}
+
+
+@pytest.mark.parametrize("on", ["false", 0, 1, None, [], {"quiz": False}])
+def test_only_true_or_false_is_accepted(tmp_path, on):
+    path = tmp_path / "settings.json"
+    api = Api(connect=None, settings_path=path)
+    answer = api.set_quiz(on)
+    assert answer["ok"] is False and "on or off" in answer["error"]
+    assert api.settings() == {"quiz": True}
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("content", [
+    b"", b"{", b"not json", b"[false]", b'"quiz"', b'{"quiz": "no"}', b'{"quiz": 0}', b'{"quiz": null}',
+    b"\xff\xfe\x00", b'{"quiz": false' + b" " * 5000 + b"}",  # undecodable; too big to be ours
+], ids=["empty", "half", "text", "list", "string", "word", "zero", "null", "bytes", "huge"])
+def test_a_broken_or_strange_file_means_on(tmp_path, content):
+    path = tmp_path / "settings.json"
+    path.write_bytes(content)
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": True}
+
+
+def test_unknown_keys_are_ignored(tmp_path):
+    path = tmp_path / "settings.json"
+    path.write_text('{"quiz": false, "port": "/dev/evil"}')
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": False}
+
+
+def test_a_settings_folder_that_cant_be_read_means_on(tmp_path):
+    path = tmp_path / "settings.json"
+    path.mkdir()  # a folder where the file should be
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": True}
+
+
+def test_a_failed_save_says_so_and_still_applies_until_quit(tmp_path):
+    blocker = tmp_path / "dipstick"
+    blocker.write_text("a file where the folder should be")
+    api = Api(connect=None, settings_path=blocker / "settings.json")
+    answer = api.set_quiz(False)
+    assert answer["ok"] is False and "Couldn't save" in answer["error"] and "until you quit" in answer["error"]
+    assert api.settings() == {"quiz": False}
+
+
+def test_with_no_settings_file_nothing_is_saved_but_it_works():
+    # The self-test and these tests use no file, so they never change the real one.
+    api = Api(connect=None)
+    assert api.set_quiz(False) == {"ok": True}
+    assert api.settings() == {"quiz": False}
+
+
+def test_another_page_cant_change_the_setting(tmp_path):
+    path = tmp_path / "settings.json"
+    api = Api(connect=None, settings_path=path)
+    api._current_url = lambda: "http://127.0.0.1:8000/evil.html"
+    assert "Only Dipstick's own page" in api.set_quiz(False)["error"]
+    assert not path.exists()
+
+
+def test_it_can_be_changed_during_a_sweep(tmp_path):
+    api = Api(connect=None, settings_path=tmp_path / "settings.json")
+    answers = []
+    api._busy.acquire()  # a sweep is running
+    try:
+        # In a thread, so a set_quiz that waits for the sweep fails here instead of hanging the run.
+        worker = threading.Thread(target=lambda: answers.append(api.set_quiz(False)), daemon=True)
+        worker.start()
+        worker.join(timeout=2)
+        assert answers == [{"ok": True}]
+    finally:
+        api._busy.release()
+
+
+@pytest.mark.parametrize("platform, env, expected", [
+    ("darwin", {}, "/home/n0call/Library/Application Support/dipstick/settings.json"),
+    ("win32", {"APPDATA": "C:/Users/n0call/AppData/Roaming"}, "C:/Users/n0call/AppData/Roaming/dipstick/settings.json"),
+    ("win32", {}, "/home/n0call/AppData/Roaming/dipstick/settings.json"),
+    ("linux", {}, "/home/n0call/.config/dipstick/settings.json"),
+    ("linux", {"XDG_CONFIG_HOME": "/srv/config"}, "/srv/config/dipstick/settings.json"),
+    ("linux", {"XDG_CONFIG_HOME": "relative/dir"}, "/home/n0call/.config/dipstick/settings.json"),  # the XDG spec ignores a relative one
+])
+def test_the_settings_file_lives_where_each_system_keeps_settings(platform, env, expected):
+    assert settings_file(platform, env, home=lambda: PurePosixPath("/home/n0call")).as_posix() == expected

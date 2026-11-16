@@ -21,6 +21,7 @@ from dipstick.measure import band_for_target, measure_band, measure_cable, shown
 from dipstick.plots import smith_svg, swr_svg
 from dipstick.quiz import antenna_questions, cable_questions
 from dipstick.scan import MAX_POINTS
+from dipstick import settings as saved
 
 APP_NAME = "Dipstick"  # the window title (the command stays lowercase: dipstick)
 PAGE = Path(__file__).parent / "ui" / "index.html"
@@ -58,7 +59,7 @@ class Api:
     """What the page may call. pywebview exposes public methods and walks public attributes, so
     everything else here is private (a leading underscore)."""
 
-    def __init__(self, connect=connect_nanovna, ports=list_ports.comports):
+    def __init__(self, connect=connect_nanovna, ports=list_ports.comports, settings_path: Path | None = None):
         self._connect = connect
         self._ports = ports
         self._busy = threading.Lock()
@@ -66,6 +67,9 @@ class Api:
         self._current_url = None  # the window's address, set by _open_window; checked before the NanoVNA
         self._cal_unfinished = False  # `cal reset` sent and `cal done` not yet: the NanoVNA's memory holds no calibration
         self._calibrated_band = None  # finished here (open, short, load): reports skip the reminder to calibrate
+        self._settings_path = settings_path  # None: nothing saved (tests and the self-test)
+        self._settings = saved.load(settings_path)
+        self._saving = threading.Lock()  # not _busy: the setting can change during a sweep
 
     def bands(self) -> list[str]:
         return list(BANDS)
@@ -154,11 +158,39 @@ class Api:
             return {"next": self._calibration and self._calibration[1]}
         return self._one_at_a_time(measure)
 
-    def _one_at_a_time(self, measure) -> dict:
-        """pywebview runs each call from the page on its own thread, and there's one NanoVNA."""
+    def settings(self) -> dict:
+        """The saved choices: {"quiz": True or False}."""
+        return dict(self._settings)
+
+    def set_quiz(self, on) -> dict:
+        """Show the "Check yourself" questions or not; remembered for the next launch. Answers
+        {"ok": True} or {"ok": False, error}."""
+        if refusal := self._left_page():
+            return refusal
+        if not isinstance(on, bool):
+            return {"ok": False, "error": f"Check yourself must be on or off, got {shown(on)}"}
+        with self._saving:
+            self._settings["quiz"] = on
+            if self._settings_path is None:
+                return {"ok": True}
+            try:
+                saved.save(self._settings_path, self._settings)
+            except OSError as error:
+                return {"ok": False, "error": f"Couldn't save the Check yourself setting ({error.strerror or error}), "
+                                              "so it lasts only until you quit."}
+        return {"ok": True}
+
+    def _left_page(self) -> dict | None:
+        """The refusal when the window is showing something other than dipstick's own page."""
         if self._current_url is not None and not is_app_page(self._current_url()):
             return {"ok": False, "error": "Only Dipstick's own page can use the NanoVNA, and this window "
                                           "has left it. Close the window and open Dipstick again."}
+        return None
+
+    def _one_at_a_time(self, measure) -> dict:
+        """pywebview runs each call from the page on its own thread, and there's one NanoVNA."""
+        if refusal := self._left_page():
+            return refusal
         if not self._busy.acquire(blocking=False):
             return {"ok": False, "error": "A sweep is already running"}
         try:
@@ -186,7 +218,8 @@ def _points(value) -> int:
 
 
 # What the self-test reads from the page, after opening the Cable tab and ticking its box (never
-# clicking Check cable). Check cable enabled means the page reached Python.
+# clicking Check cable). Check cable enabled means the page reached Python; the Check yourself box
+# enabled means the settings came back through the bridge.
 _PROBE = """
 document.getElementById('tab-cable').click();
 const box = document.getElementById('no-antenna');
@@ -196,7 +229,8 @@ box.checked = true; box.dispatchEvent(new Event('change'));
   live: document.getElementById('live').disabled,
   connection: document.getElementById('connection').textContent,
   cable: document.getElementById('check-cable').disabled,
-  calibrate_bands: document.getElementById('cal-band').options.length})
+  calibrate_bands: document.getElementById('cal-band').options.length,
+  quiz_box: document.getElementById('quiz-on').disabled})
 """
 
 
@@ -229,7 +263,7 @@ def self_test() -> int:
             except Exception as error:  # the page may not be loaded yet
                 seen.update(error=str(error))
             if seen.get("bands", 0) > 1 and seen.get("disabled") is False and seen.get("connection") \
-                    and seen.get("cable") is False:
+                    and seen.get("cable") is False and seen.get("quiz_box") is False:
                 seen.pop("error", None)
                 break
         seen.update(app_page=is_app_page(window.get_current_url()), guarded=api._current_url is not None)
@@ -239,7 +273,8 @@ def self_test() -> int:
     window = _open_window(api, f"{APP_NAME} self-test", width=500, height=250)
     webview.start(probe, window)
     print(json.dumps(seen), flush=True)
-    return 0 if seen.get("bands", 0) > 1 and seen.get("cable") is False and "error" not in seen \
+    return 0 if seen.get("bands", 0) > 1 and seen.get("cable") is False and seen.get("quiz_box") is False \
+        and "error" not in seen \
         and seen.get("app_page") is True and seen.get("guarded") is True else 1
 
 
@@ -248,7 +283,7 @@ def main() -> int:
         return self_test()
     import webview
 
-    _open_window(Api(), APP_NAME, width=1100, height=900, min_size=(480, 600))
+    _open_window(Api(settings_path=saved.settings_file()), APP_NAME, width=1100, height=900, min_size=(480, 600))
     webview.start()
     return 0
 
