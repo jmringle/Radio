@@ -68,6 +68,15 @@ figure svg { display: block; width: 100%; height: auto; }
   font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 #report:empty { display: none; }
 #report .explain { color: var(--muted); }
+#quiz { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; margin: 1rem 0 0; }
+#quiz h2 { margin: 0 0 0.5rem; font-size: 1.05rem; }
+#quiz fieldset { border: 0; margin: 0; padding: 0.5rem 0 0.4rem; }
+#quiz legend { font-weight: 600; padding: 0; max-width: 60em; }
+#quiz label { display: inline-block; margin: 0.35rem 1.25rem 0 0; color: var(--ink); cursor: pointer; }
+#quiz p { margin: 0.4rem 0 0; max-width: 60em; }
+#quiz p:empty { display: none; }
+#quiz .right { color: var(--good); }
+#quiz .wrong { color: var(--best); }
 
 /* The plots (dipstick's SVG with standalone=False: no colors of its own). */
 svg text { font: 12px -apple-system, "Segoe UI", system-ui, sans-serif; fill: var(--ink); }

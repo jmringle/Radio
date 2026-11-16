@@ -227,6 +227,102 @@ def test_calibrating_names_the_port_and_says_off_and_on_once(app: Page):
     expect(app.locator("#cal-hint")).not_to_contain_text("off and on")
 
 
+# --- Phase 4: "Check yourself" under the report ---------------------------------------------------
+# The questions come from Python with the answer; the page only shows them and says right or not.
+
+QUIZ = ('[{ask: "Should the antenna be longer or shorter?", choices: ["Longer", "Shorter", "Leave it as it is"], '
+        'answer: 1, why: "The best match is below your target."}, '
+        '{ask: "Could you use 7.300 MHz without a tuner?", choices: ["Yes", "No"], answer: 1, why: "SWR is 4.92 there."}]')
+
+
+def with_quiz(app: Page, quiz=QUIZ):
+    app.evaluate(f"window.__answer = Object.assign({{}}, window.__answer, {{quiz: {quiz}}})")
+
+
+def test_check_yourself_appears_under_a_sweep(app: Page):
+    with_quiz(app)
+    app.get_by_role("button", name="Sweep").click()
+    quiz = app.get_by_role("region", name="Check yourself")
+    expect(quiz).to_be_visible()
+    expect(quiz.get_by_role("group")).to_have_count(2)
+    expect(quiz.get_by_role("group", name="Should the antenna be longer or shorter?")).to_be_visible()
+
+
+def test_the_right_choice_says_right_and_why(app: Page):
+    with_quiz(app)
+    app.get_by_role("button", name="Sweep").click()
+    question = app.get_by_role("group", name="Should the antenna be longer or shorter?")
+    question.get_by_role("radio", name="Shorter").check()
+    expect(question.get_by_role("status")).to_have_text("Right. The best match is below your target.")
+
+
+def test_a_wrong_choice_gives_the_answer_and_why_and_can_be_changed(app: Page):
+    with_quiz(app)
+    app.get_by_role("button", name="Sweep").click()
+    question = app.get_by_role("group", name="Should the antenna be longer or shorter?")
+    question.get_by_role("radio", name="Longer").check()
+    expect(question.get_by_role("status")).to_have_text(
+        "Not quite: the answer is Shorter. The best match is below your target.")
+    question.get_by_role("radio", name="Shorter").check()  # try again
+    expect(question.get_by_role("status")).to_contain_text("Right.")
+
+
+def test_questions_answer_from_the_keyboard(app: Page):
+    with_quiz(app)
+    app.get_by_role("button", name="Sweep").click()
+    question = app.get_by_role("group", name="Could you use 7.300 MHz without a tuner?")
+    question.get_by_role("radio", name="Yes").focus()
+    app.keyboard.press("Space")
+    app.keyboard.press("ArrowDown")  # radio buttons in a group move with the arrow keys
+    expect(question.get_by_role("radio", name="No")).to_be_checked()
+    expect(question.get_by_role("status")).to_contain_text("Right.")
+
+
+def test_quiz_text_is_shown_as_text_not_markup(app: Page):
+    with_quiz(app, '[{ask: "<img src=x onerror=alert(1)>", choices: ["<b>a</b>", "b"], answer: 0, why: "<i>w</i>"}]')
+    app.get_by_role("button", name="Sweep").click()
+    app.get_by_role("radio", name="<b>a</b>").check()
+    expect(app.locator("#quiz")).to_contain_text("<img src=x onerror=alert(1)>")
+    expect(app.locator("#quiz img, #quiz b, #quiz i")).to_have_count(0)
+
+
+def test_no_questions_no_section(app: Page):
+    app.get_by_role("button", name="Sweep").click()  # the fake answer carries no quiz
+    expect(app.locator("#report")).not_to_be_empty()
+    expect(app.locator("#quiz")).to_be_hidden()
+
+
+def test_an_error_clears_the_questions(app: Page):
+    with_quiz(app)
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#quiz")).to_be_visible()
+    app.evaluate('window.__answer = {ok: false, error: "No NanoVNA found."}')
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#quiz")).to_be_hidden()
+
+
+def test_live_shows_questions_only_after_stop(app: Page):
+    # Redrawn every pass, they'd reset while you answered.
+    with_quiz(app)
+    app.get_by_role("button", name="Live").click()
+    app.wait_for_function("window.__calls.length >= 2")
+    expect(app.locator("#quiz")).to_be_hidden()
+    app.get_by_role("button", name="Stop").click()
+    expect(app.get_by_role("button", name="Live")).to_be_enabled()
+    expect(app.locator("#quiz")).to_be_visible()
+
+
+def test_a_cable_check_shows_its_questions_too(app: Page):
+    app.evaluate('window.__cableAnswer = Object.assign({}, window.__cableAnswer, {quiz: '
+                 '[{ask: "A 20 W radio feeds this cable at 28 MHz. How much reaches the far end?", '
+                 'choices: ["20.0 W", "15.9 W", "12.6 W"], answer: 1, why: "1.00 dB one way."}]})')
+    cable_tab(app)
+    app.get_by_label("Velocity factor").fill("0.66")
+    app.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Check cable").click()
+    expect(app.get_by_role("group", name="A 20 W radio feeds this cable at 28 MHz. How much reaches the far end?")).to_be_visible()
+
+
 def test_report_text_is_shown_as_text_not_markup(app: Page):
     # The report is plain text: markup in it must show as characters, never run (defense in depth).
     app.evaluate('window.__answer = {ok: true, report: "<img src=x onerror=alert(1)>", swr_svg: "", smith_svg: ""}')

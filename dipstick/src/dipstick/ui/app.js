@@ -8,6 +8,7 @@ const CHECK_EVERY_MS = 2000;  // how often to look for the NanoVNA (reads the po
 const LIVE_PAUSE_MS = 300;    // breathing room between live passes
 let live = false;             // true while live mode runs; Stop sets it false
 let pythonReady = false;      // the bridge's functions have arrived
+let lastQuiz = [];            // the last result's "Check yourself" questions, shown once Live stops
 
 function ready() {
   window.pywebview.api.bands().then((bands) => {
@@ -81,6 +82,8 @@ function show(answer) {
       "for a reading you can trust.\n\n"
     : "";
   showReport(answer.ok ? note + answer.report : "");
+  lastQuiz = answer.ok && Array.isArray(answer.quiz) ? answer.quiz : [];
+  showQuiz(live ? [] : lastQuiz);
   // The SVG comes from dipstick's own plot code, not from the NanoVNA or anything typed.
   $("swr").innerHTML = answer.ok ? answer.swr_svg || "" : "";  // a cable has no SWR plot
   $("smith").innerHTML = answer.ok ? answer.smith_svg : "";
@@ -96,6 +99,35 @@ function showReport(text) {
     span.textContent = line + "\n";
     return span;
   }));
+}
+
+// One group of radio buttons per question; choosing says right or not, and why. Text only, never markup.
+function showQuiz(questions) {
+  $("quiz-questions").replaceChildren(...questions.map((question, number) => {
+    const group = document.createElement("fieldset");
+    const legend = document.createElement("legend");
+    legend.textContent = question.ask;
+    const feedback = document.createElement("p");
+    feedback.setAttribute("role", "status");
+    group.append(legend);
+    question.choices.forEach((choice, index) => {
+      const label = document.createElement("label");
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = `question-${number}`;
+      radio.addEventListener("change", () => {
+        const right = index === question.answer;
+        feedback.textContent = right ? `Right. ${question.why}`
+          : `Not quite: the answer is ${question.choices[question.answer]}. ${question.why}`;
+        feedback.className = right ? "right" : "wrong";
+      });
+      label.append(radio, ` ${choice}`);
+      group.append(label);
+    });
+    group.append(feedback);
+    return group;
+  }));
+  $("quiz").hidden = questions.length === 0;
 }
 
 $("controls").addEventListener("submit", async (event) => {
@@ -130,6 +162,7 @@ $("live").addEventListener("click", async () => {
     await new Promise((resolve) => setTimeout(resolve, LIVE_PAUSE_MS));
   }
   live = false;
+  showQuiz(lastQuiz);  // the last pass's questions, now that they won't be redrawn
   lock(false);
   running(false);
   button.textContent = "Live (repeat)";

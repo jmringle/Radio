@@ -14,6 +14,7 @@ from test_device import Port
 
 from dipstick.app import PAGE, Api, connect_nanovna, is_app_page
 from dipstick.device import DeviceError, NanoVNA
+from dipstick.s11 import reading
 
 SETTINGS = b"sweep\r\n1500000 30000000 101\r\nch> "
 RESTORE = b"sweep 1500000 30000000 101"
@@ -605,3 +606,25 @@ def test_a_calibration_started_and_not_finished_brings_the_reminder_back():
         api.calibrate("40m", step)
     nano[0] = lambda port: good_40m()
     assert "recalibrate" in api.sweep("40m", "", 101)["report"]
+
+
+# --- Phase 4: "Check yourself" questions travel with the answer -----------------------------------
+
+def test_a_sweep_answer_carries_its_questions():
+    quiz = Api(connect=lambda port: good_40m()).sweep("40m", "", 101)["quiz"]
+    assert 1 <= len(quiz) <= 3
+    for q in quiz:
+        assert set(q) == {"ask", "choices", "answer", "why"}
+        assert isinstance(q["choices"], list) and 0 <= q["answer"] < len(q["choices"])
+
+
+def test_nothing_connected_carries_no_questions():
+    command = b"scan 7000000 7300000 101 3"
+    readings = [reading(7_000_000 + i * 3000, complex(0.9999, -0.0003)) for i in range(101)]  # an open port
+    nano = fake_nano(command, reply_for(command, readings))
+    assert Api(connect=lambda port: nano).sweep("40m", "", 101)["quiz"] == []
+
+
+def test_a_cable_answer_carries_its_questions():
+    answer = Api(connect=lambda port: fake_cable_nano(planned(12.0, 0.66))).cable(True, "0.66", "", "50 m")
+    assert answer["ok"] is True and 1 <= len(answer["quiz"]) <= 2

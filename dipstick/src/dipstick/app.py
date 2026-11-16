@@ -19,6 +19,7 @@ from dipstick.bands import BANDS, band_range
 from dipstick.device import DeviceError, NanoVNA, find_port, nanovna_ports
 from dipstick.measure import band_for_target, measure_band, measure_cable, shown
 from dipstick.plots import smith_svg, swr_svg
+from dipstick.quiz import antenna_questions, cable_questions
 from dipstick.scan import MAX_POINTS
 
 APP_NAME = "Dipstick"  # the window title (the command stays lowercase: dipstick)
@@ -94,7 +95,8 @@ class Api:
             # The window's stylesheet colors the plots (its security policy blocks inline styles).
             return {"band": band, "report": measured.report,
                     "swr_svg": swr_svg(measured.readings, band, standalone=False, target_hz=measured.target_hz),
-                    "smith_svg": smith_svg(measured.readings, standalone=False)}
+                    "smith_svg": smith_svg(measured.readings, standalone=False),
+                    "quiz": _quiz(antenna_questions(measured.summary))}
         return self._one_at_a_time(measure)
 
     def cable(self, no_antenna, vf, length, max_length) -> dict:
@@ -102,7 +104,8 @@ class Api:
         {"ok": True, report, smith_svg} or {"ok": False, error}."""
         def measure():
             measured = measure_cable(no_antenna, vf, length, max_length, self._connect, names=_FIELDS)
-            return {"report": measured.report, "smith_svg": smith_svg(measured.readings, standalone=False, cable=True)}
+            return {"report": measured.report, "smith_svg": smith_svg(measured.readings, standalone=False, cable=True),
+                    "quiz": _quiz(cable_questions(measured.result))}
         return self._one_at_a_time(measure)
 
     def calibrate(self, band, step) -> dict:
@@ -167,6 +170,11 @@ class Api:
             return {"ok": False, "error": f"Unexpected error ({type(error).__name__}); details are in the log"}
         finally:
             self._busy.release()
+
+def _quiz(questions) -> list[dict]:
+    """The page's "Check yourself" questions, as plain dicts and lists for pywebview's bridge."""
+    return [{"ask": q.ask, "choices": list(q.choices), "answer": q.answer, "why": q.why} for q in questions]
+
 
 def _points(value) -> int:
     """The page sends numbers or text; accept whole numbers only."""

@@ -9,9 +9,9 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
-from dipstick.analysis import summarize
+from dipstick.analysis import Summary, summarize
 from dipstick.bands import band_containing, band_range
-from dipstick.cable import MAX_LENGTH_M, analyze, sweep_for
+from dipstick.cable import MAX_LENGTH_M, CableResult, analyze, sweep_for
 from dipstick.plots import smith_svg, swr_svg
 from dipstick.report import FOOT, cable_report, report
 from dipstick.s11 import Reading
@@ -32,6 +32,7 @@ class BandMeasurement:
     band: str
     readings: list[Reading]
     target_hz: int
+    summary: Summary
     report: str
     swr_svg: str
     smith_svg: str
@@ -65,14 +66,15 @@ def measure_band(band: str, target: str | None, points: int, connect, port: str 
         readings = scan(nano, start, stop, points)
     finally:
         nano.close()
-    return BandMeasurement(band, readings, target_hz,
-                           report(summarize(readings, target_hz=target_hz), band, calibrated=calibrated),
+    summary = summarize(readings, target_hz=target_hz)
+    return BandMeasurement(band, readings, target_hz, summary, report(summary, band, calibrated=calibrated),
                            swr_svg(readings, band, target_hz=target_hz), smith_svg(readings))
 
 
 @dataclass(frozen=True)
 class CableMeasurement:
     readings: list[Reading]
+    result: CableResult
     report: str
 
 
@@ -96,7 +98,7 @@ def measure_cable(no_antenna: bool, vf: str | None, length: str | None, max_leng
     finally:
         nano.close()
     result = analyze(readings, vf=vf, length_m=length)
-    return CableMeasurement(readings, cable_report(result, start, stop, points, max_length, names["max_length"]))
+    return CableMeasurement(readings, result, cable_report(result, start, stop, points, max_length, names["max_length"]))
 
 
 def _cut(text: str, limit: int = 40) -> str:
