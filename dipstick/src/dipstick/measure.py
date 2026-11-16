@@ -18,7 +18,7 @@ from dipstick.s11 import Reading
 from dipstick.scan import MAX_POINTS, scan
 
 _MHZ = re.compile(r"[0-9]+(\.[0-9]{1,6})?")
-_LENGTH = re.compile(r'([0-9]*\.?[0-9]+) ?(ft|m|in|inch|inches|")?')  # ".6" is 0.6 m; 6" is 6 inches
+_LENGTH = re.compile(r'([0-9]*\.?[0-9]+) ?(ft|m|in|inch|inches|")?', re.IGNORECASE)  # ".6" is 0.6 m; 6" is 6 inches; 6FT too
 _UNITS = {None: 1, "m": 1, "ft": FOOT, "in": FOOT / 12, "inch": FOOT / 12, "inches": FOOT / 12, '"': FOOT / 12}
 _VF = re.compile(r"[0-9]*\.?[0-9]+")
 
@@ -95,29 +95,39 @@ def measure_cable(no_antenna: bool, vf: str | None, length: str | None, max_leng
     return CableMeasurement(readings, cable_report(result, start, stop, points, max_length, names["max_length"]))
 
 
+def _cut(text: str, limit: int = 40) -> str:
+    """Typed text for a message, cut short when someone pastes a wall of it (QA 2026-11-16)."""
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def shown(value) -> str:
+    """A value echoed in a message, quoted like repr() and cut short if it's long text."""
+    return repr(_cut(value)) if isinstance(value, str) else repr(value)
+
+
 def _given(text, name: str) -> str | None:
     """Text, or None when left empty. The app's page sends text; anything else is refused."""
     if text is None:
         return None
     if not isinstance(text, str):
-        raise ValueError(f"{name} must be typed as text, got {text!r}")
+        raise ValueError(f"{name} must be typed as text, got {shown(text)}")
     return text.strip() or None
 
 
 def _vf(text: str, name: str) -> float:
     vf = float(text) if _VF.fullmatch(text) else math.nan
     if not 0 < vf <= 1:  # also false for nan
-        raise ValueError(f"{name} must be a velocity factor above 0 and at most 1, like 0.66; got {text!r}")
+        raise ValueError(f"{name} must be a velocity factor above 0 and at most 1, like 0.66; got {shown(text)}")
     return vf
 
 
 def _length(text: str, name: str) -> float:
     match = _LENGTH.fullmatch(text)
     if not match:
-        raise ValueError(f"{name} must be a length like 15.2 (meters), 50ft or 6in, got {text!r}")
-    meters = float(match.group(1)) * _UNITS[match.group(2)]
+        raise ValueError(f"{name} must be a length like 15.2 (meters), 50ft or 6in, got {shown(text)}")
+    meters = float(match.group(1)) * _UNITS[match.group(2) and match.group(2).lower()]
     if not 0 < meters <= MAX_LENGTH_M:
-        raise ValueError(f"{name} must be above 0 and at most {MAX_LENGTH_M} m, got {text!r}")
+        raise ValueError(f"{name} must be above 0 and at most {MAX_LENGTH_M} m, got {shown(text)}")
     return meters
 
 
@@ -127,11 +137,11 @@ def _target(text: str | None, start: int, stop: int) -> int:
     text = text.strip()
     hz = _mhz(text)
     if not start <= hz <= stop:
-        raise ValueError(f"The target {text} MHz is outside the band ({start / 1e6:g}-{stop / 1e6:g} MHz)")
+        raise ValueError(f"The target {_cut(text)} MHz is outside the band ({start / 1e6:g}-{stop / 1e6:g} MHz)")
     return hz
 
 
 def _mhz(text: str) -> int:
     if not _MHZ.fullmatch(text):
-        raise ValueError(f"The target must be a frequency in MHz like 7.074, got {text!r}")
+        raise ValueError(f"The target must be a frequency in MHz like 7.074, got {shown(text)}")
     return int(Decimal(text) * 1_000_000)

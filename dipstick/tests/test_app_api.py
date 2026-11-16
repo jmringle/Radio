@@ -240,11 +240,44 @@ def test_cable_report_names_the_apps_field_not_the_option():
     ("6 inch", "0.15 m / 0.5 ft"),
     ("6 inches", "0.15 m / 0.5 ft"),
     ("18.5in", "0.47 m / 1.5 ft"),    # 0.4699 m
+    ("6 IN", "0.15 m / 0.5 ft"),      # units in any case (QA 2026-11-16)
+    ("6In", "0.15 m / 0.5 ft"),
+    ("6 Inches", "0.15 m / 0.5 ft"),
 ])
 def test_cable_short_lengths_in_inches_or_with_a_leading_point(length, said):
     meters = {".6": 0.6, "18.5in": 0.4699}.get(length, 0.1524)
     answer = cable_api(fake_cable_nano(planned(meters, 0.78, plan_vf=None))).cable(True, "", length, "50")
     assert f"Velocity factor: 0.78 (for a {said} cable)" in answer["report"], answer
+
+
+def test_feet_in_capitals_are_feet():
+    connected = []
+    Api(connect=lambda port: connected.append(port)).cable(True, "", "2001FT", "50")
+    assert connected  # accepted as 2001 ft (610 m); as meters, or as an unknown unit, it never connects
+
+
+# A pasted wall of text comes back cut short, not in full (QA 2026-11-16, F1).
+JUNK = "1" * 300
+
+
+@pytest.mark.parametrize("call", [
+    lambda api: api.sweep("40m", JUNK, 101),          # outside the band
+    lambda api: api.sweep("40m", "x" + JUNK, 101),    # not a frequency
+    lambda api: api.sweep("40m", "", "x" + JUNK),     # points
+    lambda api: api.cable(True, "x" + JUNK, "", "50"),
+    lambda api: api.cable(True, "", "x" + JUNK, "50"),
+    lambda api: api.cable(True, "", JUNK, "50"),      # a number, but too long a cable
+    lambda api: api.cable(True, "0.66", "", "x" + JUNK),
+    lambda api: api.calibrate("40m", "x" + JUNK),
+], ids=["target-outside", "target-junk", "points", "vf", "length-junk", "length-huge", "longest", "cal-step"])
+def test_long_input_is_cut_short_in_the_error(call):
+    error = call(Api(connect=lambda port: pytest.fail("never connects")))["error"]
+    assert JUNK[:60] not in error and "…" in error, error
+    assert len(error) < 200, error
+
+
+def test_short_input_is_echoed_whole():
+    assert "got 'abc'" in Api(connect=None).sweep("40m", "abc", 101)["error"]
 
 
 @pytest.mark.parametrize("vf, length, longest, words", [

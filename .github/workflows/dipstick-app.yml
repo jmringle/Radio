@@ -63,7 +63,19 @@ jobs:
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          hdiutil create -volname "Dipstick" -srcfolder dist/Dipstick.app -format UDZO dist/dipstick-macOS.dmg
+          # The app beside a link to /Applications, so the README's "drag Dipstick to Applications"
+          # works in the window that opens (QA 2026-11-16). ditto copies the bundle exactly.
+          mkdir dist/dmg
+          ditto dist/Dipstick.app dist/dmg/Dipstick.app
+          ln -s /Applications dist/dmg/Applications
+          hdiutil create -volname "Dipstick" -srcfolder dist/dmg -format UDZO dist/dipstick-macOS.dmg
+          # Check what a person gets: mount the finished dmg and look (any failure stops the build).
+          mount="$RUNNER_TEMP/dmg-check"
+          mkdir "$mount"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" dist/dipstick-macOS.dmg
+          test -d "$mount/Dipstick.app"
+          test "$(readlink "$mount/Applications")" = /Applications
+          hdiutil detach "$mount"
           cd dist && shasum -a 256 dipstick-macOS.dmg > dipstick-macOS.dmg.sha256
       - name: Package (Linux)
         if: runner.os == 'Linux'

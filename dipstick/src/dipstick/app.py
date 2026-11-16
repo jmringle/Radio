@@ -15,7 +15,7 @@ from pathlib import Path
 
 from dipstick.bands import BANDS, band_range
 from dipstick.device import DeviceError, NanoVNA, find_port, nanovna_ports
-from dipstick.measure import band_for_target, measure_band, measure_cable
+from dipstick.measure import band_for_target, measure_band, measure_cable, shown
 from dipstick.plots import smith_svg, swr_svg
 from dipstick.scan import MAX_POINTS
 
@@ -91,7 +91,7 @@ class Api:
         NanoVNA's memory (never `save`), and leaves the NanoVNA sweeping the band it covers."""
         def measure():
             if step not in CAL_ORDER:
-                raise ValueError(f"Unknown calibration step {step!r}")
+                raise ValueError(f"Unknown calibration step {shown(step)}")
             if not isinstance(band, str):
                 raise ValueError("Choose a band")
             start, stop = band_range(band)
@@ -148,7 +148,7 @@ def _points(value) -> int:
         return int(value)
     if isinstance(value, int):  # true/false arrive as 1/0, which the 2-to-101 check refuses
         return value
-    raise ValueError(f"Points must be a whole number, got {value!r}")
+    raise ValueError(f"Points must be a whole number, got {shown(value)}")
 
 
 # What the self-test reads from the page, after opening the Cable tab and ticking its box (never
