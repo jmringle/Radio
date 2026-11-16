@@ -8,5 +8,5 @@ pyinstaller==6.22.3
 # Linux: pywebview's GTK window (WebKitGTK, the engine the page tests run in). PyGObject 3.50.0 is the
 # version pywebview's own "gtk" extra pins (released 2024-09-12); pycairo 1.29.2 released 2026-10-04
 # (both checked on PyPI 2026-11-15). They build against system packages: see the README.
-PyGObject==3.50.0; sys_platform == "linux"
+PyGObject==3.58.1; sys_platform == "linux"
 pycairo==1.29.2; sys_platform == "linux"
