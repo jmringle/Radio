@@ -13,6 +13,7 @@ A command it doesn't know gets "name?" as its answer.
 
 import errno
 import math
+import time
 
 import serial
 
@@ -53,10 +54,11 @@ def find_port(ports, port_option: bool = True) -> str:
 class NanoVNA:
     MAX_REPLY = 64 * 1024  # a 101-point sweep's data is under 3 KB
 
-    def __init__(self, link, timeout_s: float = 5.0, read_timeout_s: float = 0.25):
+    def __init__(self, link, timeout_s: float = 5.0, read_timeout_s: float = 0.25, clock=time.monotonic):
         """`link` is an open serial port (or anything with write() and read() that returns b""
-        when `read_timeout_s` passes with nothing to read)."""
+        when `read_timeout_s` passes with nothing to read). `clock` is for tests."""
         self.link = link
+        self._clock = clock
         self.timeout_s = timeout_s
         self._read_timeout_s = read_timeout_s
 
@@ -85,8 +87,20 @@ class NanoVNA:
         from an earlier, interrupted session."""
         self._write(b"\r")
         self._read_to_prompt("an empty line", self.timeout_s)
-        while self._read():  # leftovers after the prompt; stops at the first quiet read
-            pass
+        # Leftovers after the prompt: drain to the first quiet read, but not forever. A NanoVNA
+        # whose shell is stuck restarting never goes quiet (seen 2026-11-16: its banner and prompt
+        # at about 450 KB/s), and an unbounded drain hung the app. Cap it like a reply (T4): the
+        # timeout's worth of reads, and MAX_REPLY bytes.
+        drained, reads = 0, math.ceil(self.timeout_s / self._read_timeout_s)
+        for _ in range(reads):
+            chunk = self._read()
+            if not chunk:
+                return
+            drained += len(chunk)
+            if drained > self.MAX_REPLY:
+                break
+        raise DeviceError("The NanoVNA keeps sending without stopping (its shell seems stuck); "
+                          "switch it off and on, then try again.")
 
     def ask(self, name: str, *args: int | str, timeout_s: float | None = None) -> list[str]:
         """Send one allowed command and return its answer lines (without the echo and prompt).
@@ -130,7 +144,13 @@ class NanoVNA:
 
     def _read_to_prompt(self, what: str, timeout_s: float) -> bytes:
         reply, silent, max_silent = b"", 0, math.ceil(timeout_s / self._read_timeout_s)
+        # Quiet reads time a silence; the clock times the whole reply, so bytes that keep trickling
+        # in without ever reaching a prompt can't keep it waiting either (QA 2026-11-16).
+        deadline = self._clock() + timeout_s
         while not reply.endswith(PROMPT):
+            if self._clock() > deadline:
+                raise DeviceError(f"The NanoVNA's reply to {what!r} didn't finish within {timeout_s:g} s; "
+                                  "switch it off and on, then try again.")
             chunk = self._read()
             if chunk:
                 reply, silent = reply + chunk, 0

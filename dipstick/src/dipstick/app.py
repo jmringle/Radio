@@ -8,6 +8,8 @@ pywebview loads only when a window opens, so tests and the command don't need it
 
 import sys
 import threading
+import urllib.parse
+import urllib.request
 
 from serial.tools import list_ports
 import traceback
@@ -30,6 +32,22 @@ CAL_ORDER = ("open", "short", "load")
 CAL_STEP_TIMEOUT_S = 20.0
 
 
+def is_app_page(url, page: Path = PAGE) -> bool:
+    """True only for dipstick's own page as a local file. pywebview gives its bridge to whatever page
+    the window shows, and a dropped file or a link dragged in from a browser navigates the window
+    (security review 2026-11-16), so calls that reach the NanoVNA check this first. Compares real
+    paths, not text: Windows writes file:///C:/..., and spaces arrive as %20."""
+    if not isinstance(url, str):
+        return False
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "file" or parts.netloc not in ("", "localhost"):
+        return False
+    try:
+        return Path(urllib.request.url2pathname(parts.path)).resolve() == page.resolve()
+    except (OSError, ValueError):
+        return False
+
+
 def connect_nanovna(port: str | None, ports=list_ports.comports) -> NanoVNA:
     """Opens the NanoVNA. The app has no --port option, so its errors never suggest one."""
     return NanoVNA.open(port or find_port(ports(), port_option=False))
@@ -44,6 +62,7 @@ class Api:
         self._ports = ports
         self._busy = threading.Lock()
         self._calibration = None  # (band, the next step) between calibration steps
+        self._current_url = None  # the window's address, set by _open_window; checked before the NanoVNA
         self._cal_unfinished = False  # `cal reset` sent and `cal done` not yet: the NanoVNA's memory holds no calibration
 
     def bands(self) -> list[str]:
@@ -130,6 +149,9 @@ class Api:
 
     def _one_at_a_time(self, measure) -> dict:
         """pywebview runs each call from the page on its own thread, and there's one NanoVNA."""
+        if self._current_url is not None and not is_app_page(self._current_url()):
+            return {"ok": False, "error": "Only Dipstick's own page can use the NanoVNA, and this window "
+                                          "has left it. Close the window and open Dipstick again."}
         if not self._busy.acquire(blocking=False):
             return {"ok": False, "error": "A sweep is already running"}
         try:
@@ -166,6 +188,16 @@ box.checked = true; box.dispatchEvent(new Event('change'));
 """
 
 
+def _open_window(api: Api, title: str, **size):
+    """The window, with the only-our-page check wired to its address: every window goes through here,
+    so none can exist without it."""
+    import webview
+
+    window = webview.create_window(title, PAGE.as_uri(), js_api=api, **size)
+    api._current_url = window.get_current_url
+    return window
+
+
 def self_test() -> int:
     """Open a small window, check the page reached Python, close it: 0 if it did. Prints what it saw
     as one JSON line. tests/test_window.py and the build check in CI run this. It gets no NanoVNA
@@ -188,13 +220,15 @@ def self_test() -> int:
                     and seen.get("cable") is False:
                 seen.pop("error", None)
                 break
+        seen.update(app_page=is_app_page(window.get_current_url()), guarded=api._current_url is not None)
         window.destroy()
 
-    window = webview.create_window(f"{APP_NAME} self-test", PAGE.as_uri(), js_api=Api(connect=None, ports=lambda: []),
-                                   width=500, height=250)
+    api = Api(connect=None, ports=lambda: [])
+    window = _open_window(api, f"{APP_NAME} self-test", width=500, height=250)
     webview.start(probe, window)
     print(json.dumps(seen), flush=True)
-    return 0 if seen.get("bands", 0) > 1 and seen.get("cable") is False and "error" not in seen else 1
+    return 0 if seen.get("bands", 0) > 1 and seen.get("cable") is False and "error" not in seen \
+        and seen.get("app_page") is True and seen.get("guarded") is True else 1
 
 
 def main() -> int:
@@ -202,7 +236,7 @@ def main() -> int:
         return self_test()
     import webview
 
-    webview.create_window(APP_NAME, PAGE.as_uri(), js_api=Api(), width=1100, height=900, min_size=(480, 600))
+    _open_window(Api(), APP_NAME, width=1100, height=900, min_size=(480, 600))
     webview.start()
     return 0
 

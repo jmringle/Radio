@@ -12,7 +12,7 @@ from test_cable_cli import fake_nano as fake_cable_nano
 from test_cable_cli import planned
 from test_device import Port
 
-from dipstick.app import Api, connect_nanovna
+from dipstick.app import PAGE, Api, connect_nanovna, is_app_page
 from dipstick.device import DeviceError, NanoVNA
 
 SETTINGS = b"sweep\r\n1500000 30000000 101\r\nch> "
@@ -513,3 +513,58 @@ def test_a_failed_open_means_starting_over():
     api._connect = Calibrator(UnpluggedLink, unplug_on=b"cal open")
     assert api.calibrate("40m", "open")["ok"] is False
     assert "Start with the open" in api.calibrate("40m", "short")["error"]
+
+
+# --- only dipstick's own page may reach the NanoVNA (security review 2026-11-16) -----------------
+# pywebview gives its bridge to whatever page the window shows, and on macOS a dropped file or a link
+# dragged in from a browser navigates the window (checked in a real window: both pages could call
+# Python). Such a page could send `cal reset` or a wide cable sweep with an antenna on. So every call
+# that reaches the NanoVNA first checks the window is still on index.html.
+
+@pytest.mark.parametrize("url", [
+    PAGE.as_uri(),
+    PAGE.as_uri() + "#section",                         # same page
+    "file://localhost" + PAGE.as_uri().removeprefix("file://"),
+])
+def test_the_app_page_is_recognized(url):
+    assert is_app_page(url)
+
+
+@pytest.mark.parametrize("url", [
+    None, "", "about:blank",
+    "http://127.0.0.1:8000/index.html",                 # a web page, even a local one
+    "https://example.com/" + PAGE.as_uri(),
+    PAGE.with_name("other.html").as_uri(),              # another file beside it
+    (PAGE.parent.parent / "index.html").as_uri(),       # same name, another folder
+    "file://example.com" + PAGE.as_uri().removeprefix("file://"),  # a file on another machine
+    "data:text/html,<p>hi</p>",
+])
+def test_anything_else_is_not_the_app_page(url):
+    assert not is_app_page(url)
+
+
+def test_a_page_in_a_folder_with_spaces_is_recognized(tmp_path):
+    page = tmp_path / "My Apps" / "index.html"
+    page.parent.mkdir()
+    page.write_text("")
+    assert "%20" in page.as_uri()
+    assert is_app_page(page.as_uri(), page)
+
+
+@pytest.mark.parametrize("call", [
+    lambda api: api.sweep("40m", "", 101),
+    lambda api: api.cable(True, "0.66", "", "50"),
+    lambda api: api.calibrate("40m", "open"),
+], ids=["sweep", "cable", "calibrate"])
+def test_another_page_is_refused_and_never_connects(call):
+    api = Api(connect=lambda port: pytest.fail("never connects"))
+    api._current_url = lambda: "http://127.0.0.1:8000/evil.html"
+    answer = call(api)
+    assert answer["ok"] is False and "Only Dipstick's own page" in answer["error"]
+
+
+def test_the_app_page_gets_through_the_check():
+    nano = fake_nano(b"scan 7000000 7300000 11 3", recorded("scan_40m_11_3"))
+    api = Api(connect=lambda port: nano)
+    api._current_url = lambda: PAGE.as_uri()
+    assert api.sweep("40m", "", 11)["ok"] is True

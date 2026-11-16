@@ -57,6 +57,71 @@ def test_sync_clears_leftovers_before_the_first_command():
     assert nano.ask("version") == ["1.2.43"]
 
 
+class StreamingLink:
+    """A NanoVNA whose shell is stuck restarting (seen on the real one, 2026-11-16, after test
+    processes were killed mid-conversation): it answers with a prompt, then never goes quiet, about
+    450 KB/s of its banner and prompt. `per_read` bytes per read; 1 is a slow trickle."""
+    LOOP = b"\r\nNanoVNA Shell\r\nch> ch> "
+
+    def __init__(self, per_read=4096):
+        self.per_read, self.reads, self.written, self.sent = per_read, 0, [], 0
+
+    def write(self, data):
+        self.written.append(data)
+        return len(data)
+
+    def read(self, size=1):  # carries on where the last read stopped, like a real stream
+        self.reads += 1
+        n, start = min(size, self.per_read), self.sent % len(self.LOOP)
+        self.sent += n
+        return (self.LOOP * (n // len(self.LOOP) + 2))[start:start + n]
+
+
+@pytest.mark.parametrize("per_read", [len(StreamingLink.LOOP) * 160, 1], ids=["flood", "trickle"])
+def test_sync_gives_up_on_a_nanovna_that_never_goes_quiet(per_read):
+    # Before: sync drained leftovers "until the first quiet read", which never came, so the app's
+    # sweep hung for good. Now it stops within the timeout's worth of reads (5 s / 0.25 s = 20) and
+    # says what to do. A trickle needs about 21 one-byte reads to reach the first prompt.
+    link = StreamingLink(per_read)
+    nano = NanoVNA(link, timeout_s=5.0, read_timeout_s=0.25)
+    with pytest.raises(DeviceError, match="keeps sending.*switch it off and on"):
+        nano.sync()
+    assert link.reads <= 50
+
+
+class SlowClock:
+    """Each look at the clock is `step` seconds later: a trickle where every byte takes 0.2 s."""
+    def __init__(self, step=0.2):
+        self.now, self.step = 0.0, step
+
+    def __call__(self):
+        self.now += self.step
+        return self.now
+
+
+class TrickleLink(FakeLink):
+    """Answers `version` with bytes that keep coming, one per read, and never reach a prompt."""
+    def read(self, size=1):
+        return b"9"
+
+
+def test_a_reply_that_trickles_on_without_a_prompt_gives_up_on_time():
+    # Before: only quiet reads counted towards the timeout, so a never-ending trickle waited for
+    # 64 KB of reads (hours at a few bytes a second). Now the whole reply has the timeout (T4).
+    link = TrickleLink({b"version": b""})
+    nano = NanoVNA(link, timeout_s=5.0, read_timeout_s=0.25, clock=SlowClock(0.2))
+    with pytest.raises(DeviceError, match="didn't finish within 5 s"):
+        nano.ask("version")
+
+
+def test_a_slow_step_still_gets_its_longer_time():
+    link = TrickleLink({b"version": b""})
+    clock = SlowClock(0.2)
+    with pytest.raises(DeviceError, match="within 20 s"):
+        NanoVNA(link, timeout_s=5.0, read_timeout_s=0.25, clock=clock).ask("version", timeout_s=20.0)
+    assert 20.0 <= clock.now <= 21.0
+
+
 # --- asking: what goes wrong ------------------------------------------------------------------
 
 def test_the_allowlist_still_applies():
