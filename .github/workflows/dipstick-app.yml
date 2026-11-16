@@ -33,6 +33,11 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y pkg-config libcairo2-dev libgirepository1.0-dev gir1.2-webkit2-4.1 xvfb
       - run: pip install -r requirements-app.txt
+      # Audit what this OS's build ships, before building it (QA 2026-11-16): dipstick-tests.yml audits
+      # only the dev tools, and the app's Windows- and Linux-only packages install only here. A known
+      # vulnerability fails the build, so a release (which builds through this file) can't ship it.
+      # --skip-editable: our own package isn't on PyPI (see dipstick-tests.yml).
+      - run: pip-audit --skip-editable
       - run: pyinstaller --noconfirm packaging/dipstick.spec
 
       # The self-test opens the built app's window, checks the page reached Python, and exits 0. It

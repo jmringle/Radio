@@ -44,6 +44,7 @@ class Api:
         self._ports = ports
         self._busy = threading.Lock()
         self._calibration = None  # (band, the next step) between calibration steps
+        self._cal_unfinished = False  # `cal reset` sent and `cal done` not yet: the NanoVNA's memory holds no calibration
 
     def bands(self) -> list[str]:
         return list(BANDS)
@@ -102,17 +103,26 @@ class Api:
                     raise ValueError(f"This calibration is for {expected[0]}. Start with the open standard to calibrate {band}")
                 if expected[1] != step:
                     raise ValueError(f"Measure the {expected[1]} next")
-            nano = self._connect(None)
             try:
-                if step == "open":
-                    self._calibration = None
-                    nano.ask("sweep", start, stop, MAX_POINTS)  # a standard is measured over the NanoVNA's own sweep
-                    nano.ask("cal", "reset")
-                nano.ask("cal", step, timeout_s=CAL_STEP_TIMEOUT_S)
-                if step == "load":
-                    nano.ask("cal", "done")
-            finally:
-                nano.close()
+                nano = self._connect(None)
+                try:
+                    if step == "open":
+                        self._calibration = None
+                        nano.ask("sweep", start, stop, MAX_POINTS)  # a standard is measured over the NanoVNA's own sweep
+                        self._cal_unfinished = True  # from here until `cal done`, even if `reset` fails partway
+                        nano.ask("cal", "reset")
+                    nano.ask("cal", step, timeout_s=CAL_STEP_TIMEOUT_S)
+                    if step == "load":
+                        nano.ask("cal", "done")
+                        self._cal_unfinished = False
+                finally:
+                    nano.close()
+            except DeviceError as error:
+                if self._cal_unfinished:
+                    raise DeviceError(f"{error} The NanoVNA's calibration is unfinished: try this step "
+                                      "again, or switch the NanoVNA off and on to go back to its saved "
+                                      "calibration.") from None
+                raise
             following = CAL_ORDER.index(step) + 1
             self._calibration = (band, CAL_ORDER[following]) if following < len(CAL_ORDER) else None
             return {"next": self._calibration and self._calibration[1]}

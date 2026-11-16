@@ -402,6 +402,39 @@ def test_a_failed_step_can_be_tried_again():
     assert api.calibrate("40m", "short") == {"ok": True, "next": "load"}
 
 
+# After `cal reset` the NanoVNA's calibration in memory is unfinished until `cal done`; a failed step
+# must say how to get the saved one back (QA 2026-11-16). Power cycling reloads the saved calibration
+# (firmware source read 2026-11-15, see the README).
+POWER_CYCLE = "switch the NanoVNA off and on"
+
+
+@pytest.mark.parametrize("fails_on, done_before", [(b"cal open", []), (b"cal short", ["open"]),
+                                                   (b"cal load", ["open", "short"])])
+def test_a_step_failing_after_the_reset_says_how_to_get_the_saved_calibration_back(fails_on, done_before):
+    api = Api(connect=Calibrator())
+    for step in done_before:
+        api.calibrate("40m", step)
+    api._connect = Calibrator(UnpluggedLink, unplug_on=fails_on)
+    answer = api.calibrate("40m", fails_on.decode().split()[1])
+    assert answer["ok"] is False and "The NanoVNA disconnected" in answer["error"]
+    assert POWER_CYCLE in answer["error"]
+
+
+def test_a_failure_before_the_reset_leaves_the_calibration_alone_and_says_nothing_of_it():
+    api = Api(connect=Calibrator(UnpluggedLink, unplug_on=b"sweep"))
+    answer = api.calibrate("40m", "open")
+    assert answer["ok"] is False and "The NanoVNA disconnected" in answer["error"]
+    assert POWER_CYCLE not in answer["error"]
+
+
+def test_a_finished_calibration_is_not_called_unfinished_later():
+    api = Api(connect=Calibrator())
+    for step in ("open", "short", "load"):
+        api.calibrate("40m", step)
+    api._connect = Calibrator(UnpluggedLink, unplug_on=b"sweep")
+    assert POWER_CYCLE not in api.calibrate("40m", "open")["error"]
+
+
 class MeasuringLink(FakeLink):
     """Quiet for 30 reads (7.5 s at the 0.25 s read timeout, past the usual 5 s) while measuring a standard."""
 

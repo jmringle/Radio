@@ -11,6 +11,7 @@ The NanoVNA's USB port is a serial port with a text shell. Every exchange looks 
 A command it doesn't know gets "name?" as its answer.
 """
 
+import errno
 import math
 
 import serial
@@ -62,8 +63,15 @@ class NanoVNA:
     @classmethod
     def open(cls, port: str, read_timeout_s: float = 0.25) -> "NanoVNA":
         try:
-            link = serial.Serial(port, 115200, timeout=read_timeout_s)  # USB ignores the speed
+            # exclusive: on macOS/Linux a second program (another Dipstick window, the dipstick
+            # command) could otherwise open the port too and mix its commands with ours. It's an
+            # advisory lock (flock), so it stops programs that ask for it; Windows ports are always
+            # exclusive. QA 2026-11-16, F2.
+            link = serial.Serial(port, 115200, timeout=read_timeout_s, exclusive=True)  # USB ignores the speed
         except serial.SerialException as error:
+            if error.errno in (errno.EWOULDBLOCK, errno.EAGAIN) or "Access is denied" in str(error):
+                raise DeviceError(f"Another program is using the NanoVNA ({port}). Close it (another "
+                                  "Dipstick window or the dipstick command) and try again.") from None
             raise DeviceError(f"Can't open {port}: {error}") from None
         nano = cls(link, read_timeout_s=read_timeout_s)
         nano.sync()

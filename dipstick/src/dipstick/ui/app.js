@@ -62,15 +62,25 @@ function lock(locked) {
   for (const id of ["band", "target", "sweep"]) $(id).disabled = locked;
 }
 
-// One NanoVNA: while anything sweeps, the other tab can't be opened.
+// One NanoVNA: while anything sweeps, the other tab can't be opened. Partway through a calibration
+// the NanoVNA's own calibration is reset, so a sweep would be uncorrected but look normal: only the
+// Calibrate tab stays open until the load step finishes (or the calibration is cancelled).
 function running(on) {
-  for (const tab of tabs) tab.disabled = on;
+  const calibrating = calStep !== "open";
+  for (const tab of tabs) tab.disabled = on || (calibrating && tab !== $("tab-calibrate"));
 }
 
 function show(answer) {
   $("error").textContent = answer.ok ? "" : answer.error;
   if (answer.ok && answer.band) $("band").value = answer.band;  // the band actually swept
-  $("report").textContent = answer.ok ? answer.report : "";  // text, never markup
+  // A band other than this session's calibration: the reading isn't calibrated for it.
+  const note = answer.ok && answer.band && calibratedBand && answer.band !== calibratedBand
+    ? `Note: the NanoVNA was calibrated for ${calibratedBand} on the Calibrate tab, not for ` +
+      `${answer.band}, so this reading isn't calibrated for this band (unless you've switched the ` +
+      `NanoVNA off and on since, which goes back to its saved calibration). Calibrate ${answer.band} ` +
+      "for a reading you can trust.\n\n"
+    : "";
+  $("report").textContent = answer.ok ? note + answer.report : "";  // text, never markup
   // The SVG comes from dipstick's own plot code, not from the NanoVNA or anything typed.
   $("swr").innerHTML = answer.ok ? answer.swr_svg || "" : "";  // a cable has no SWR plot
   $("smith").innerHTML = answer.ok ? answer.smith_svg : "";
@@ -138,9 +148,14 @@ for (const tab of tabs) {
     const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
     if (!step) return;
     event.preventDefault();
-    const next = tabs[(tabs.indexOf(tab) + step + tabs.length) % tabs.length];
-    selectTab(next);
-    next.focus();
+    // Skip shut tabs: the arrow keys mustn't open what clicking can't.
+    for (let i = 1; i < tabs.length; i++) {
+      const next = tabs[(tabs.indexOf(tab) + step * i + tabs.length * i) % tabs.length];
+      if (next.disabled) continue;
+      selectTab(next);
+      next.focus();
+      return;
+    }
   });
 }
 
@@ -177,6 +192,9 @@ const CAL_STEPS = {
 };
 let calStep = "open";  // the next standard to measure
 let calDone = "";      // the band just calibrated, until another calibration starts
+let calibratedBand = "";  // the band the NanoVNA holds this session's calibration for, until the next open resets it
+const PARTWAY = " The other tabs open again after the load step. To stop partway, set the band back to " +
+  "Choose a band and switch the NanoVNA off and on (it goes back to its saved calibration).";
 
 function showCalibrationStep() {
   $("cal-step").textContent = `Measure ${calStep}`;
@@ -184,12 +202,14 @@ function showCalibrationStep() {
   $("cal-instruction").textContent = calDone && calStep === "open"
     ? `Calibrated for ${calDone}. Put your antenna back on and sweep ${calDone} on the Antenna tab. The ` +
       "calibration lasts until you switch the NanoVNA off and on, which goes back to its saved one."
-    : $("cal-band").value ? CAL_STEPS[calStep] : "Choose the band you'll measure.";
+    : $("cal-band").value ? CAL_STEPS[calStep] + (calStep === "open" ? "" : PARTWAY)
+    : "Choose the band you'll measure.";
 }
 
 $("cal-band").addEventListener("change", () => {
   calStep = "open";  // a calibration covers one band: another band starts over
   calDone = "";
+  running(false);    // a cancelled calibration opens the other tabs again
   showCalibrationStep();
 });
 
@@ -203,6 +223,8 @@ $("cal-controls").addEventListener("submit", async (event) => {
     const answer = await window.pywebview.api.calibrate(band, calStep);
     $("error").textContent = answer.ok ? "" : answer.error;
     if (answer.ok) {
+      if (calStep === "open") calibratedBand = "";  // open reset the NanoVNA's calibration
+      if (!answer.next) calibratedBand = band;
       calDone = answer.next ? "" : band;
       calStep = answer.next || "open";
     }

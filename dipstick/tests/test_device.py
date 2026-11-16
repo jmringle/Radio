@@ -3,9 +3,11 @@
 The fake link plays back replies recorded byte for byte from a NanoVNA-H, firmware 1.2.43
 (tests/fixtures/), so these run without hardware. test_hardware.py checks the real thing."""
 
+import errno
 from dataclasses import dataclass
 
 import pytest
+import serial
 from fakes import FakeLink, UnpluggedLink, recorded
 
 from dipstick.device import DeviceError, NanoVNA, find_port
@@ -131,6 +133,52 @@ def test_unplugged_before_sending():
     nano.link.gone = True  # already gone: the write itself fails
     with pytest.raises(DeviceError, match="The NanoVNA disconnected"):
         nano.ask("version")
+
+
+# --- opening the port: one program at a time (QA 2026-11-16, F2) ---------------------------------
+# On macOS two programs could open the port at once; their commands mixed and the loser was told to
+# plug the NanoVNA back in. Opening with a lock refuses the second program instead.
+
+class BusySerial:
+    """Stands in for serial.Serial when another program already holds the port. The messages are
+    pyserial 3.5's: serialposix.py's flock failure (errno EWOULDBLOCK) and serialwin32.py's
+    CreateFile failure (Windows ports are always exclusive)."""
+    def __init__(self, error):
+        self.error = error
+
+    def __call__(self, port, *args, **kwargs):
+        raise self.error
+
+
+def test_the_port_is_opened_with_a_lock(monkeypatch):
+    seen = {}
+    def fake_serial(port, *args, **kwargs):
+        seen.update(kwargs)
+        raise serial.SerialException("stop here")
+    monkeypatch.setattr(serial, "Serial", fake_serial)
+    with pytest.raises(DeviceError):
+        NanoVNA.open("/dev/cu.usbmodem-test")
+    assert seen.get("exclusive") is True
+
+
+@pytest.mark.parametrize("error", [
+    serial.SerialException(errno.EWOULDBLOCK, "Could not exclusively lock port /dev/cu.usbmodem-test: "
+                           "[Errno 35] Resource temporarily unavailable"),
+    serial.SerialException("could not open port 'COM3': PermissionError(13, 'Access is denied.', None, 5)"),
+], ids=["mac-linux", "windows"])
+def test_a_port_in_use_says_another_program_has_it(monkeypatch, error):
+    monkeypatch.setattr(serial, "Serial", BusySerial(error))
+    with pytest.raises(DeviceError) as raised:
+        NanoVNA.open("/dev/cu.usbmodem-test")
+    message = str(raised.value)
+    assert "Another program is using the NanoVNA" in message
+    assert "Plug it back in" not in message
+
+
+def test_other_open_failures_keep_their_reason(monkeypatch):
+    monkeypatch.setattr(serial, "Serial", BusySerial(serial.SerialException(errno.ENOENT, "No such file")))
+    with pytest.raises(DeviceError, match="Can't open /dev/cu.usbmodem-test: .*No such file"):
+        NanoVNA.open("/dev/cu.usbmodem-test")
 
 
 # --- finding the NanoVNA ----------------------------------------------------------------------

@@ -13,7 +13,7 @@ import re
 import pytest
 from serial.tools import list_ports
 
-from dipstick.device import NanoVNA, find_port
+from dipstick.device import DeviceError, NanoVNA, find_port
 from dipstick.scan import scan
 
 pytestmark = pytest.mark.skipif(os.environ.get("DIPSTICK_HARDWARE") != "1",
@@ -53,3 +53,10 @@ def test_a_40m_scan_puts_the_settings_back(nano):
     assert [r.hz for r in readings] == list(range(7_000_000, 7_300_001, 30_000))
     assert nano.ask("sweep") == before
     assert nano.ask("frequencies")[0] == first_frequency  # the frequency list really came back too
+
+
+def test_a_second_open_is_refused_while_the_first_holds_the_port(nano):
+    # QA 2026-11-16, F2: the lock is what stops two programs mixing commands on macOS/Linux.
+    # Asks nothing of the NanoVNA: the second open fails before any command is sent.
+    with pytest.raises(DeviceError, match="Another program is using the NanoVNA"):
+        NanoVNA.open(find_port(list_ports.comports()))

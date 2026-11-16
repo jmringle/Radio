@@ -413,8 +413,88 @@ def test_nothing_else_can_start_while_a_standard_is_measured(app: Page):
                     app.get_by_role("button", name="Measure open"), app.get_by_label("Band to calibrate")):
         expect(control).to_be_disabled()
     app.evaluate("window.__release()")
-    expect(app.get_by_role("tab", name="Antenna")).to_be_enabled()
+    expect(app.get_by_role("button", name="Measure short")).to_be_enabled()
     expect(app.get_by_role("status", name="Sweep status")).to_have_text("")
+
+
+# --- partway through a calibration (QA 2026-11-16) ----------------------------------------------
+# After open, the NanoVNA's calibration is reset: a sweep then would be uncorrected but look normal.
+# So the other tabs stay shut until load finishes, or until the calibration is cancelled.
+
+def start_calibrating(app: Page, band="2m"):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option(band)
+    app.get_by_role("button", name="Measure open").click()
+    expect(app.get_by_role("button", name="Measure short")).to_be_enabled()
+
+
+def test_the_other_tabs_stay_shut_partway_through_a_calibration(app: Page):
+    start_calibrating(app)
+    for name in ("Antenna", "Cable"):
+        expect(app.get_by_role("tab", name=name)).to_be_disabled()
+    expect(app.locator("#cal-instruction")).to_contain_text("other tabs open again")
+    app.get_by_role("button", name="Measure short").click()
+    expect(app.get_by_role("tab", name="Antenna")).to_be_disabled()
+    app.get_by_role("button", name="Measure load").click()
+    for name in ("Antenna", "Cable"):
+        expect(app.get_by_role("tab", name=name)).to_be_enabled()
+
+
+def test_the_arrow_keys_cant_get_round_the_shut_tabs(app: Page):
+    start_calibrating(app)
+    app.get_by_role("tab", name="Calibrate").press("ArrowRight")
+    app.get_by_role("tab", name="Calibrate").press("ArrowLeft")
+    expect(app.get_by_role("tab", name="Calibrate")).to_have_attribute("aria-selected", "true")
+    expect(app.get_by_label("Band to calibrate")).to_be_visible()
+
+
+def test_choosing_no_band_cancels_a_calibration_and_opens_the_tabs(app: Page):
+    start_calibrating(app)
+    app.get_by_label("Band to calibrate").select_option("")
+    expect(app.get_by_role("tab", name="Antenna")).to_be_enabled()
+
+
+def test_a_failed_open_keeps_the_tabs_open(app: Page):
+    # Nothing to finish on the page: the error itself says how to get the saved calibration back.
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("2m")
+    app.evaluate('window.__calError = "The NanoVNA disconnected"')
+    app.get_by_role("button", name="Measure open").click()
+    expect(app.get_by_role("alert")).to_have_text("The NanoVNA disconnected")
+    expect(app.get_by_role("tab", name="Antenna")).to_be_enabled()
+
+
+# --- a sweep of another band than the one just calibrated (QA 2026-11-16) -------------------------
+
+def calibrate_fully(app: Page, band):
+    start_calibrating(app, band)
+    app.get_by_role("button", name="Measure short").click()
+    app.get_by_role("button", name="Measure load").click()
+    expect(app.locator("#cal-instruction")).to_contain_text(f"Calibrated for {band}")
+    app.get_by_role("tab", name="Antenna").click()
+
+
+def test_sweeping_another_band_than_the_calibrated_one_says_so(app: Page):
+    calibrate_fully(app, "2m")  # the fake sweep answers for 40m
+    app.get_by_role("button", name="Sweep").click()
+    report = app.locator("#report")
+    expect(report).to_contain_text("Best match")
+    expect(report).to_contain_text("calibrated for 2m")
+    expect(report).to_contain_text("not for 40m")
+
+
+def test_sweeping_the_calibrated_band_says_nothing_of_it(app: Page):
+    calibrate_fully(app, "40m")
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#report")).to_contain_text("Best match")
+    expect(app.locator("#report")).not_to_contain_text("calibrated for")
+
+
+def test_with_no_calibration_this_session_a_sweep_says_nothing_of_it(app: Page):
+    app.get_by_label("Band", exact=True).select_option("40m")
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#report")).to_contain_text("Best match")
+    expect(app.locator("#report")).not_to_contain_text("calibrated for")
 
 
 def test_the_arrow_keys_reach_the_calibrate_tab(app: Page):
