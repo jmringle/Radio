@@ -59,19 +59,30 @@
       velocity factor.</p>
   </section>
   <section id="balun-panel" role="tabpanel" aria-labelledby="tab-balun" hidden>
-    <!-- The transformer test sweeps 1.8-54 MHz, outside the ham bands: only with the antenna wire off.
+    <!-- Both tests sweep 1.8-54 MHz, outside the ham bands: only with the antenna wire off.
          The box is unticked after every test, so it's confirmed each time. -->
     <form id="balun-controls">
-      <label class="confirm"><input id="balun-no-antenna" type="checkbox" aria-describedby="balun-hint"> No antenna connected</label>
-      <label for="ratio">Ratio</label>
-      <select id="ratio"><option>1:1</option><option>4:1</option><option>9:1</option><option>49:1</option></select>
-      <label for="resistor">Resistor</label> <input id="resistor" placeholder="50 (default)" autocomplete="off">
+      <label for="balun-test">What to test</label>
+      <select id="balun-test"><option>Transformer</option><option>Choke</option></select>
+      <label class="confirm"><input id="balun-no-antenna" type="checkbox" aria-describedby="balun-hint choke-hint"> No antenna connected</label>
+      <span id="transformer-fields">  <!-- the choke test needs neither -->
+        <label for="ratio">Ratio</label>
+        <select id="ratio"><option>1:1</option><option>4:1</option><option>9:1</option><option>49:1</option></select>
+        <label for="resistor">Resistor</label> <input id="resistor" placeholder="50 (default)" autocomplete="off">
+      </span>
       <button id="check-balun" type="submit" disabled>Test transformer</button>  <!-- needs the box and Python -->
     </form>
     <p id="balun-hint" class="hint">Tests an unun or voltage balun on its own. Take the antenna wire off, put a resistor
       of 50 times the ratio across its output with short leads (2450 ohms for a 49:1, 50 ohms for a 1:1), and connect
       its input to CH0. Leave Resistor empty if yours is exactly that, or type what you used. Sweeps 1.8 to 54 MHz,
       outside the ham bands. Never connect a radio to the NanoVNA: its ports take milliwatts.</p>
+    <!-- The common-mode wiring for a series-through (S21) choke measurement (K6JCA, 2020-07). -->
+    <p id="choke-hint" class="hint" hidden>Tests how well a current balun (a choke) blocks current on the outside of
+      the coax. Calibrate first on the Calibrate tab: HF wide, with Both ports ticked. Take the balun off the antenna
+      and the coax. Join its two input terminals (an SO-239's centre pin and shell) and wire them to CH0's centre pin;
+      join its two output terminals and wire them to CH1's centre pin; then connect the outer shells of CH0 and CH1
+      with a short wire. Keep every wire short. Sweeps 1.8 to 54 MHz, outside the ham bands. Never connect a radio
+      to the NanoVNA: its ports take milliwatts.</p>
   </section>
   <section id="calibrate-panel" role="tabpanel" aria-labelledby="tab-calibrate" hidden>
     <!-- Open, short, load over one band (app.js says which standard to attach). Changes only the

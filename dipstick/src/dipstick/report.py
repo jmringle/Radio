@@ -1,7 +1,8 @@
 """A band report in plain words: every number comes with what it means."""
 
 from dipstick.analysis import Summary
-from dipstick.balun import MATCHED, POINTS, START_HZ, STOP_HZ, TransformerResult
+from dipstick.balun import (DEEPEST_DB, GOOD_OHMS, MATCHED, PLENTY_OHMS, POINTS, SHALLOWEST_DB, START_HZ, STOP_HZ,
+                            WEAK_OHMS, ChokeResult, TransformerResult)
 from dipstick.cable import CableResult
 from dipstick.s11 import Reading
 
@@ -210,6 +211,48 @@ def transformer_report(r: TransformerResult, calibrated: bool = False) -> str:
                       f"{START_HZ / 1e6:g} to {STOP_HZ / 1e6:g} MHz",
                   "  first (the app's Calibrate tab: HF wide), at the end of any cable or adapter you use to reach",
                   "  the transformer."]
+    return "\n".join(lines) + "\n"
+
+
+_CHOKE_WORDS = {"beyond": "more than this setup measures", "plenty": "plenty", "good": "good", "fair": "fair",
+                "weak": "weak", "beneath": "almost no choking"}
+# The impedance at each limit: S21 = 100 / (100 + Z), so Z = 100 x (1 / S21 - 1) for a resistive Z.
+_DEEPEST_OHMS = 100 * (10 ** (DEEPEST_DB / 20) - 1)        # 9,900: "about 10,000"
+_SHALLOWEST_OHMS = 100 * (10 ** (SHALLOWEST_DB / 20) - 1)  # 12.2: "about 12"
+
+
+def choke_report(r: ChokeResult, calibrated: bool = False, thru: bool = True) -> str:
+    """The choke test in plain words. `calibrated`: calibrated here over HF wide with Both ports.
+    `thru`: the NanoVNA says its calibration includes a thru and is switched on."""
+    groups = [(words, [b.band for b in r.bands if b.rating == rating]) for rating, words in _CHOKE_WORDS.items()]
+    lines = ["Choke: " + "; ".join(f"{words} on {', '.join(bands)}" for words, bands in groups if bands) + ".",
+             "", "Band by band (the sweep point nearest each band's middle):"]
+    for b in r.bands:
+        if b.rating == "beyond":
+            reading = f"over about {round(_DEEPEST_OHMS, -3):,.0f} ohms: more than this setup measures"
+        elif b.rating == "beneath":
+            reading = f"under about {_SHALLOWEST_OHMS:.0f} ohms: too little to measure precisely"
+        else:
+            reading = f"R {b.z.real:,.0f} ohms  |Z| {abs(b.z):,.0f} ohms  {b.rating}"
+        lines.append(f"  {b.band:<5}{_mhz(b.hz):>8} MHz  {reading}")
+    lines += [
+        "  R, the resistive part, is what does the choking: it turns current on the outside of the coax",
+        "  into a little heat. The rest of |Z| is reactance, which the feed line's own reactance can cancel.",
+        f"  Rules of thumb: |Z| of {WEAK_OHMS:,} ohms is Palomar's minimum (10 times the coax's 50 ohms);",
+        f"  R of {GOOD_OHMS:,} ohms is G3TXQ's guideline at a dipole's feed point; {PLENTY_OHMS:,} ohms is what",
+        "  K9YC calls plenty for a well matched, balanced antenna. They're rules of thumb, not limits.",
+        "  The wires to the choke add stray capacitance, which makes the high bands read lower than the",
+        "  choke really is: keep them short.",
+        "", f"What the NanoVNA measured: {POINTS} frequencies from {_mhz(START_HZ)} to {_mhz(STOP_HZ)} MHz,",
+        "  through the choke from CH0 to CH1.",
+    ]
+    if not thru:
+        lines += ["", "The NanoVNA's calibration has no thru step (or isn't switched on), so these numbers",
+                  "  aren't corrected and could be far off. Calibrate first: the Calibrate tab, HF wide, Both ports."]
+    elif not calibrated:
+        lines += ["", f"Measured with the NanoVNA's current calibration. For accurate numbers, calibrate over "
+                      f"{START_HZ / 1e6:g} to {STOP_HZ / 1e6:g} MHz",
+                  "  first with the wires you'll use (the Calibrate tab: HF wide, Both ports)."]
     return "\n".join(lines) + "\n"
 
 

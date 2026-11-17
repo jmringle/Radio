@@ -303,7 +303,7 @@ $("cable-controls").addEventListener("submit", async (event) => {
   $("status").textContent = "";
 });
 
-// --- the transformer test: only with "No antenna connected" ticked, cleared after every test ---
+// --- the transformer and choke tests: only with "No antenna connected" ticked, cleared after every test ---
 function allowBalunCheck() {
   $("check-balun").disabled = !(pythonReady && $("balun-no-antenna").checked);
 }
@@ -315,14 +315,24 @@ $("ratio").addEventListener("change", () => {
   $("resistor").placeholder = `${50 * parseInt($("ratio").value, 10)} (default)`;
 });
 
+// The choke test has no ratio or resistor, and its own wiring.
+function choke() { return $("balun-test").value === "Choke"; }
+
+$("balun-test").addEventListener("change", () => {
+  $("transformer-fields").hidden = $("balun-hint").hidden = choke();
+  $("choke-hint").hidden = !choke();
+  $("check-balun").textContent = choke() ? "Test choke" : "Test transformer";
+});
+
 $("balun-controls").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const fields = ["balun-no-antenna", "ratio", "resistor", "check-balun"];
+  const fields = ["balun-test", "balun-no-antenna", "ratio", "resistor", "check-balun"];
   for (const id of fields) $(id).disabled = true;
   running(true);
-  $("status").textContent = "Testing the transformer…";
-  await ask(() => window.pywebview.api.transformer($("balun-no-antenna").checked, $("ratio").value,
-                                                    $("resistor").value));
+  const noAntenna = $("balun-no-antenna").checked;
+  $("status").textContent = choke() ? "Testing the choke…" : "Testing the transformer…";
+  await ask(() => choke() ? window.pywebview.api.choke(noAntenna)
+                          : window.pywebview.api.transformer(noAntenna, $("ratio").value, $("resistor").value));
   $("balun-no-antenna").checked = false;  // the antenna wire might be back on by the next test
   for (const id of fields) $(id).disabled = false;
   allowBalunCheck();

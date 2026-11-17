@@ -199,7 +199,7 @@ def test_the_page_can_only_reach_public_methods():
     # connection and lock private so the page can't reach them.
     public = {name for name in vars(Api(connect=None)) if not name.startswith("_")}
     assert public == set()
-    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "forget_ports", "nanovna",
+    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "choke", "forget_ports", "nanovna",
                                                                          "serial_ports", "set_quiz", "settings", "sweep",
                                                                          "transformer", "use_port"}
 
@@ -928,6 +928,51 @@ def test_transformer_waits_its_turn():
 def test_transformer_nothing_on_the_output_is_a_message():
     answer = Api(connect=lambda port: transformer_nano(lambda hz: float("inf"))).transformer(True, "49:1", "")
     assert answer["ok"] is False and "resistor connected" in answer["error"]
+
+
+# --- the choke test (Balun tab): S21 through a current balun, wide, so only with no antenna (T5) -----
+
+def choke_nano(z=2000):
+    from test_choke import sweep as choke_sweep
+    from test_choke_cli import fake_nano as fake_choke_nano
+    return fake_choke_nano(choke_sweep(lambda hz: z))[0]
+
+
+@pytest.mark.parametrize("no_antenna", [False, None, "true", 1, "yes"])
+def test_choke_refused_unless_no_antenna_is_exactly_true(no_antenna):
+    answer = Api(connect=lambda port: pytest.fail("never connects")).choke(no_antenna)
+    assert answer["ok"] is False and "outside the ham bands" in answer["error"]
+    assert "No antenna connected" in answer["error"] and "--" not in answer["error"]
+
+
+def test_choke_returns_the_report():
+    answer = Api(connect=lambda port: choke_nano()).choke(True)
+    assert answer["ok"] is True and answer["report"].startswith("Choke: good on 160m, ")
+
+
+def test_choke_waits_its_turn():
+    api = Api(connect=lambda port: pytest.fail("never connects"))
+    api._busy.acquire()
+    assert api.choke(True) == {"ok": False, "error": "A sweep is already running"}
+
+
+def test_choke_with_nothing_arriving_is_a_message():
+    answer = Api(connect=lambda port: choke_nano(float("inf"))).choke(True)
+    assert answer["ok"] is False and "between CH0 and CH1" in answer["error"]
+
+
+@pytest.mark.parametrize("band, steps, reminds", [
+    ("wide", BOTH, False),                         # HF wide with both ports: what the choke test needs
+    ("wide", ("open", "short", "load"), True),     # no thru
+    ("40m", BOTH, True),                           # both ports, but only over 40 m
+])
+def test_the_choke_report_reminds_unless_calibrated_both_ports_over_hf_wide(band, steps, reminds):
+    nano = [Calibrator()]
+    api = Api(connect=lambda port: nano[0](port))
+    for step in steps:
+        assert api.calibrate(band, step, True, steps == BOTH)["ok"] is True
+    nano[0] = lambda port: choke_nano()
+    assert ("Calibrate tab" in api.choke(True)["report"]) is reminds
 
 
 # --- calibrating over the transformer test's range (HF wide) --------------------------------------

@@ -32,6 +32,8 @@ window.__calBoth = [];
 window.__balunCalls = [];
 window.__balunAnswer = {ok: true, report: "49:1 transformer, 2450-ohm resistor: SWR 2 or under on every band from 160m to 6m.\\n",
                         swr_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-balun-swr" viewBox="0 0 10 10"><rect class="ham-band" x="1" y="0" width="1" height="10"/></svg>'};
+window.__chokeCalls = [];
+window.__chokeAnswer = {ok: true, report: "Choke: good on 160m, 80m, 40m.\\n"};
 window.__calError = null;
 window.__settings = {quiz: true};
 window.__saved = [];
@@ -69,6 +71,11 @@ setTimeout(() => {
       window.__balunCalls.push([noAntenna, ratio, resistor]);
       if (!window.__hold) return Promise.resolve(window.__balunAnswer);
       return new Promise(resolve => { window.__release = () => resolve(window.__balunAnswer); });
+    },
+    choke: (noAntenna) => {
+      window.__chokeCalls.push(noAntenna);
+      if (!window.__hold) return Promise.resolve(window.__chokeAnswer);
+      return new Promise(resolve => { window.__release = () => resolve(window.__chokeAnswer); });
     },
     calibrate: (band, step, noAntenna, bothPorts) => {
       window.__calCalls.push([band, step]);
@@ -1056,6 +1063,75 @@ def test_the_balun_hint_says_the_range_and_never_to_connect_a_radio(app: Page):
 def test_no_check_yourself_box_on_the_balun_tab(app: Page):
     balun_tab(app)
     expect(app.get_by_label(SHOW_QUIZ)).to_be_hidden()
+
+
+# --- the Balun tab: the choke test (a current balun between CH0 and CH1) -----------------------------
+
+def choke_mode(app: Page):
+    panel = balun_tab(app)
+    app.get_by_label("What to test").select_option("Choke")
+    return panel
+
+
+def test_choosing_choke_swaps_the_fields_button_and_hint(app: Page):
+    choke_mode(app)
+    expect(app.get_by_label("Ratio")).to_be_hidden()   # auto-waits, like Wait Until Element Is Not Visible
+    expect(app.get_by_label("Resistor")).to_be_hidden()
+    expect(app.get_by_role("button", name="Test choke")).to_be_visible()
+    expect(app.locator("#balun-hint")).to_be_hidden()
+    hint = app.locator("#choke-hint")
+    for words in ("CH0", "CH1", "Both ports", "1.8 to 54 MHz", "Never connect a radio"):
+        expect(hint).to_contain_text(words)
+    app.get_by_label("What to test").select_option("Transformer")
+    expect(app.get_by_label("Ratio")).to_be_visible()
+    expect(app.get_by_role("button", name="Test transformer")).to_be_visible()
+    expect(app.locator("#choke-hint")).to_be_hidden()
+
+
+def test_a_choke_test_shows_the_report_with_no_plots_then_clears_the_box(app: Page):
+    panel = choke_mode(app)
+    test = app.get_by_role("button", name="Test choke")
+    expect(test).to_be_disabled()  # the same box gates both tests
+    panel.get_by_label("No antenna connected").check()
+    test.click()
+    expect(app.locator("#report")).to_contain_text("Choke: good on 160m")
+    expect(app.locator("#swr")).to_be_empty()
+    expect(app.locator("#smith")).to_be_empty()
+    assert app.evaluate("window.__chokeCalls") == [True]
+    assert app.evaluate("window.__balunCalls") == []
+    expect(panel.get_by_label("No antenna connected")).not_to_be_checked()
+    expect(test).to_be_disabled()
+
+
+def test_a_choke_error_is_shown_and_the_box_clears_too(app: Page):
+    app.evaluate('window.__chokeAnswer = {ok: false, error: "Almost nothing arrives at CH1"}')
+    panel = choke_mode(app)
+    panel.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Test choke").click()
+    expect(app.get_by_role("alert")).to_have_text("Almost nothing arrives at CH1")
+    expect(panel.get_by_label("No antenna connected")).not_to_be_checked()
+
+
+def test_the_page_sends_the_boxs_real_state_so_python_decides(app: Page):
+    # The disabled button is a convenience; Python's check is the safety gate (T5), so the page must
+    # pass on an unticked box as false. requestSubmit() submits even with the button disabled.
+    choke_mode(app)
+    app.evaluate('document.getElementById("balun-controls").requestSubmit()')
+    expect(app.locator("#report")).to_contain_text("Choke")
+    assert app.evaluate("window.__chokeCalls") == [False]
+
+
+def test_nothing_else_can_start_or_change_during_a_choke_test(app: Page):
+    app.evaluate("window.__hold = true")
+    panel = choke_mode(app)
+    panel.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Test choke").click()
+    expect(app.get_by_label("What to test")).to_be_disabled()
+    for name in ("Antenna", "Cable", "Calibrate"):
+        expect(app.get_by_role("tab", name=name)).to_be_disabled()
+    app.evaluate("window.__release()")
+    expect(app.get_by_label("What to test")).to_be_enabled()
+    expect(app.get_by_role("button", name="Test choke")).to_be_visible()
 
 
 def test_test_transformer_waits_until_python_is_reachable(page: Page):

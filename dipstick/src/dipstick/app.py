@@ -19,7 +19,7 @@ from pathlib import Path
 from dipstick import balun
 from dipstick.bands import BANDS, band_range
 from dipstick.device import DeviceError, NanoVNA, find_port, nanovna_ports
-from dipstick.measure import band_for_target, measure_band, measure_cable, measure_transformer, shown
+from dipstick.measure import band_for_target, measure_band, measure_cable, measure_choke, measure_transformer, shown
 from dipstick.plots import smith_svg, swr_svg
 from dipstick.quiz import antenna_questions, cable_questions
 from dipstick.scan import MAX_POINTS
@@ -96,6 +96,7 @@ class Api:
         self._current_url = None  # the window's address, set by _open_window; checked before the NanoVNA
         self._cal_unfinished = False  # `cal reset` sent and `cal done` not yet: the NanoVNA's memory holds no calibration
         self._calibrated_band = None  # finished here (open, short, load): reports skip the reminder to calibrate
+        self._calibrated_both = False  # and whether that calibration included isolation and thru
         self._settings_path = settings_path  # None: nothing saved (tests and the self-test)
         self._settings = saved.load(settings_path)
         self._saving = threading.Lock()  # not _busy: the setting can change during a sweep
@@ -187,6 +188,15 @@ class Api:
                     "swr_svg": swr_svg(measured.readings, f"{ratio} transformer", standalone=False, ham_bands=True)}
         return self._one_at_a_time(measure)
 
+    def choke(self, no_antenna) -> dict:
+        """Test a current balun's choking, in series between CH0 and CH1 (a wide sweep: only when
+        no_antenna is exactly true); answers {"ok": True, report} or {"ok": False, error}."""
+        def measure():
+            measured = measure_choke(no_antenna, self._connect, names=_FIELDS,
+                                     calibrated=self._calibrated_band == WIDE and self._calibrated_both)
+            return {"report": measured.report}
+        return self._one_at_a_time(measure)
+
     def calibrate(self, band, step, no_antenna=False, both_ports=False) -> dict:
         """One calibration step over a band, or WIDE (the transformer test's range): "open" (which
         always starts over), then "short", then "load"; with both_ports, then "isoln" and "thru".
@@ -235,6 +245,7 @@ class Api:
                         nano.ask("cal", "done")
                         self._cal_unfinished = False
                         self._calibrated_band = band
+                        self._calibrated_both = both_ports
                 finally:
                     nano.close()
             except DeviceError as error:
