@@ -28,6 +28,7 @@ window.__release = null;
 window.__cableCalls = [];
 window.__calCalls = [];
 window.__calBoxes = [];
+window.__calBoth = [];
 window.__balunCalls = [];
 window.__balunAnswer = {ok: true, report: "49:1 transformer, 2450-ohm resistor: SWR 2 or under on every band from 160m to 6m.\\n",
                         swr_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-balun-swr" viewBox="0 0 10 10"><rect class="ham-band" x="1" y="0" width="1" height="10"/></svg>'};
@@ -69,11 +70,12 @@ setTimeout(() => {
       if (!window.__hold) return Promise.resolve(window.__balunAnswer);
       return new Promise(resolve => { window.__release = () => resolve(window.__balunAnswer); });
     },
-    calibrate: (band, step, noAntenna) => {
+    calibrate: (band, step, noAntenna, bothPorts) => {
       window.__calCalls.push([band, step]);
       window.__calBoxes.push(noAntenna);
-      const answer = window.__calError ? {ok: false, error: window.__calError}
-                                       : {ok: true, next: {open: "short", short: "load", load: null}[step]};
+      window.__calBoth.push(bothPorts);
+      const next = {open: "short", short: "load", load: bothPorts ? "isoln" : null, isoln: "thru", thru: null}[step];
+      const answer = window.__calError ? {ok: false, error: window.__calError} : {ok: true, next};
       if (!window.__hold) return Promise.resolve(answer);
       return new Promise(resolve => { window.__release = () => resolve(answer); });
     },
@@ -614,6 +616,69 @@ def test_nothing_else_can_start_while_a_standard_is_measured(app: Page):
     app.evaluate("window.__release()")
     expect(app.get_by_role("button", name="Measure short")).to_be_enabled()
     expect(app.get_by_role("status", name="Sweep status")).to_have_text("")
+
+
+def test_one_port_calibration_says_so_to_python(app: Page):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    for step in ("open", "short", "load"):
+        app.get_by_role("button", name=f"Measure {step}").click()
+    expect(app.locator("#cal-instruction")).to_contain_text("Calibrated for 40m")
+    assert app.evaluate("window.__calBoth") == [False] * 3
+
+
+# --- both ports: isolation and thru after the load, for the S21 tests ----------------------------
+
+def test_calibrating_both_ports_walks_through_five_steps(app: Page):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    app.get_by_label("Both ports").check()
+    step = app.locator("#cal-instruction")
+    expect(step).to_contain_text("Step 1 of 5")
+    for name in ("open", "short", "load"):
+        app.get_by_role("button", name=f"Measure {name}").click()
+    expect(step).to_contain_text("Step 4 of 5")
+    expect(step).to_contain_text("CH1")                    # where the second load goes, if you have one
+    expect(step).to_contain_text("only one load")          # and what to do if you don't
+    app.get_by_role("button", name="Measure isolation").click()
+    expect(step).to_contain_text("Step 5 of 5")
+    expect(step).to_contain_text("CH0 to CH1")
+    app.get_by_role("button", name="Measure thru").click()
+    expect(step).to_contain_text("Calibrated both ports for 40m")
+    assert app.evaluate("window.__calCalls") == [["40m", s] for s in ("open", "short", "load", "isoln", "thru")]
+    assert app.evaluate("window.__calBoth") == [True] * 5
+
+
+def test_ticking_both_ports_partway_starts_over(app: Page):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    app.get_by_role("button", name="Measure open").click()
+    app.get_by_label("Both ports").check()
+    expect(app.locator("#cal-instruction")).to_contain_text("Step 1 of 5")
+    expect(app.get_by_role("button", name="Measure open")).to_be_enabled()
+
+
+def test_both_ports_cant_change_while_a_standard_is_measured(app: Page):
+    app.evaluate("window.__hold = true")
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    app.get_by_role("button", name="Measure open").click()
+    expect(app.get_by_label("Both ports")).to_be_disabled()
+    app.evaluate("window.__release()")
+    expect(app.get_by_label("Both ports")).to_be_enabled()
+
+
+def test_with_both_ports_the_other_tabs_stay_shut_until_the_thru(app: Page):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option("40m")
+    app.get_by_label("Both ports").check()
+    for name in ("open", "short", "load", "isolation"):
+        app.get_by_role("button", name=f"Measure {name}").click()
+    expect(app.get_by_role("button", name="Measure thru")).to_be_enabled()
+    expect(app.get_by_role("tab", name="Antenna")).to_be_disabled()
+    expect(app.locator("#cal-partway")).to_contain_text("after the last step")
+    app.get_by_role("button", name="Measure thru").click()
+    expect(app.get_by_role("tab", name="Antenna")).to_be_enabled()
 
 
 # --- partway through a calibration (QA 2026-11-16) ----------------------------------------------

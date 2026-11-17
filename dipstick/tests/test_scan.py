@@ -11,7 +11,7 @@ import pytest
 from fakes import FakeLink, UnpluggedLink, recorded
 
 from dipstick.device import DeviceError, NanoVNA
-from dipstick.scan import scan
+from dipstick.scan import calibration_status, scan, scan_s21, thru_calibrated
 
 SETTINGS = b"sweep\r\n1500000 30000000 101\r\nch> "  # yours, as recorded
 RESTORE = b"sweep 1500000 30000000 101"
@@ -138,3 +138,71 @@ def test_bad_settings_reply_stops_before_scanning():
     with pytest.raises(DeviceError, match="sweep settings"):
         scan(nano, 7_000_000, 7_300_000, 11)
     assert nano.link.written == [b"sweep\r"]
+
+
+# --- S21: CH0 to CH1 (scan mask 5: frequency and S21) --------------------------------------------
+
+SCAN_S21 = b"scan 7000000 7300000 11 5"
+GOOD_S21 = [f"{7_000_000 + 30_000 * i} 0.1 -0.05".encode() for i in range(11)]
+
+
+def s21_with_line(index, line):
+    lines = list(GOOD_S21)
+    lines[index] = line
+    return lines
+
+
+def s21_nano(lines):
+    reply = SCAN_S21 + b"\r\n" + b"".join(line + b" \r\n" for line in lines) + b"ch> "
+    return NanoVNA(FakeLink({b"sweep": SETTINGS, SCAN_S21: reply, RESTORE: RESTORED}))
+
+
+def test_an_s21_scan_asks_for_frequency_and_s21_and_puts_the_sweep_back():
+    nano = s21_nano(GOOD_S21)
+    throughs = scan_s21(nano, 7_000_000, 7_300_000, 11)
+    assert nano.link.written == [b"sweep\r", SCAN_S21 + b"\r", RESTORE + b"\r"]
+    assert [t.hz for t in throughs] == [7_000_000 + 30_000 * i for i in range(11)]
+    assert throughs[0].s21 == 0.1 - 0.05j
+
+
+def test_an_s21_scan_stays_inside_one_band_unless_no_antenna():
+    with pytest.raises(ValueError):
+        scan_s21(s21_nano(GOOD_S21), 1_000_000, 30_000_000, 11)
+
+
+@pytest.mark.parametrize("lines, words", [
+    (GOOD_S21[:10], "10 lines"),
+    (s21_with_line(3, b"7090000 0.1"), "line 4"),
+    (s21_with_line(3, b"7090000 0.1 -0.05 0.2"), "line 4"),
+    (s21_with_line(3, b"7000000 0.1 -0.05"), "line 4"),          # out of order
+    (s21_with_line(5, b"7150000 1.5 0"), "line 6"),              # more out than in
+])
+def test_bad_s21_lines_are_refused_with_their_line_number(lines, words):
+    with pytest.raises(DeviceError, match=words):
+        scan_s21(s21_nano(lines), 7_000_000, 7_300_000, 11)
+
+
+# --- the calibration status: `cal` alone (hugen79/NanoVNA-H cmd_cal, read 2026-11-17) ---------------
+
+def status_nano(line):
+    return NanoVNA(FakeLink({b"cal": b"cal\r\n" + line + b"\r\nch> "}))
+
+
+def test_a_full_two_port_calibration():
+    # After done: open and short have become Es and Er, thru has become Et; load and isoln stay.
+    status = calibration_status(status_nano(b"load isoln Es Er Et cal'ed "))
+    assert status == {"load", "isoln", "Es", "Er", "Et", "cal'ed"}
+    assert thru_calibrated(status)
+
+
+@pytest.mark.parametrize("line", [b"load Es Er cal'ed ",      # one port only
+                                  b"load isoln Es Er Et ",    # thru measured but not applied
+                                  b""])                       # no calibration at all
+def test_without_an_applied_thru_s21_is_uncalibrated(line):
+    assert not thru_calibrated(calibration_status(status_nano(line)))
+
+
+@pytest.mark.parametrize("line", [b"load bogus", b"usage: cal [load|open]", b"load load"])
+def test_an_unexpected_status_is_refused(line):
+    with pytest.raises(DeviceError, match="calibration status"):
+        calibration_status(status_nano(line))

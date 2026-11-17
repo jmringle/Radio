@@ -34,6 +34,9 @@ _FIELDS = {"no_antenna": "tick No antenna connected", "vf": "Velocity factor", "
 # the same 101 points, so the test sweeps exactly the calibrated frequencies.
 WIDE = "wide"
 CAL_ORDER = ("open", "short", "load")
+# Both ports adds the S21 steps, in the order nanovna.com's calibration page gives (read 2026-11-17):
+# isolation (the load on CH0, and a second one on CH1 if you have it), then a thru from CH0 to CH1.
+CAL_ORDER_BOTH = (*CAL_ORDER, "isoln", "thru")
 # A calibration step answers only after the NanoVNA has swept the standard once, at 100 Hz
 # bandwidth or narrower (hugen79/NanoVNA-H cal_collect, read 2026-11-15): slower than a reply.
 CAL_STEP_TIMEOUT_S = 20.0
@@ -89,7 +92,7 @@ class Api:
         self._connect = (lambda port: connect_nanovna(port, ports, self._approved())) \
             if connect is connect_nanovna else connect
         self._busy = threading.Lock()
-        self._calibration = None  # (band, the next step) between calibration steps
+        self._calibration = None  # (band, the next step, both_ports) between calibration steps
         self._current_url = None  # the window's address, set by _open_window; checked before the NanoVNA
         self._cal_unfinished = False  # `cal reset` sent and `cal done` not yet: the NanoVNA's memory holds no calibration
         self._calibrated_band = None  # finished here (open, short, load): reports skip the reminder to calibrate
@@ -184,14 +187,18 @@ class Api:
                     "swr_svg": swr_svg(measured.readings, f"{ratio} transformer", standalone=False, ham_bands=True)}
         return self._one_at_a_time(measure)
 
-    def calibrate(self, band, step, no_antenna=False) -> dict:
+    def calibrate(self, band, step, no_antenna=False, both_ports=False) -> dict:
         """One calibration step over a band, or WIDE (the transformer test's range): "open" (which
-        always starts over), then "short", then "load", which also applies the new calibration.
+        always starts over), then "short", then "load"; with both_ports, then "isoln" and "thru".
+        The last step also applies the new calibration. both_ports is fixed at the open step.
         Answers {"ok": True, "next": the next step or None when finished} or {"ok": False, error}.
         Changes only the calibration in the NanoVNA's memory (never `save`), and leaves the NanoVNA
         sweeping the range it covers: so WIDE only when no_antenna is exactly true (T5)."""
         def measure():
-            if step not in CAL_ORDER:
+            if not isinstance(both_ports, bool):
+                raise ValueError(f"Both ports must be ticked or not, got {shown(both_ports)}")
+            order = CAL_ORDER_BOTH if both_ports else CAL_ORDER
+            if step not in order:
                 raise ValueError(f"Unknown calibration step {shown(step)}")
             if not isinstance(band, str):
                 raise ValueError("Choose a band")
@@ -209,8 +216,11 @@ class Api:
                     raise ValueError("Start with the open standard")
                 if expected[0] != band:
                     raise ValueError(f"This calibration is for {expected[0]}. Start with the open standard to calibrate {band}")
+                if expected[2] != both_ports:
+                    raise ValueError(f"This calibration is for {'both ports' if expected[2] else 'CH0 only'}. "
+                                     "Start with the open standard to change that")
                 if expected[1] != step:
-                    raise ValueError(f"Measure the {expected[1]} next")
+                    raise ValueError(f"Measure the {'isolation' if expected[1] == 'isoln' else expected[1]} next")
             try:
                 nano = self._connect(None)
                 try:
@@ -221,7 +231,7 @@ class Api:
                         self._calibrated_band = None
                         nano.ask("cal", "reset")
                     nano.ask("cal", step, timeout_s=CAL_STEP_TIMEOUT_S)
-                    if step == "load":
+                    if step == order[-1]:
                         nano.ask("cal", "done")
                         self._cal_unfinished = False
                         self._calibrated_band = band
@@ -233,8 +243,8 @@ class Api:
                                       "again, or switch the NanoVNA off and on to go back to its saved "
                                       "calibration.") from None
                 raise
-            following = CAL_ORDER.index(step) + 1
-            self._calibration = (band, CAL_ORDER[following]) if following < len(CAL_ORDER) else None
+            following = order.index(step) + 1
+            self._calibration = (band, order[following], both_ports) if following < len(order) else None
             return {"next": self._calibration and self._calibration[1]}
         return self._one_at_a_time(measure)
 

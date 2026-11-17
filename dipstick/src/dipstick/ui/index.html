@@ -80,6 +80,8 @@
       <label for="cal-band">Band to calibrate</label> <select id="cal-band"></select>
       <!-- HF wide only: the NanoVNA keeps sweeping 1.8-54 MHz after calibrating. -->
       <label id="cal-wide" class="confirm" hidden><input id="cal-no-antenna" type="checkbox"> No antenna connected</label>
+      <!-- Adds isolation and thru, for tests that measure what reaches CH1 (S21). -->
+      <label><input id="cal-both" type="checkbox"> Both ports</label>
       <button id="cal-step" type="submit" disabled>Measure open</button>  <!-- needs a band and Python -->
     </form>
     <p id="cal-instruction" class="instruction"></p>
@@ -87,7 +89,8 @@
     <p id="cal-hint" class="hint">Calibrating shows the NanoVNA what its own connector and cable look like, so it can
       take them out of every measurement. Use the calibration kit that came with it (open, short and 50-ohm load),
       screwed onto CH0, the port you measure antennas on, with any adapter or jumper you'll measure through. The new
-      calibration covers only the band (or HF wide range) you choose, and isn't saved in the NanoVNA.</p>
+      calibration covers only the band (or HF wide range) you choose, and isn't saved in the NanoVNA. Tick Both
+      ports to add two steps for CH1, the port that measures what gets through something.</p>
   </section>
   <!-- On the Antenna and Cable tabs (Balun and Calibrate ask nothing). Python remembers the choice. -->
   <p id="quiz-option"><label><input id="quiz-on" type="checkbox" checked disabled> Show Check yourself questions</label></p>

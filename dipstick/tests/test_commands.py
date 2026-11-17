@@ -31,14 +31,19 @@ def test_a_command_name_cant_carry_a_second_command():
         command("version\rclearconfig")
 
 
-@pytest.mark.parametrize("step", ["reset", "open", "short", "load", "done"])
+@pytest.mark.parametrize("step", ["reset", "open", "short", "load", "isoln", "thru", "done"])
 def test_calibration_steps_are_allowed(step):
     # These change only the calibration in the NanoVNA's memory; switching it off and on loads
     # the saved one again. "save" (which writes flash) stays off the list.
     assert command("cal", step) == f"cal {step}\r".encode()
 
 
-@pytest.mark.parametrize("args", [(), ("thru",), ("isoln",), ("on",), ("off",), ("OPEN",), ("open\rsave 0",),
+def test_cal_alone_reads_the_calibration_status():
+    # With no step the firmware only prints which standards and terms it holds (cmd_cal, argc == 0).
+    assert command("cal") == b"cal\r"
+
+
+@pytest.mark.parametrize("args", [("on",), ("off",), ("OPEN",), ("open\rsave 0",),
                                   (1,), ("open", "short")])
 def test_other_cal_arguments_are_refused(args):
     with pytest.raises(ValueError):

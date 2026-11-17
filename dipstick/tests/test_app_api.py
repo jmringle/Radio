@@ -366,7 +366,7 @@ class Calibrator:
         self.connects += 1
         link = self.link_class(echo(b"", b"sweep 7000000 7300000 101", b"sweep 14000000 14350000 101",
                                     b"sweep 1800000 54000000 101",
-                                    *(b"cal " + s for s in (b"reset", b"open", b"short", b"load", b"done"))),
+                                    *(b"cal " + s for s in (b"reset", b"open", b"short", b"load", b"isoln", b"thru", b"done"))),
                                **self.kwargs)
         link.written = self.sent
         return NanoVNA(link)
@@ -475,11 +475,82 @@ def test_a_finished_calibration_is_not_called_unfinished_later():
     assert POWER_CYCLE not in api.calibrate("40m", "open")["error"]
 
 
+# --- both ports: isolation and thru after the load, for the S21 tests (nanovna.com calibration page,
+# read 2026-11-17: open, short, load, isoln, thru, done; with one load, it stays on CH0 for isoln) ---
+
+BOTH = ("open", "short", "load", "isoln", "thru")
+
+
+def test_calibrating_both_ports_adds_isolation_and_thru_and_applies_after_thru():
+    nano = Calibrator()
+    api = Api(connect=nano)
+    nexts = [api.calibrate("40m", step, False, True) for step in BOTH]
+    assert nexts == [{"ok": True, "next": n} for n in ("short", "load", "isoln", "thru", None)]
+    assert nano.commands() == [b"sweep 7000000 7300000 101", b"cal reset", b"cal open", b"cal short",
+                               b"cal load", b"cal isoln", b"cal thru", b"cal done"]
+
+
+def test_calibrating_both_ports_over_hf_wide():
+    api = Api(connect=Calibrator())
+    assert [api.calibrate("wide", step, True, True)["next"] for step in BOTH] == ["short", "load", "isoln", "thru", None]
+
+
+@pytest.mark.parametrize("before, step, both_ports, words", [
+    ([], "isoln", True, "Start with the open"),
+    (["open", "short"], "isoln", True, "Measure the load next"),
+    (["open", "short", "load"], "thru", True, "Measure the isolation next"),
+    (["open", "short"], "load", False, "Start with the open"),     # switched to one port partway
+    (["open"], "short", False, "Start with the open"),
+])
+def test_both_ports_steps_out_of_order_or_switched_partway_are_refused(before, step, both_ports, words):
+    nano = Calibrator()
+    api = Api(connect=nano)
+    for done in before:
+        api.calibrate("40m", done, False, True)
+    connects = nano.connects
+    answer = api.calibrate("40m", step, False, both_ports)
+    assert answer["ok"] is False and words in answer["error"]
+    assert nano.connects == connects
+
+
+def test_switching_to_both_ports_partway_is_refused():
+    api = Api(connect=Calibrator())
+    api.calibrate("40m", "open")
+    answer = api.calibrate("40m", "short", False, True)
+    assert answer["ok"] is False and "Start with the open" in answer["error"]
+
+
+@pytest.mark.parametrize("both_ports", [1, "true", None, "yes"])
+def test_both_ports_must_be_exactly_true_or_false(both_ports):
+    nano = Calibrator()
+    answer = Api(connect=nano).calibrate("40m", "open", False, both_ports)
+    assert answer["ok"] is False and "Both ports" in answer["error"]
+    assert nano.connects == 0
+
+
+@pytest.mark.parametrize("fails_on, done_before", [(b"cal isoln", BOTH[:3]), (b"cal thru", BOTH[:4])])
+def test_a_two_port_step_failing_says_how_to_get_the_saved_calibration_back(fails_on, done_before):
+    api = Api(connect=Calibrator())
+    for step in done_before:
+        api.calibrate("40m", step, False, True)
+    api._connect = Calibrator(UnpluggedLink, unplug_on=fails_on)
+    answer = api.calibrate("40m", fails_on.decode().split()[1], False, True)
+    assert answer["ok"] is False and POWER_CYCLE in answer["error"]
+
+
+def test_after_the_load_a_two_port_calibration_is_not_finished():
+    # The NanoVNA isn't corrected until `cal done`, after the thru: the sweep report keeps its reminder.
+    api = Api(connect=Calibrator())
+    for step in BOTH[:3]:
+        api.calibrate("40m", step, False, True)
+    assert api._calibrated_band is None
+
+
 class MeasuringLink(FakeLink):
     """Quiet for 30 reads (7.5 s at the 0.25 s read timeout, past the usual 5 s) while measuring a standard."""
 
     def write(self, data):
-        self.quiet = 30 if data.startswith((b"cal open", b"cal short", b"cal load")) else 0
+        self.quiet = 30 if data.startswith((b"cal open", b"cal short", b"cal load", b"cal isoln", b"cal thru")) else 0
         return super().write(data)
 
     def read(self, size=1):
@@ -492,6 +563,11 @@ class MeasuringLink(FakeLink):
 def test_calibration_steps_wait_longer_for_the_measurement():
     # The NanoVNA answers a step only after sweeping the standard, which is slower than a reply.
     assert Api(connect=Calibrator(MeasuringLink)).calibrate("40m", "open") == {"ok": True, "next": "short"}
+
+
+def test_two_port_steps_wait_longer_too():
+    api = Api(connect=Calibrator(MeasuringLink))
+    assert [api.calibrate("40m", step, False, True)["ok"] for step in BOTH] == [True] * 5
 
 
 def test_calibrating_and_sweeping_take_turns():

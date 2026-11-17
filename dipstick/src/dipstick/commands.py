@@ -19,11 +19,14 @@ ALLOWED = {
     "data",  # data 0: S11 of the last sweep
 }
 # cal STEP: forget the calibration in memory, measure one standard, or work out and apply the new one.
-CAL_STEPS = ("reset", "open", "short", "load", "done")
+# isoln and thru are the two-port steps (CH0 to CH1). `cal` alone only prints the status.
+CAL_STEPS = ("reset", "open", "short", "load", "isoln", "thru", "done")
 
 
 def command(name: str, *args: int | str) -> bytes:
     if name == "cal":
+        if not args:
+            return b"cal\r"
         if len(args) != 1 or args[0] not in CAL_STEPS:
             raise ValueError(f"cal takes one of {', '.join(CAL_STEPS)}, got {args!r}")
         return f"cal {args[0]}".encode("ascii") + b"\r"
