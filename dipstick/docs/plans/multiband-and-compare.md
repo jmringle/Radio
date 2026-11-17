@@ -26,11 +26,26 @@ Status: acceptance criteria drafted 2026-11-17, not built. Decisions marked **(a
 
 **Happy path**
 1. Each band is swept on its own, in the order given, with the same points as a single-band run.
-2. The report starts with a summary table, one line per band: the band, the best match frequency, best SWR, rating (the existing excellent / good / ... words) and 2:1 bandwidth. Then each band's full report follows, as today.
-3. The summary's first line says the answer in words, e.g. "Good on 40 m and 20 m; 15 m and 10 m above 2:1."
+2. The report starts with a summary table, one line per band: the band, the best match frequency, best SWR, 2:1 bandwidth and **tuner need** (see "Tuner need" below). Then each band's full report follows, as today.
+3. The summary's first line says the answer in words, e.g. "No tuner needed on 40 m and 20 m; 15 m is within most built-in tuners; 10 m needs a wide-range external tuner."
 4. One SWR plot and one Smith chart per band, named from band and time as today (never from typed text). Optionally a combined SWR plot with one panel per band **(undecided)**.
 5. `--target` is refused with more than one band, since a single target can't apply to several bands. Trim advice in each band's report aims at that band's middle.
 6. Calibration note: the NanoVNA holds one calibration range. Every band outside the calibrated range gets the existing "not calibrated for this band" note, and the summary says how many bands were uncalibrated.
+
+**Tuner need (approved 2026-11-17: based on typical tuners, not one radio)**
+
+Judged from each band's best SWR, with the same words everywhere a band is rated:
+
+| Best SWR | Words | Basis |
+|---|---|---|
+| 2.0 or less | no tuner needed | Many radios cut power above about 2:1 (the report already says to check your radio's manual) |
+| over 2.0, up to 3.0 | within most built-in tuners | Icom IC-7300 and Yaesu FT-991A manuals: 16.7–150 Ω, stated as SWR 3:1 or less (read 2026-11-17) |
+| over 3.0, up to 8.0 | needs a wide-range external tuner | LDG Z-100Plus manual: 6–800 Ω on HF; 50 / 6 ≈ 8.3:1 is its tighter side (read 2026-11-17). One example, so 8:1 is a cautious judgement, not a standard |
+| over 8.0 | beyond most tuners: check the antenna, coax and connectors | — |
+
+- **6 m is stricter:** the same LDG tuner covers only 16–150 Ω on 6 m (about 3:1), so on 6 m anything over 3.0 reads "beyond most tuners".
+- **Caveats in the report, once:** a tuner's range is really an impedance range, so the SWR limit is approximate (reactance matters too). A tuner at the radio protects the radio but doesn't fix the antenna, and the coax still loses more at high SWR. Check your own tuner's manual.
+- **Single-band runs use the same words.** This replaces today's "high: you'll need a tuner" for anything up to SWR 5 **(approved 2026-11-17)**. Build it first, as its own small change, since it fixes wording in the released app.
 
 **Negative and boundary**
 7. A duplicate band (`40m 40m`) is refused before connecting.
@@ -82,6 +97,7 @@ Status: acceptance criteria drafted 2026-11-17, not built. Decisions marked **(a
 
 ## Tests to write first
 
+- **Tuner need:** each boundary and just past it (2.00 / 2.01, 3.00 / 3.01, 8.00 / 8.01); 6 m at 3.00 / 3.01; infinite SWR; the caveat appears once per report, not once per band.
 - **Multi-band:** order of scans and restores (fake NanoVNA log); a refused list sends nothing; unplug on band 2 of 3 gives a partial report and exit 2; single-band output byte-identical to today; summary wording; plot file names.
 - **Compare:** `.s1p` round trip (save, then read back, equals the readings); every refusal in criterion 7 as its own case; overlap and partial overlap; movement maths against a made-up antenna with known resonance shift; "no measurable change" at exactly one step and just above.
 - **App:** reference kept in memory only; cleared on band change; overlay drawn; Live with reference; multi-band locks tabs; Stop mid-run reports bands done; Python refuses a list containing anything but known band names.
