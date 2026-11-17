@@ -14,7 +14,7 @@ Every number comes with a line explaining it, so over time you learn to read the
 
 | NanoVNA | Works? |
 |---|---|
-| **NanoVNA-H, NanoVNA-H4** with hugen79 or DiSlord firmware (most sold today) | Yes, found automatically. Tested on a NanoVNA-H, firmware 1.2.43. |
+| **NanoVNA-H, NanoVNA-H4** with hugen79 or DiSlord firmware (most sold today) | Yes, found automatically. Tested on a NanoVNA-H, firmware 1.2.43, on macOS and Windows. |
 | **Original NanoVNA** firmware (edy555/ttrftech) | Should work, but it's not found automatically: its USB name is generic. Dipstick names the port it might be; choose it in the app's port picker or give `--port`. Not tested on hardware. |
 | **Clones with a generic USB chip** (such as the CH340) | Yes: choose it once in the app's port picker, or give `--port`. |
 | **NanoVNA V2, V2 Plus4, LiteVNA** | No. They use a different (binary) protocol. Dipstick doesn't detect them and sends them nothing. |
