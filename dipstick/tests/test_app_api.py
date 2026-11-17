@@ -640,7 +640,9 @@ def test_a_page_in_a_folder_with_spaces_is_recognized(tmp_path):
     lambda api: api.calibrate("40m", "open"),
     lambda api: api.transformer(True, "49:1", ""),
     lambda api: api.calibrate("wide", "open", True),
-], ids=["sweep", "cable", "calibrate", "transformer", "calibrate wide"])
+    lambda api: api.choke(True),
+    lambda api: api.loss(True, "direct"),
+], ids=["sweep", "cable", "calibrate", "transformer", "calibrate wide", "choke", "loss"])
 def test_another_page_is_refused_and_never_connects(call):
     api = Api(connect=lambda port: pytest.fail("never connects"))
     api._current_url = lambda: "http://127.0.0.1:8000/evil.html"
