@@ -1275,3 +1275,16 @@ def test_connected_is_locked_while_a_through_loss_test_runs(app: Page):
     expect(app.get_by_label("What to test")).to_be_disabled()
     app.evaluate("window.__release()")
     expect(app.get_by_label("Connected", exact=True)).to_be_enabled()
+
+
+def test_hf_wide_sends_the_boxs_real_state_too(app: Page):
+    # As on the other tabs: an unticked box reaches Python as false even past the disabled button.
+    calibrate_tab(app)
+    box = app.get_by_role("tabpanel", name="Calibrate").get_by_label("No antenna connected")
+    app.get_by_label("Band to calibrate").select_option(label=HF_WIDE)
+    box.check()
+    expect(app.get_by_role("button", name="Measure open")).to_be_enabled()  # Python is ready: no race
+    box.uncheck()
+    app.evaluate('document.getElementById("cal-controls").requestSubmit()')
+    app.wait_for_function("window.__calBoxes.length > 0")  # like Wait Until Keyword Succeeds on a JS check
+    assert app.evaluate("window.__calBoxes") == [False]
