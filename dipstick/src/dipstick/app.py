@@ -19,7 +19,8 @@ from pathlib import Path
 from dipstick import balun
 from dipstick.bands import BANDS, band_range
 from dipstick.device import DeviceError, NanoVNA, find_port, nanovna_ports
-from dipstick.measure import band_for_target, measure_band, measure_cable, measure_choke, measure_transformer, shown
+from dipstick.measure import (band_for_target, measure_band, measure_cable, measure_choke, measure_loss,
+                              measure_transformer, shown)
 from dipstick.plots import smith_svg, swr_svg
 from dipstick.quiz import antenna_questions, cable_questions
 from dipstick.scan import MAX_POINTS
@@ -194,6 +195,16 @@ class Api:
         def measure():
             measured = measure_choke(no_antenna, self._connect, names=_FIELDS,
                                      calibrated=self._calibrated_band == WIDE and self._calibrated_both)
+            return {"report": measured.report}
+        return self._one_at_a_time(measure)
+
+    def loss(self, no_antenna, connection) -> dict:
+        """Test through loss: one item ("direct") or two identical transformers ("back-to-back")
+        between CH0 and CH1 (a wide sweep: only when no_antenna is exactly true); answers
+        {"ok": True, report} or {"ok": False, error}."""
+        def measure():
+            measured = measure_loss(no_antenna, connection, self._connect, names=_FIELDS,
+                                    calibrated=self._calibrated_band == WIDE and self._calibrated_both)
             return {"report": measured.report}
         return self._one_at_a_time(measure)
 

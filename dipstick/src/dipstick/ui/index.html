@@ -63,12 +63,17 @@
          The box is unticked after every test, so it's confirmed each time. -->
     <form id="balun-controls">
       <label for="balun-test">What to test</label>
-      <select id="balun-test"><option>Transformer</option><option>Choke</option></select>
-      <label class="confirm"><input id="balun-no-antenna" type="checkbox" aria-describedby="balun-hint choke-hint"> No antenna connected</label>
+      <select id="balun-test"><option>Transformer</option><option>Choke</option><option>Through loss</option></select>
+      <label class="confirm"><input id="balun-no-antenna" type="checkbox" aria-describedby="balun-hint choke-hint loss-hint"> No antenna connected</label>
       <span id="transformer-fields">  <!-- the choke test needs neither -->
         <label for="ratio">Ratio</label>
         <select id="ratio"><option>1:1</option><option>4:1</option><option>9:1</option><option>49:1</option></select>
         <label for="resistor">Resistor</label> <input id="resistor" placeholder="50 (default)" autocomplete="off">
+      </span>
+      <span id="loss-fields" hidden>
+        <label for="loss-connection">Connected</label>
+        <select id="loss-connection"><option value="direct">One item, direct</option>
+          <option value="back-to-back">Two transformers back to back</option></select>
       </span>
       <button id="check-balun" type="submit" disabled>Test transformer</button>  <!-- needs the box and Python -->
     </form>
@@ -83,6 +88,13 @@
       join its two output terminals and wire them to CH1's centre pin; then connect the outer shells of CH0 and CH1
       with a short wire. Keep every wire short. Sweeps 1.8 to 54 MHz, outside the ham bands. Never connect a radio
       to the NanoVNA: its ports take milliwatts.</p>
+    <p id="loss-hint" class="hint" hidden>Measures how much signal is lost passing through. Calibrate first on the
+      Calibrate tab: HF wide, with Both ports ticked. One item, direct: for a 1:1 balun, a cable or a filter. Its
+      input goes to CH0 and its output to CH1 (a balun's two output terminals to CH1's centre pin and shell, with
+      short leads). Two transformers back to back: for a pair of identical transformers, such as two 49:1s. Join
+      their high-impedance sides terminal to terminal with short wires, then one's coax side to CH0 and the other's
+      to CH1. Sweeps 1.8 to 54 MHz, outside the ham bands. Never connect a radio to the NanoVNA: its ports take
+      milliwatts.</p>
   </section>
   <section id="calibrate-panel" role="tabpanel" aria-labelledby="tab-calibrate" hidden>
     <!-- Open, short, load over one band (app.js says which standard to attach). Changes only the

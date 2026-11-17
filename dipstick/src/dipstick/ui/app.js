@@ -315,24 +315,36 @@ $("ratio").addEventListener("change", () => {
   $("resistor").placeholder = `${50 * parseInt($("ratio").value, 10)} (default)`;
 });
 
-// The choke test has no ratio or resistor, and its own wiring.
-function choke() { return $("balun-test").value === "Choke"; }
+// Each test shows its own fields (the choke test has none) and its own wiring hint.
+const BALUN_TESTS = {
+  "Transformer": {fields: "transformer-fields", hint: "balun-hint", button: "Test transformer", status: "Testing the transformer…"},
+  "Choke": {fields: null, hint: "choke-hint", button: "Test choke", status: "Testing the choke…"},
+  "Through loss": {fields: "loss-fields", hint: "loss-hint", button: "Test through loss", status: "Measuring the through loss…"},
+};
+const balunTest = () => $("balun-test").value;
 
 $("balun-test").addEventListener("change", () => {
-  $("transformer-fields").hidden = $("balun-hint").hidden = choke();
-  $("choke-hint").hidden = !choke();
-  $("check-balun").textContent = choke() ? "Test choke" : "Test transformer";
+  for (const [name, test] of Object.entries(BALUN_TESTS)) {
+    if (test.fields) $(test.fields).hidden = name !== balunTest();
+    $(test.hint).hidden = name !== balunTest();
+  }
+  $("check-balun").textContent = BALUN_TESTS[balunTest()].button;
 });
 
 $("balun-controls").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const fields = ["balun-test", "balun-no-antenna", "ratio", "resistor", "check-balun"];
+  const fields = ["balun-test", "balun-no-antenna", "ratio", "resistor", "loss-connection", "check-balun"];
   for (const id of fields) $(id).disabled = true;
   running(true);
   const noAntenna = $("balun-no-antenna").checked;
-  $("status").textContent = choke() ? "Testing the choke…" : "Testing the transformer…";
-  await ask(() => choke() ? window.pywebview.api.choke(noAntenna)
-                          : window.pywebview.api.transformer(noAntenna, $("ratio").value, $("resistor").value));
+  const api = window.pywebview.api;
+  $("status").textContent = BALUN_TESTS[balunTest()].status;
+  const calls = {
+    "Transformer": () => api.transformer(noAntenna, $("ratio").value, $("resistor").value),
+    "Choke": () => api.choke(noAntenna),
+    "Through loss": () => api.loss(noAntenna, $("loss-connection").value),
+  };
+  await ask(calls[balunTest()]);
   $("balun-no-antenna").checked = false;  // the antenna wire might be back on by the next test
   for (const id of fields) $(id).disabled = false;
   allowBalunCheck();

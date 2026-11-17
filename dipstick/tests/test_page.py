@@ -34,6 +34,8 @@ window.__balunAnswer = {ok: true, report: "49:1 transformer, 2450-ohm resistor: 
                         swr_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-balun-swr" viewBox="0 0 10 10"><rect class="ham-band" x="1" y="0" width="1" height="10"/></svg>'};
 window.__chokeCalls = [];
 window.__chokeAnswer = {ok: true, report: "Choke: good on 160m, 80m, 40m.\\n"};
+window.__lossCalls = [];
+window.__lossAnswer = {ok: true, report: "Through loss, direct: most 0.50 dB on 6m, least 0.10 dB on 160m.\\n"};
 window.__calError = null;
 window.__settings = {quiz: true};
 window.__saved = [];
@@ -76,6 +78,11 @@ setTimeout(() => {
       window.__chokeCalls.push(noAntenna);
       if (!window.__hold) return Promise.resolve(window.__chokeAnswer);
       return new Promise(resolve => { window.__release = () => resolve(window.__chokeAnswer); });
+    },
+    loss: (noAntenna, connection) => {
+      window.__lossCalls.push([noAntenna, connection]);
+      if (!window.__hold) return Promise.resolve(window.__lossAnswer);
+      return new Promise(resolve => { window.__release = () => resolve(window.__lossAnswer); });
     },
     calibrate: (band, step, noAntenna, bothPorts) => {
       window.__calCalls.push([band, step]);
@@ -1115,7 +1122,10 @@ def test_a_choke_error_is_shown_and_the_box_clears_too(app: Page):
 def test_the_page_sends_the_boxs_real_state_so_python_decides(app: Page):
     # The disabled button is a convenience; Python's check is the safety gate (T5), so the page must
     # pass on an unticked box as false. requestSubmit() submits even with the button disabled.
-    choke_mode(app)
+    box = choke_mode(app).get_by_label("No antenna connected")
+    box.check()
+    expect(app.get_by_role("button", name="Test choke")).to_be_enabled()  # Python is ready: no race
+    box.uncheck()
     app.evaluate('document.getElementById("balun-controls").requestSubmit()')
     expect(app.locator("#report")).to_contain_text("Choke")
     assert app.evaluate("window.__chokeCalls") == [False]
@@ -1189,3 +1199,79 @@ def test_a_band_sweep_after_hf_wide_says_it_isnt_calibrated_for_the_band(app: Pa
     app.get_by_label("Band", exact=True).select_option("40m")
     app.get_by_role("button", name="Sweep").click()
     expect(app.locator("#report")).to_contain_text("calibrated for 1.8 to 54 MHz (HF wide)")
+
+
+@pytest.mark.parametrize("tab, form, calls", [("Cable", "cable-controls", "__cableCalls"),
+                                              ("Balun", "balun-controls", "__balunCalls")])
+def test_the_older_tabs_send_the_boxs_real_state_too(app: Page, tab, form, calls):
+    # Same as the choke test above: an unticked box must reach Python as false, button or no button.
+    app.get_by_role("tab", name=tab).click()
+    panel = app.get_by_role("tabpanel", name=tab)
+    box = panel.get_by_label("No antenna connected")
+    box.check()
+    expect(panel.get_by_role("button")).to_be_enabled()  # Python is ready, so nothing is racing it
+    box.uncheck()
+    app.evaluate(f'document.getElementById("{form}").requestSubmit()')
+    expect(app.locator("#report")).not_to_be_empty()
+    assert app.evaluate(f"window.{calls}")[0][0] is False
+
+
+# --- the through-loss test on the Balun tab ------------------------------------------------------
+
+
+def loss_mode(app: Page):
+    panel = balun_tab(app)
+    app.get_by_label("What to test").select_option("Through loss")
+    return panel
+
+
+def test_choosing_through_loss_shows_connected_its_button_and_hint(app: Page):
+    loss_mode(app)
+    expect(app.get_by_label("Ratio")).to_be_hidden()
+    expect(app.get_by_label("Connected", exact=True)).to_be_visible()
+    expect(app.get_by_role("button", name="Test through loss")).to_be_visible()
+    expect(app.locator("#balun-hint")).to_be_hidden()
+    expect(app.locator("#choke-hint")).to_be_hidden()
+    hint = app.locator("#loss-hint")
+    for words in ("CH0", "CH1", "Both ports", "back to back", "1:1", "1.8 to 54 MHz", "Never connect a radio"):
+        expect(hint).to_contain_text(words)
+    app.get_by_label("What to test").select_option("Choke")
+    expect(app.get_by_label("Connected", exact=True)).to_be_hidden()
+    expect(app.locator("#loss-hint")).to_be_hidden()
+    expect(app.locator("#choke-hint")).to_be_visible()
+
+
+@pytest.mark.parametrize("label, sent", [("One item, direct", "direct"),
+                                         ("Two transformers back to back", "back-to-back")])
+def test_a_through_loss_test_sends_the_connection_and_shows_the_report(app: Page, label, sent):
+    panel = loss_mode(app)
+    app.get_by_label("Connected", exact=True).select_option(label=label)
+    panel.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Test through loss").click()
+    expect(app.locator("#report")).to_contain_text("Through loss, direct")
+    expect(app.locator("#swr")).to_be_empty()
+    expect(app.locator("#smith")).to_be_empty()
+    assert app.evaluate("window.__lossCalls") == [[True, sent]]
+    assert app.evaluate("window.__chokeCalls") == [] and app.evaluate("window.__balunCalls") == []
+    expect(panel.get_by_label("No antenna connected")).not_to_be_checked()
+
+
+def test_the_through_loss_test_sends_the_boxs_real_state(app: Page):
+    box = loss_mode(app).get_by_label("No antenna connected")
+    box.check()
+    expect(app.get_by_role("button", name="Test through loss")).to_be_enabled()  # Python is ready: no race
+    box.uncheck()
+    app.evaluate('document.getElementById("balun-controls").requestSubmit()')
+    expect(app.locator("#report")).not_to_be_empty()
+    assert app.evaluate("window.__lossCalls") == [[False, "direct"]]
+
+
+def test_connected_is_locked_while_a_through_loss_test_runs(app: Page):
+    app.evaluate("window.__hold = true")
+    panel = loss_mode(app)
+    panel.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Test through loss").click()
+    expect(app.get_by_label("Connected", exact=True)).to_be_disabled()
+    expect(app.get_by_label("What to test")).to_be_disabled()
+    app.evaluate("window.__release()")
+    expect(app.get_by_label("Connected", exact=True)).to_be_enabled()

@@ -106,14 +106,53 @@ def choke_rating(z: complex, loss_db: float) -> str:
     return "good" if z.real >= GOOD_OHMS else "fair"
 
 
-def analyze_choke(throughs: list) -> ChokeResult:
+def _band_middles(throughs: list, what: str):
+    """(band, the sweep point nearest its middle) for each HF band; an error if nothing arrived at all
+    (an unconnected CH1 reads like a perfect choke, or a huge loss)."""
     if all(t.loss_db > DEEPEST_DB for t in throughs):
         raise ValueError(f"Almost nothing arrives at CH1 across the whole sweep (over {DEEPEST_DB:g} dB down). "
-                         "Is the choke connected between CH0 and CH1, as the wiring shows?")
-    bands = []
+                         f"Is the {what} connected between CH0 and CH1, as the wiring shows?")
     for band in HF_BANDS:
         low, high = BANDS[band]
-        t = min(throughs, key=lambda t: abs(t.hz - (low + high) / 2))
+        yield band, min(throughs, key=lambda t: abs(t.hz - (low + high) / 2))
+
+
+def analyze_choke(throughs: list) -> ChokeResult:
+    bands = []
+    for band, t in _band_middles(throughs, "choke"):
         z = choke_impedance(t.s21) if t.s21 else complex(math.inf)
         bands.append(BandChoke(band, t.hz, t.loss_db, z, choke_rating(z, t.loss_db)))
     return ChokeResult(bands)
+
+
+# --- the through-loss test: one item direct, or two identical transformers back to back ---------
+# Loss in dB is -20 log10 |S21| (s21.py). Back to back, each transformer's share is half the total.
+
+CONNECTIONS = ("direct", "back-to-back")
+GAIN_TOLERANCE_DB = 0.1  # up to this above 0 dB is taken as noise around a near-lossless item (our
+                         # judgement, unverified on hardware); beyond it, the thru calibration is off
+
+
+@dataclass(frozen=True)
+class BandLoss:
+    band: str
+    hz: int  # the sweep point nearest the band's middle
+    loss_db: float  # one item's loss: half the total when two are back to back
+    status: str  # loss, gain (above 0 dB by more than noise) or beyond (deeper than DEEPEST_DB in total)
+
+
+@dataclass(frozen=True)
+class LossResult:
+    connection: str  # one of CONNECTIONS
+    bands: list[BandLoss]  # 160 m to 6 m, in order
+
+
+def analyze_loss(throughs: list, connection: str) -> LossResult:
+    if connection not in CONNECTIONS:
+        raise ValueError(f"The connection must be direct or back-to-back, got {connection!r}")
+    share = 2 if connection == "back-to-back" else 1
+    bands = []
+    for band, t in _band_middles(throughs, "item"):
+        status = "beyond" if t.loss_db > DEEPEST_DB else "gain" if t.loss_db < -GAIN_TOLERANCE_DB else "loss"
+        bands.append(BandLoss(band, t.hz, t.loss_db / share, status))
+    return LossResult(connection, bands)

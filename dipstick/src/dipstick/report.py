@@ -2,7 +2,7 @@
 
 from dipstick.analysis import Summary
 from dipstick.balun import (DEEPEST_DB, GOOD_OHMS, MATCHED, PLENTY_OHMS, POINTS, SHALLOWEST_DB, START_HZ, STOP_HZ,
-                            WEAK_OHMS, ChokeResult, TransformerResult)
+                            WEAK_OHMS, ChokeResult, LossResult, TransformerResult)
 from dipstick.cable import CableResult
 from dipstick.s11 import Reading
 
@@ -246,14 +246,55 @@ def choke_report(r: ChokeResult, calibrated: bool = False, thru: bool = True) ->
         "", f"What the NanoVNA measured: {POINTS} frequencies from {_mhz(START_HZ)} to {_mhz(STOP_HZ)} MHz,",
         "  through the choke from CH0 to CH1.",
     ]
+    return "\n".join(lines + _two_port_note(calibrated, thru)) + "\n"
+
+
+def _two_port_note(calibrated: bool, thru: bool) -> list[str]:
     if not thru:
-        lines += ["", "The NanoVNA's calibration has no thru step (or isn't switched on), so these numbers",
-                  "  aren't corrected and could be far off. Calibrate first: the Calibrate tab, HF wide, Both ports."]
-    elif not calibrated:
-        lines += ["", f"Measured with the NanoVNA's current calibration. For accurate numbers, calibrate over "
-                      f"{START_HZ / 1e6:g} to {STOP_HZ / 1e6:g} MHz",
-                  "  first with the wires you'll use (the Calibrate tab: HF wide, Both ports)."]
-    return "\n".join(lines) + "\n"
+        return ["", "The NanoVNA's calibration has no thru step (or isn't switched on), so these numbers",
+                "  aren't corrected and could be far off. Calibrate first: the Calibrate tab, HF wide, Both ports."]
+    if not calibrated:
+        return ["", f"Measured with the NanoVNA's current calibration. For accurate numbers, calibrate over "
+                    f"{START_HZ / 1e6:g} to {STOP_HZ / 1e6:g} MHz",
+                "  first with the wires you'll use (the Calibrate tab: HF wide, Both ports)."]
+    return []
+
+
+def loss_report(r: LossResult, calibrated: bool = False, thru: bool = True) -> str:
+    """The through-loss test in plain words; `calibrated` and `thru` as for choke_report."""
+    pair = r.connection == "back-to-back"
+    clean = [b for b in r.bands if b.status == "loss"]
+    if clean:
+        most, least = max(clean, key=lambda b: b.loss_db), min(clean, key=lambda b: b.loss_db)
+        answer = (f"most {max(most.loss_db, 0):.2f} dB on {most.band}, "
+                  f"least {max(least.loss_db, 0):.2f} dB on {least.band}.")
+    else:
+        answer = "no band read cleanly; see below."
+    lines = [f"Through loss, {'each of two transformers back to back' if pair else 'direct'}: {answer}",
+             "", "Band by band (the sweep point nearest each band's middle):"]
+    for b in r.bands:
+        if b.status == "beyond":
+            reading = f"over {DEEPEST_DB / (2 if pair else 1):g} dB{' each' if pair else ''}: almost nothing arrives"
+        elif b.status == "gain":
+            reading = (f"reads {-b.loss_db:.2f} dB of gain, which a passive item can't have: "
+                       "recheck the thru calibration")
+        elif b.loss_db <= 0:
+            reading = "about 0 dB: no loss this setup can measure"
+        else:
+            lost = 100 * (1 - 10 ** (-b.loss_db / 10))
+            reading = f"{b.loss_db:.2f} dB  ({'under 1' if lost < 1 else f'{lost:.0f}'}% of the power doesn't arrive)"
+        lines.append(f"  {b.band:<5}{_mhz(b.hz):>8} MHz  {reading}")
+    lines.append("  3 dB is half the power; 1 dB is about a fifth (21%); 0.1 dB is about 2%.")
+    if pair:
+        lines += ["  Each transformer's loss is half the pair's total, if the two are identical; the wire",
+                  "  between them adds a little. What doesn't arrive was turned into heat or reflected."]
+    else:
+        lines += ["  Direct suits a 1:1 balun, a cable or a filter: things meant for 50 ohms at both ends.",
+                  "  A step-up transformer such as a 49:1 alone reflects most of the signal and reads as a big",
+                  "  loss; test it with a resistor (the transformer test) or as a back to back pair."]
+    lines += ["", f"What the NanoVNA measured: {POINTS} frequencies from {_mhz(START_HZ)} to {_mhz(STOP_HZ)} MHz,",
+              f"  through the {'pair' if pair else 'item'} from CH0 to CH1."]
+    return "\n".join(lines + _two_port_note(calibrated, thru)) + "\n"
 
 
 def _transformer_rating(swr: float) -> str:

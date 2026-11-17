@@ -14,7 +14,7 @@ from dipstick import balun
 from dipstick.bands import band_containing, band_range
 from dipstick.cable import MAX_LENGTH_M, CableResult, analyze, sweep_for
 from dipstick.plots import smith_svg, swr_svg
-from dipstick.report import FOOT, cable_report, choke_report, report, transformer_report
+from dipstick.report import FOOT, cable_report, choke_report, loss_report, report, transformer_report
 from dipstick.s11 import Z0, Reading
 from dipstick.scan import MAX_POINTS, calibration_status, scan, scan_s21, thru_calibrated
 
@@ -146,18 +146,41 @@ def measure_choke(no_antenna: bool, connect, port: str | None = None, names: dic
     """A current balun's choking on each band, in series between CH0 and CH1. Wide, like the
     transformer test, so only when no_antenna is exactly True (T5). `calibrated`: calibrated with
     both ports over the sweep here. The NanoVNA's own status says whether S21 is corrected at all."""
+    throughs, thru = _two_port_sweep(no_antenna, connect, port, names, "The choke test", "the choke")
+    result = balun.analyze_choke(throughs)
+    return ChokeMeasurement(throughs, result, choke_report(result, calibrated=calibrated, thru=thru))
+
+
+@dataclass(frozen=True)
+class LossMeasurement:
+    throughs: list
+    result: balun.LossResult
+    report: str
+
+
+def measure_loss(no_antenna: bool, connection: str, connect, port: str | None = None,
+                 names: dict[str, str] = COMMAND_NAMES, calibrated: bool = False) -> LossMeasurement:
+    """Through loss on each band: one item between CH0 and CH1 ("direct"), or two identical
+    transformers back to back ("back-to-back"). Gated and calibrated as for measure_choke."""
+    if connection not in balun.CONNECTIONS:
+        raise ValueError(f"The connection must be direct or back-to-back, got {shown(connection)}")
+    throughs, thru = _two_port_sweep(no_antenna, connect, port, names, "The through-loss test", "it")
+    result = balun.analyze_loss(throughs, connection)
+    return LossMeasurement(throughs, result, loss_report(result, calibrated=calibrated, thru=thru))
+
+
+def _two_port_sweep(no_antenna, connect, port, names, test: str, item: str) -> tuple[list, bool]:
+    """S21 over the wide sweep, and whether the NanoVNA's calibration includes a thru."""
     if no_antenna is not True:
-        raise ValueError(f"The choke test sweeps {balun.START_HZ / 1e6:g} to {balun.STOP_HZ / 1e6:g} MHz, "
-                         "outside the ham bands. Take the choke off the antenna, wire it between CH0 and CH1, "
+        raise ValueError(f"{test} sweeps {balun.START_HZ / 1e6:g} to {balun.STOP_HZ / 1e6:g} MHz, "
+                         f"outside the ham bands. Take {item} off the antenna, wire it between CH0 and CH1, "
                          f"then {names['no_antenna']}.")
     nano = connect(port)
     try:
         thru = thru_calibrated(calibration_status(nano))
-        throughs = scan_s21(nano, balun.START_HZ, balun.STOP_HZ, balun.POINTS, no_antenna=True)
+        return scan_s21(nano, balun.START_HZ, balun.STOP_HZ, balun.POINTS, no_antenna=True), thru
     finally:
         nano.close()
-    result = balun.analyze_choke(throughs)
-    return ChokeMeasurement(throughs, result, choke_report(result, calibrated=calibrated, thru=thru))
 
 
 def _resistor(text: str | None, ratio: str, name: str) -> float:

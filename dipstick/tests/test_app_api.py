@@ -199,7 +199,7 @@ def test_the_page_can_only_reach_public_methods():
     # connection and lock private so the page can't reach them.
     public = {name for name in vars(Api(connect=None)) if not name.startswith("_")}
     assert public == set()
-    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "choke", "forget_ports", "nanovna",
+    assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "choke", "forget_ports", "loss", "nanovna",
                                                                          "serial_ports", "set_quiz", "settings", "sweep",
                                                                          "transformer", "use_port"}
 
@@ -973,6 +973,53 @@ def test_the_choke_report_reminds_unless_calibrated_both_ports_over_hf_wide(band
         assert api.calibrate(band, step, True, steps == BOTH)["ok"] is True
     nano[0] = lambda port: choke_nano()
     assert ("Calibrate tab" in api.choke(True)["report"]) is reminds
+
+
+def loss_nano(db=0.4):
+    from test_choke_cli import fake_nano as fake_two_port_nano
+    from test_loss import sweep as loss_sweep
+    return fake_two_port_nano(loss_sweep(lambda hz: db))[0]
+
+
+@pytest.mark.parametrize("no_antenna", [False, None, "true", 1, "yes"])
+def test_loss_refused_unless_no_antenna_is_exactly_true(no_antenna):
+    answer = Api(connect=lambda port: pytest.fail("never connects")).loss(no_antenna, "direct")
+    assert answer["ok"] is False and "outside the ham bands" in answer["error"]
+    assert "No antenna connected" in answer["error"] and "--" not in answer["error"]
+
+
+@pytest.mark.parametrize("connection", ["", "pair", "Direct", None, 2, ["direct"], "x" * 10_000])
+def test_loss_refuses_any_other_connection_before_connecting(connection):
+    answer = Api(connect=lambda port: pytest.fail("never connects")).loss(True, connection)
+    assert answer["ok"] is False and "direct or back-to-back" in answer["error"]
+    assert len(answer["error"]) < 300  # long text from the page is cut short, not echoed whole
+
+
+@pytest.mark.parametrize("connection, first", [
+    ("direct", "Through loss, direct: most 0.40 dB"),
+    ("back-to-back", "Through loss, each of two transformers back to back: most 0.20 dB"),
+])
+def test_loss_returns_the_report(connection, first):
+    answer = Api(connect=lambda port: loss_nano()).loss(True, connection)
+    assert answer["ok"] is True and answer["report"].startswith(first)
+
+
+def test_loss_waits_its_turn():
+    api = Api(connect=lambda port: pytest.fail("never connects"))
+    api._busy.acquire()
+    assert api.loss(True, "direct") == {"ok": False, "error": "A sweep is already running"}
+
+
+def test_the_loss_report_reminds_unless_calibrated_both_ports_over_hf_wide():
+    nano = [Calibrator()]
+    api = Api(connect=lambda port: nano[0](port))
+    nano[0] = lambda port: loss_nano()
+    assert "Calibrate tab" in api.loss(True, "direct")["report"]
+    nano[0] = Calibrator()
+    for step in BOTH:
+        assert api.calibrate("wide", step, True, True)["ok"] is True
+    nano[0] = lambda port: loss_nano()
+    assert "Calibrate tab" not in api.loss(True, "direct")["report"]
 
 
 # --- calibrating over the transformer test's range (HF wide) --------------------------------------

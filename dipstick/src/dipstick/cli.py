@@ -14,9 +14,9 @@ from serial.tools import list_ports
 
 from dipstick.bands import BANDS
 from dipstick.device import DeviceError, NanoVNA, find_port
-from dipstick.balun import RATIOS
+from dipstick.balun import CONNECTIONS, RATIOS
 from dipstick.measure import (BandMeasurement, band_for_target, measure_band, measure_cable, measure_choke,
-                              measure_transformer)
+                              measure_loss, measure_transformer)
 from dipstick.scan import MAX_POINTS
 
 
@@ -94,19 +94,23 @@ def _balun(argv: list[str], connect) -> int:
         description="Test an unun or voltage balun: a resistor of 50 x the ratio on its output (2450 ohms for a "
                     "49:1), the NanoVNA on its input. Shows its SWR on each band from 160 m to 6 m. Or, with "
                     "--choke, a current balun's choking: the choke between CH0 and CH1, after calibrating "
-                    "with both ports.")
+                    "with both ports. Or, with --loss, through loss: one item, or two identical transformers "
+                    "back to back, between CH0 and CH1.")
     test = parser.add_mutually_exclusive_group(required=True)
     test.add_argument("--ratio", help=f"the transformer's ratio: {', '.join(RATIOS)}")
     test.add_argument("--choke", action="store_true",
                       help="test a current balun's choking instead (uses both ports; shows R and |Z| per band)")
+    test.add_argument("--loss", choices=CONNECTIONS,
+                      help="test through loss instead: one item direct, or two identical transformers back to back "
+                           "(uses both ports; shows dB per band)")
     parser.add_argument("--resistor", help="the resistor's value, e.g. 2450, 2.45k (default: 50 x the ratio)")
     parser.add_argument("--no-antenna", action="store_true",
                         help="confirm nothing that radiates is connected: this sweeps far outside the ham bands")
     parser.add_argument("--port", help="the NanoVNA's serial port, if dipstick can't find it")
     parser.add_argument("--out", type=Path, default=Path("output"), help="folder for the SVG plot (default: output)")
     args = parser.parse_args(argv)
-    if args.choke:
-        return _choke(args, connect)
+    if args.choke or args.loss:
+        return _two_port(args, connect)
     try:
         measured = measure_transformer(args.no_antenna, args.ratio, args.resistor, connect, args.port)
         print(measured.report, end="")
@@ -121,11 +125,13 @@ def _balun(argv: list[str], connect) -> int:
         return 2
 
 
-def _choke(args, connect) -> int:
+def _two_port(args, connect) -> int:
     try:
         if args.resistor is not None:
-            raise ValueError("--resistor is for the transformer test (--ratio), not --choke")
-        print(measure_choke(args.no_antenna, connect, args.port).report, end="")
+            raise ValueError(f"--resistor is for the transformer test (--ratio), not {'--choke' if args.choke else '--loss'}")
+        measured = (measure_choke(args.no_antenna, connect, args.port) if args.choke
+                    else measure_loss(args.no_antenna, args.loss, connect, args.port))
+        print(measured.report, end="")
         return 0
     except (DeviceError, ValueError, OSError) as error:
         print(f"dipstick: {error}", file=sys.stderr)
