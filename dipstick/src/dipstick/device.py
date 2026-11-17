@@ -67,19 +67,58 @@ def windows_usb_name(port) -> str:
         return ""
 
 
+def device_name(port, usb_name=windows_usb_name) -> str:
+    """What the USB device calls itself: on Windows the bus-reported name (the port's own says
+    "USB Serial Device"), elsewhere pyserial's product, else its description; "" if none."""
+    for text in (usb_name(port), port.product, port.description):
+        if text and text.strip() and text != "n/a":
+            return text.strip()
+    return ""
+
+
 def nanovna_ports(ports, approved=(), usb_name=windows_usb_name) -> list[str]:
     """The ports in pyserial's list_ports.comports() that are NanoVNAs: the USB ID and the name, or
-    a USB ID the person approved (`approved`: (vendor, product) pairs). Clones often use a generic
-    chip, such as the CH340, whose ID says nothing about a NanoVNA; only the person can say that
-    one is theirs (T3), and it's their say-so that counts, not the name. `usb_name`: where else to
+    a USB ID the person approved. Clones often use a generic chip, such as the CH340, whose ID says
+    nothing about a NanoVNA; only the person can say that one is theirs (T3), and it's their say-so
+    that counts, not the name. `approved`: (vendor, product) pairs, or (vendor, product, name) for
+    the NanoVNA's own ID, which is ST's generic one: approving it alone would also approve a tinySA
+    or any other STM32 gadget, so a plain (0483, 5740) approves nothing. `usb_name`: where else to
     look for the name (Windows keeps it apart from the port's; see windows_usb_name)."""
     def named_nanovna(p) -> bool:
         if "nanovna" in f"{p.product or ''} {p.description or ''}".lower():
             return True
         return "nanovna" in usb_name(p).lower()
-    return [p.device for p in ports
-            if ((p.vid, p.pid) == USB_ID and named_nanovna(p))
-            or (p.vid is not None and (p.vid, p.pid) in approved)]
+
+    def is_approved(p) -> bool:
+        for entry in approved:
+            if p.vid is None or tuple(entry[:2]) != (p.vid, p.pid):
+                continue
+            if len(entry) == 3 and entry[2] == device_name(p, usb_name):
+                return True
+            if len(entry) == 2 and (p.vid, p.pid) != USB_ID:
+                return True
+        return False
+    return [p.device for p in ports if ((p.vid, p.pid) == USB_ID and named_nanovna(p)) or is_approved(p)]
+
+
+def original_firmware_ports(ports, usb_name=windows_usb_name) -> list[str]:
+    """Ports that may be a NanoVNA running the original firmware (edy555/ttrftech): the NanoVNA's
+    USB ID with ChibiOS's generic name, "ChibiOS/RT Virtual COM Port" (its usbcfg.c, read
+    2026-11-17). Only for the not-found message: both are defaults other gadgets share, so these
+    are never opened unless the person picks one (T3)."""
+    def chibios(p) -> bool:
+        return "chibios" in f"{p.product or ''} {p.description or ''} {usb_name(p)}".lower()
+    return [p.device for p in ports if (p.vid, p.pid) == USB_ID and chibios(p)]
+
+
+def original_firmware_hint(ports, port_option: bool, usb_name=windows_usb_name) -> str:
+    """One sentence naming a port that may be a NanoVNA with the original firmware, or ""."""
+    maybe = original_firmware_ports(ports, usb_name)
+    if not maybe:
+        return ""
+    how = f"give it with --port {maybe[0]}" if port_option else "choose it under Is your NanoVNA one of these?"
+    return (f" {maybe[0]} has the NanoVNA's USB ID but a generic name, as the original NanoVNA firmware "
+            f"names it; if it's your NanoVNA, {how}.")
 
 
 def find_port(ports, port_option: bool = True, approved=(), usb_name=windows_usb_name) -> str:
@@ -93,8 +132,9 @@ def find_port(ports, port_option: bool = True, approved=(), usb_name=windows_usb
         raise DeviceError(f"Found more than one NanoVNA ({', '.join(found)}); "
                           + ("choose one with --port" if port_option else "unplug one"))
     connected = ", ".join(p.device for p in ports) or "no USB serial ports are connected"
+    hint = original_firmware_hint(ports, port_option, usb_name)
     raise DeviceError(f"No NanoVNA found. Is it plugged in and switched on? Serial ports: {connected}."
-                      + (" If yours has another name, give its port with --port." if port_option else ""))
+                      + (hint or (" If yours has another name, give its port with --port." if port_option else "")))
 
 
 class NanoVNA:

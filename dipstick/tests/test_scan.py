@@ -206,3 +206,21 @@ def test_without_an_applied_thru_s21_is_uncalibrated(line):
 def test_an_unexpected_status_is_refused(line):
     with pytest.raises(DeviceError, match="calibration status"):
         calibration_status(status_nano(line))
+
+
+# The original NanoVNA firmware (edy555/ttrftech). There's no such device here, so these replies
+# are built from its main.c (read 2026-11-17), not recorded: `sweep` alone prints "%d %d %d",
+# `scan` with a mask prints "%u " and "%f %f " per point (six decimals), and the shell echoes the
+# line and prompts "ch> " like the NanoVNA-H's. Its default sweep is 50 kHz to 900 MHz, 101 points.
+ORIGINAL_SETTINGS = recorded("original_fw/sweep")
+ORIGINAL_RESTORE = b"sweep 50000 900000000 101"
+
+
+def test_original_firmware_scan_and_restore():
+    link = FakeLink({b"sweep": ORIGINAL_SETTINGS, SCAN_40M: recorded("original_fw/scan_40m_11_3"),
+                     ORIGINAL_RESTORE: ORIGINAL_RESTORE + b"\r\nch> "})
+    readings = scan(NanoVNA(link), 7_000_000, 7_300_000, 11)
+    assert [r.hz for r in readings] == list(range(7_000_000, 7_300_001, 30_000))
+    assert readings[0].s11 == complex(0.999913, -0.000304)
+    assert readings[0].swr > 1000
+    assert link.written == [b"sweep\r", SCAN_40M + b"\r", ORIGINAL_RESTORE + b"\r"]

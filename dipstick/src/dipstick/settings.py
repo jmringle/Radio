@@ -14,8 +14,23 @@ from pathlib import Path
 
 DEFAULTS = {"quiz": True, "ports": []}
 MAX_PORTS = 8  # remembered USB IDs; ours is one or two
-USB_ID_TEXT = re.compile(r"[0-9A-F]{4}:[0-9A-F]{4}")  # vendor:product, as 1A86:7523
-MAX_BYTES = 4096  # ours is about 15 bytes; a bigger file isn't ours
+GENERIC_ST_ID = "0483:5740"  # the NanoVNA's USB ID, which is ST's generic one (tinySAs and more use it)
+MAX_NAME = 64
+# vendor:product, as 1A86:7523; or the generic ST ID followed by the device's name, as
+# "0483:5740 ChibiOS/RT Virtual COM Port" (printable ASCII, no space at either end). A plain
+# 0483:5740 isn't accepted: it would approve every STM32 gadget (T3).
+_ID_ONLY = re.compile(r"[0-9A-F]{4}:[0-9A-F]{4}")
+_ST_WITH_NAME = re.compile(GENERIC_ST_ID + r" [!-~](?:[ -~]{0,%d}[!-~])?" % (MAX_NAME - 2))
+MAX_BYTES = 4096  # ours is a few dozen bytes; a bigger file isn't ours
+
+
+def valid_approval(text) -> bool:
+    """Whether `text` is a USB ID the app may remember (see the patterns above)."""
+    if not isinstance(text, str):
+        return False
+    if _ID_ONLY.fullmatch(text):
+        return text != GENERIC_ST_ID
+    return bool(_ST_WITH_NAME.fullmatch(text))
 
 
 def settings_file(platform=sys.platform, env=os.environ, home=Path.home) -> Path:
@@ -43,8 +58,8 @@ def load(path: Path | None) -> dict:
     if isinstance(saved, dict) and isinstance(saved.get("quiz"), bool):
         settings["quiz"] = saved["quiz"]
     ports = saved.get("ports") if isinstance(saved, dict) else None
-    if isinstance(ports, list):  # anything that isn't a plain vendor:product ID is dropped
-        settings["ports"] = [i for i in dict.fromkeys(ports) if isinstance(i, str) and USB_ID_TEXT.fullmatch(i)][:MAX_PORTS]
+    if isinstance(ports, list):  # anything that isn't a USB ID we'd have saved is dropped
+        settings["ports"] = [i for i in dict.fromkeys(p for p in ports if isinstance(p, str)) if valid_approval(i)][:MAX_PORTS]
     return settings
 
 

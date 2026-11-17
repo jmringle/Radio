@@ -165,6 +165,16 @@ def test_status_not_found():
     assert status([RADIO]) == {"connected": False, "text": "No NanoVNA found. Is it plugged in and switched on?"}
 
 
+def test_status_names_a_nanovna_with_original_firmware():
+    # See test_device.py: the original firmware's generic USB name. The header says which port
+    # it may be and to choose it in the picker below; it still isn't connected by itself (T3).
+    original = Port("/dev/cu.usbmodem1", 0x0483, 0x5740, "ChibiOS/RT Virtual COM Port")
+    answer = status([RADIO, original])
+    assert answer["connected"] is False
+    assert "original NanoVNA firmware" in answer["text"] and "/dev/cu.usbmodem1" in answer["text"]
+    assert "--port" not in answer["text"]
+
+
 def test_status_more_than_one():
     other = Port("/dev/cu.usbmodem402", 0x0483, 0x5740, "NanoVNA-H")
     answer = status([NANO, other])
@@ -883,8 +893,13 @@ def test_forget_ports():
 
 def test_a_settings_file_with_odd_ports_is_ignored(tmp_path):
     path = tmp_path / "settings.json"
-    path.write_text('{"ports": ["1a86:7523", "1A86:7523", "1A86:7523", 7, "../etc", "0483:5740"]}')
-    assert Api(connect=None, settings_path=path).serial_ports()["remembered"] == ["1A86:7523", "0483:5740"]
+    path.write_text('{"ports": ["1a86:7523", "1A86:7523", "1A86:7523", 7, "../etc", "0483:5740", '
+                    '"0483:5740 ", "0483:5740 bad\\u0007", "1A86:7523 USB Serial", "0483:5740 ' + "x" * 65 + '", '
+                    '"0483:5740 ChibiOS/RT Virtual COM Port"]}')
+    # A plain 0483:5740 (ST's generic ID, saved by builds before 2026-11-17) would accept any STM32
+    # gadget, so it's dropped: the person picks the NanoVNA again. A name goes only with that ID.
+    assert Api(connect=None, settings_path=path).serial_ports()["remembered"] == [
+        "1A86:7523", "0483:5740 ChibiOS/RT Virtual COM Port"]
 
 
 def test_the_port_choice_is_refused_when_the_window_has_left_the_page():
@@ -1090,3 +1105,53 @@ def test_after_calibrating_hf_wide_a_band_sweep_still_reminds():
         api.calibrate("wide", step, True)
     nano[0] = lambda port: good_40m()
     assert "recalibrate" in api.sweep("40m", "", 101)["report"]
+
+
+# --- the generic ST ID: a NanoVNA with the original firmware (2026-11-17) -----------------------------
+# 0483:5740 is ST's generic ID, also on tinySAs and other STM32 gadgets, so choosing a port with it
+# remembers the device's name too: approving the NanoVNA must not approve a tinySA plugged in later (T3).
+
+ORIGINAL_FW = Port("/dev/cu.usbmodem1", 0x0483, 0x5740, "ChibiOS/RT Virtual COM Port", "ChibiOS/RT Virtual COM Port")
+TINYSA = Port("/dev/cu.usbmodem9", 0x0483, 0x5740, "tinySA", "tinySA")
+
+
+def test_choosing_the_generic_st_id_remembers_the_name(tmp_path):
+    path = tmp_path / "settings.json"
+    api = Api(connect=None, ports=lambda: [ORIGINAL_FW], settings_path=path)
+    assert api.serial_ports()["ports"] == [{"device": "/dev/cu.usbmodem1", "id": "0483:5740 ChibiOS/RT Virtual COM Port",
+                                            "label": "/dev/cu.usbmodem1: ChibiOS/RT Virtual COM Port"}]
+    assert api.use_port("/dev/cu.usbmodem1") == {"ok": True}
+    assert api.serial_ports()["remembered"] == ["0483:5740 ChibiOS/RT Virtual COM Port"]
+    again = Api(connect=None, ports=lambda: [ORIGINAL_FW], settings_path=path)  # the next launch
+    assert again.nanovna() == {"connected": True, "text": "NanoVNA connected (/dev/cu.usbmodem1)"}
+
+
+def test_approving_the_original_firmware_does_not_approve_a_tinysa(tmp_path):
+    path = tmp_path / "settings.json"
+    Api(connect=None, ports=lambda: [ORIGINAL_FW], settings_path=path).use_port("/dev/cu.usbmodem1")
+    later = Api(connect=None, ports=lambda: [TINYSA], settings_path=path)
+    assert later.nanovna()["connected"] is False
+    assert [p["device"] for p in later.serial_ports()["ports"]] == ["/dev/cu.usbmodem9"]  # still offered, not taken
+
+
+def test_a_sweep_never_opens_a_tinysa_after_approving_the_original_firmware(monkeypatch, tmp_path):
+    tried = []
+
+    def no_real_port(cls, port, read_timeout_s=0.25):
+        tried.append(port)
+        raise DeviceError(f"Can't open {port}: not in tests")
+    monkeypatch.setattr(NanoVNA, "open", classmethod(no_real_port))
+    path = tmp_path / "settings.json"
+    Api(connect=None, ports=lambda: [ORIGINAL_FW], settings_path=path).use_port("/dev/cu.usbmodem1")
+    api = Api(connect=connect_nanovna, ports=lambda: [TINYSA], settings_path=path)
+    assert "No NanoVNA found" in api.sweep("40m", "", 101)["error"]
+    assert tried == []
+
+
+def test_the_generic_st_id_with_no_usable_name_is_refused(tmp_path):
+    for name in (None, "n/a", "caf\u00e9 VNA", "x" * 65):
+        port = Port("/dev/cu.usbmodem7", 0x0483, 0x5740, name, name or "n/a")
+        api = Api(connect=None, ports=lambda: [port], settings_path=tmp_path / "s.json")
+        answer = api.use_port("/dev/cu.usbmodem7")
+        assert answer["ok"] is False and "name" in answer["error"], name
+        assert api.serial_ports()["remembered"] == []

@@ -356,3 +356,66 @@ def test_an_approved_usb_id_is_a_nanovna_whatever_its_name():
 
 def test_a_port_with_no_usb_id_is_never_approved():
     assert find_port([NANO, Port("/dev/cu.Bluetooth-Incoming-Port")], approved=[(0x1A86, 0x7523)]) == NANO.device
+
+
+# The original NanoVNA firmware (edy555/ttrftech, last changed 2020) keeps ChibiOS's generic USB
+# name, "ChibiOS/RT Virtual COM Port" (its usbcfg.c, read 2026-11-17), so it isn't found by name.
+# It's still never guessed (T3: that ID and name are ST's and ChibiOS's defaults, shared by other
+# gadgets), but the not-found message points at it, so its owner knows what to do.
+ORIGINAL_FW = Port("/dev/cu.usbmodem1", 0x0483, 0x5740, "ChibiOS/RT Virtual COM Port", "ChibiOS/RT Virtual COM Port")
+
+
+def test_original_firmware_is_not_guessed_but_named():
+    with pytest.raises(DeviceError, match="No NanoVNA found") as error:
+        find_port([ORIGINAL_FW])
+    assert "original NanoVNA firmware" in str(error.value)
+    assert "--port /dev/cu.usbmodem1" in str(error.value)
+    assert "If yours has another name" not in str(error.value)  # one way forward, not two
+
+
+def test_original_firmware_hint_in_the_app_never_mentions_port_option():
+    with pytest.raises(DeviceError, match="original NanoVNA firmware") as error:
+        find_port([ORIGINAL_FW], port_option=False)
+    assert "--port" not in str(error.value)
+    assert "Is your NanoVNA one of these?" in str(error.value)
+
+
+def test_original_firmware_on_windows_is_named_from_the_usb_device():
+    port = Port("COM5", 0x0483, 0x5740, None, "USB Serial Device (COM5)")
+    with pytest.raises(DeviceError, match="original NanoVNA firmware.*--port COM5"):
+        find_port([port], usb_name=lambda p: "ChibiOS/RT Virtual COM Port")
+
+
+@pytest.mark.parametrize("port", [
+    Port("/dev/cu.usbmodem2", 0x0483, 0x5740, "STM32 Virtual ComPort"),        # another STM32 gadget
+    Port("/dev/cu.usbmodem3", 0x0483, 0x5740, "tinySA"),                       # a tinySA: same ID, says what it is
+    Port("/dev/cu.usbmodem4", 0x1234, 0x5678, "ChibiOS/RT Virtual COM Port"),  # ChibiOS name, another ID
+])
+def test_no_original_firmware_hint_for_other_gadgets(port):
+    with pytest.raises(DeviceError, match="No NanoVNA found") as error:
+        find_port([port])
+    assert "original NanoVNA firmware" not in str(error.value)
+
+
+def test_a_nanovna_found_by_name_needs_no_hint():
+    assert find_port([NANO, ORIGINAL_FW]) == NANO.device
+
+
+
+def test_an_approved_name_goes_with_the_generic_st_id_only():
+    approved = [(0x0483, 0x5740, "ChibiOS/RT Virtual COM Port")]
+    assert find_port([ORIGINAL_FW], approved=approved) == ORIGINAL_FW.device
+    with pytest.raises(DeviceError, match="No NanoVNA found"):  # same ID, another name
+        find_port([Port("/dev/cu.usbmodem3", 0x0483, 0x5740, "tinySA")], approved=approved)
+
+
+def test_a_plain_approval_of_the_generic_st_id_is_ignored():
+    # Defence in depth: even if (0483, 5740) arrived without a name, it approves nothing (T3).
+    with pytest.raises(DeviceError, match="No NanoVNA found"):
+        find_port([Port("/dev/cu.usbmodem3", 0x0483, 0x5740, "tinySA")], approved=[(0x0483, 0x5740)])
+
+
+def test_on_windows_the_approved_name_is_the_usb_devices():
+    port = Port("COM5", 0x0483, 0x5740, None, "USB Serial Device (COM5)")
+    approved = [(0x0483, 0x5740, "ChibiOS/RT Virtual COM Port")]
+    assert find_port([port], approved=approved, usb_name=lambda p: "ChibiOS/RT Virtual COM Port") == "COM5"

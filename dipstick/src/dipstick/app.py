@@ -18,7 +18,7 @@ from pathlib import Path
 
 from dipstick import balun
 from dipstick.bands import BANDS, band_range
-from dipstick.device import DeviceError, NanoVNA, find_port, nanovna_ports
+from dipstick.device import USB_ID, DeviceError, NanoVNA, device_name, find_port, nanovna_ports, original_firmware_ports
 from dipstick.measure import (band_for_target, measure_band, measure_cable, measure_choke, measure_loss,
                               measure_transformer, shown)
 from dipstick.plots import smith_svg, swr_svg
@@ -66,7 +66,10 @@ def connect_nanovna(port: str | None, ports=list_ports.comports, approved=()) ->
 
 
 def _usb_id_text(port) -> str:
-    return f"{port.vid:04X}:{port.pid:04X}"
+    """What the picker remembers for `port`: its USB ID, plus the device's name for the generic ST
+    ID (see settings.valid_approval). May not be valid: use_port checks before saving it."""
+    text = f"{port.vid:04X}:{port.pid:04X}"
+    return f"{text} {device_name(port)}" if (port.vid, port.pid) == USB_ID and device_name(port) else text
 
 
 def _what_it_says(port) -> str:
@@ -77,9 +80,11 @@ def _what_it_says(port) -> str:
     return "USB serial"
 
 
-def _usb_id_pair(text: str) -> tuple[int, int]:
-    vendor, product = text.split(":")
-    return int(vendor, 16), int(product, 16)
+def _usb_id_pair(text: str) -> tuple:
+    """(vendor, product), or (vendor, product, name) for the generic ST ID."""
+    usb_id, _, name = text.partition(" ")
+    vendor, product = usb_id.split(":")
+    return (int(vendor, 16), int(product, 16)) + ((name,) if name else ())
 
 
 class Api:
@@ -113,6 +118,9 @@ class Api:
             return {"connected": True, "text": f"NanoVNA connected ({found[0]})"}
         if found:
             return {"connected": False, "text": f"More than one NanoVNA is plugged in ({', '.join(found)}); unplug one"}
+        if maybe := original_firmware_ports(self._ports()):
+            return {"connected": False, "text": f"No NanoVNA found by name. {maybe[0]} may be one with the "
+                                                "original NanoVNA firmware: if it's yours, choose it below."}
         return {"connected": False, "text": "No NanoVNA found. Is it plugged in and switched on?"}
 
     def serial_ports(self) -> dict:
@@ -136,6 +144,9 @@ class Api:
         if not match:
             return {"ok": False, "error": f"{shown(device)} isn't a USB serial port that's plugged in now"}
         usb_id = _usb_id_text(match[0])
+        if not saved.valid_approval(usb_id):
+            return {"ok": False, "error": f"{shown(device)} has ST's generic USB ID without a name Dipstick can "
+                                          "use, so it can't be told apart from other gadgets and can't be remembered"}
         with self._saving:
             if usb_id not in self._settings["ports"] and len(self._settings["ports"]) >= saved.MAX_PORTS:
                 return {"ok": False, "error": "Too many remembered ports; forget them first"}
