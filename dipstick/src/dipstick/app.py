@@ -6,6 +6,7 @@ through pywebview's bridge (window.pywebview.api), so no other web page can reac
 pywebview loads only when a window opens, so tests and the command don't need it.
 """
 
+import os
 import sys
 import threading
 import urllib.parse
@@ -344,12 +345,21 @@ def self_test() -> int:
 
 def main() -> int:
     if "--self-test" in sys.argv[1:]:
-        return self_test()
-    import webview
+        code = self_test()
+    else:
+        import webview
 
-    _open_window(Api(settings_path=saved.settings_file()), APP_NAME, width=1100, height=900, min_size=(480, 600))
-    webview.start()
-    return 0
+        _open_window(Api(settings_path=saved.settings_file()), APP_NAME, width=1100, height=900, min_size=(480, 600))
+        webview.start()
+        code = 0
+    # The window is closed: exit now, without waiting for other threads. pywebview runs each call from
+    # the page on a non-daemon thread that hands its answer back through the window; one still running
+    # when the window closes can wait forever, and Python would wait for it (beta.10's built app hung
+    # after its self-test 3 runs in 5, 2026-11-16). Nothing left needs them: settings are written
+    # whole before a call answers (and swapped in, so never half-written), and the OS closes the port.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
 if __name__ == "__main__":

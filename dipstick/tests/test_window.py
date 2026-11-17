@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -51,3 +52,16 @@ def test_a_page_the_window_is_sent_to_cant_use_the_nanovna(tmp_path):
     assert seen["landed"] and seen["bridge_there"]  # the attack's precondition really happened
     assert seen["answer"]["ok"] is False and "Only Dipstick's own page" in seen["answer"]["error"]
     assert seen["connects"] == 0
+
+
+def test_the_app_quits_even_if_a_call_from_the_page_is_still_running():
+    # beta.10's built app sometimes hung after closing its window (see window_quit_probe.py).
+    started = time.monotonic()
+    try:
+        done = subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), "window_quit_probe.py")],
+                              capture_output=True, text=True, timeout=45)
+    except subprocess.TimeoutExpired:
+        pytest.fail("still running 45 s later: a call from the page kept the app from quitting")
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert '"guarded": true' in done.stdout
+    assert time.monotonic() - started < 45
