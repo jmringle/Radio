@@ -1,6 +1,21 @@
 """Shared test setup."""
 
 import pytest
+import serial
+
+
+# No test opens a real serial port, apart from test_hardware.py, which asks for the NanoVNA by name
+# and runs only when you ask. A test that reached the real port once sent a carriage return to
+# whatever was on COM7 (a CH340 that wasn't a NanoVNA, Windows, 2026-11-17): a radio's cable there
+# could have keyed it (T3). Tests that check how the port is opened put their own stand-in over this.
+@pytest.fixture(autouse=True)
+def no_real_serial_ports(request, monkeypatch):
+    if request.module.__name__ == "test_hardware":
+        return
+
+    def refuse(self):
+        raise serial.SerialException(f"tests don't open real serial ports ({self.port})")
+    monkeypatch.setattr(serial.Serial, "open", refuse)
 
 
 # pytest-playwright 0.10.0 (the latest, checked 2026-11-16) supplies a base_url fixture when

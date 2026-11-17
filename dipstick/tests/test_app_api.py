@@ -848,12 +848,21 @@ def test_choosing_the_port_is_remembered_across_launches(tmp_path):
     assert again.settings() == {"quiz": True}  # the page's settings are still only the quiz
 
 
-def test_a_sweep_connects_to_the_remembered_port():
+def test_a_sweep_connects_to_the_remembered_port(monkeypatch):
+    # Never open a real port: a computer running the tests may have a real COM7, and this one did
+    # (a CH340 that wasn't a NanoVNA, 2026-11-17), so the test sent it a carriage return.
+    tried = []
+
+    def no_real_port(cls, port, read_timeout_s=0.25):
+        tried.append(port)
+        raise DeviceError(f"Can't open {port}: not in tests")
+    monkeypatch.setattr(NanoVNA, "open", classmethod(no_real_port))
     api = Api(connect=connect_nanovna, ports=lambda: [CH340])
     assert "No NanoVNA found" in api.sweep("40m", "", 101)["error"]
+    assert tried == []  # not approved yet: nothing opened (T3)
     assert api.use_port("COM7") == {"ok": True}
-    # There's no COM7 here, so opening it fails; the error naming it shows the app tried that port.
     assert "Can't open COM7" in api.sweep("40m", "", 101)["error"]
+    assert tried == ["COM7"]
 
 
 def test_use_port_only_for_a_usb_serial_port_that_is_plugged_in(tmp_path):
