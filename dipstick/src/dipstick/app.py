@@ -16,9 +16,10 @@ from serial.tools import list_ports
 import traceback
 from pathlib import Path
 
+from dipstick import balun
 from dipstick.bands import BANDS, band_range
 from dipstick.device import DeviceError, NanoVNA, find_port, nanovna_ports
-from dipstick.measure import band_for_target, measure_band, measure_cable, shown
+from dipstick.measure import band_for_target, measure_band, measure_cable, measure_transformer, shown
 from dipstick.plots import smith_svg, swr_svg
 from dipstick.quiz import antenna_questions, cable_questions
 from dipstick.scan import MAX_POINTS
@@ -28,7 +29,10 @@ APP_NAME = "Dipstick"  # the window title (the command stays lowercase: dipstick
 PAGE = Path(__file__).parent / "ui" / "index.html"
 # The cable tab's labels, so errors name the field to fix (index.html must match).
 _FIELDS = {"no_antenna": "tick No antenna connected", "vf": "Velocity factor", "length": "Length",
-           "max_length": "Longest cable"}
+           "max_length": "Longest cable", "ratio": "Ratio", "resistor": "Resistor"}
+# The Calibrate tab's choice for the transformer test's range (index.html must match): 1.8 to 54 MHz,
+# the same 101 points, so the test sweeps exactly the calibrated frequencies.
+WIDE = "wide"
 CAL_ORDER = ("open", "short", "load")
 # A calibration step answers only after the NanoVNA has swept the standard once, at 100 Hz
 # bandwidth or narrower (hugen79/NanoVNA-H cal_collect, read 2026-11-15): slower than a reply.
@@ -153,7 +157,7 @@ class Api:
             if not isinstance(band, str):
                 raise ValueError("Choose a band")
             measured = measure_band(band, text, _points(points), self._connect,
-                                    calibrated=self._calibrated_band is not None)
+                                    calibrated=self._calibrated_band not in (None, WIDE))
             # The window's stylesheet colors the plots (its security policy blocks inline styles).
             return {"band": band, "report": measured.report,
                     "swr_svg": swr_svg(measured.readings, band, standalone=False, target_hz=measured.target_hz),
@@ -170,17 +174,35 @@ class Api:
                     "quiz": _quiz(cable_questions(measured.result))}
         return self._one_at_a_time(measure)
 
-    def calibrate(self, band, step) -> dict:
-        """One calibration step over a band: "open" (which always starts over), then "short", then
-        "load", which also applies the new calibration. Answers {"ok": True, "next": the next step
-        or None when finished} or {"ok": False, error}. Changes only the calibration in the
-        NanoVNA's memory (never `save`), and leaves the NanoVNA sweeping the band it covers."""
+    def transformer(self, no_antenna, ratio, resistor) -> dict:
+        """Test an unun or voltage balun with a resistor on its output (a wide sweep: only when
+        no_antenna is exactly true); answers {"ok": True, report, swr_svg} or {"ok": False, error}."""
+        def measure():
+            measured = measure_transformer(no_antenna, ratio, resistor, self._connect, names=_FIELDS,
+                                           calibrated=self._calibrated_band == WIDE)
+            return {"report": measured.report,
+                    "swr_svg": swr_svg(measured.readings, f"{ratio} transformer", standalone=False, ham_bands=True)}
+        return self._one_at_a_time(measure)
+
+    def calibrate(self, band, step, no_antenna=False) -> dict:
+        """One calibration step over a band, or WIDE (the transformer test's range): "open" (which
+        always starts over), then "short", then "load", which also applies the new calibration.
+        Answers {"ok": True, "next": the next step or None when finished} or {"ok": False, error}.
+        Changes only the calibration in the NanoVNA's memory (never `save`), and leaves the NanoVNA
+        sweeping the range it covers: so WIDE only when no_antenna is exactly true (T5)."""
         def measure():
             if step not in CAL_ORDER:
                 raise ValueError(f"Unknown calibration step {shown(step)}")
             if not isinstance(band, str):
                 raise ValueError("Choose a band")
-            start, stop = band_range(band)
+            if band == WIDE:
+                if no_antenna is not True:
+                    raise ValueError(f"HF wide calibrates {balun.START_HZ / 1e6:g} to {balun.STOP_HZ / 1e6:g} MHz, "
+                                     "outside the ham bands, and the NanoVNA keeps sweeping that range afterward. "
+                                     "Disconnect any antenna, then tick No antenna connected.")
+                start, stop = balun.START_HZ, balun.STOP_HZ
+            else:
+                start, stop = band_range(band)
             if step != "open":
                 expected = self._calibration
                 if expected is None:
@@ -194,7 +216,7 @@ class Api:
                 try:
                     if step == "open":
                         self._calibration = None
-                        nano.ask("sweep", start, stop, MAX_POINTS)  # a standard is measured over the NanoVNA's own sweep
+                        nano.ask("sweep", start, stop, balun.POINTS if band == WIDE else MAX_POINTS)  # a standard is measured over the NanoVNA's own sweep
                         self._cal_unfinished = True  # from here until `cal done`, even if `reset` fails partway
                         self._calibrated_band = None
                         nano.ask("cal", "reset")

@@ -14,7 +14,8 @@ from serial.tools import list_ports
 
 from dipstick.bands import BANDS
 from dipstick.device import DeviceError, NanoVNA, find_port
-from dipstick.measure import BandMeasurement, band_for_target, measure_band, measure_cable
+from dipstick.balun import RATIOS
+from dipstick.measure import BandMeasurement, band_for_target, measure_band, measure_cable, measure_transformer
 from dipstick.scan import MAX_POINTS
 
 
@@ -27,9 +28,11 @@ def main(argv: list[str] | None = None, connect=connect) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["cable"]:
         return _cable(argv[1:], connect)
+    if argv[:1] == ["balun"]:
+        return _balun(argv[1:], connect)
     parser = argparse.ArgumentParser(
         prog="dipstick", description="Sweep an antenna across one amateur band and explain the NanoVNA's readings.",
-        epilog="To check a coax cable instead: dipstick cable --help")
+        epilog="To check a coax cable instead: dipstick cable --help. A balun or unun: dipstick balun --help")
     parser.add_argument("band", help=f"one of: {', '.join(BANDS)}; or a frequency in MHz, e.g. 915, to sweep its "
                                      "band and trim for it")
     parser.add_argument("--target", metavar="MHZ", help="frequency to trim for, e.g. 7.074 (default: the band's middle)")
@@ -82,3 +85,29 @@ def _cable(argv: list[str], connect) -> int:
         print(f"dipstick: {error}", file=sys.stderr)
         return 2
 
+
+
+def _balun(argv: list[str], connect) -> int:
+    parser = argparse.ArgumentParser(
+        prog="dipstick balun",
+        description="Test an unun or voltage balun: a resistor of 50 x the ratio on its output (2450 ohms for a "
+                    "49:1), the NanoVNA on its input. Shows its SWR on each band from 160 m to 6 m.")
+    parser.add_argument("--ratio", required=True, help=f"the transformer's ratio: {', '.join(RATIOS)}")
+    parser.add_argument("--resistor", help="the resistor's value, e.g. 2450, 2.45k (default: 50 x the ratio)")
+    parser.add_argument("--no-antenna", action="store_true",
+                        help="confirm nothing that radiates is connected: this sweeps far outside the ham bands")
+    parser.add_argument("--port", help="the NanoVNA's serial port, if dipstick can't find it")
+    parser.add_argument("--out", type=Path, default=Path("output"), help="folder for the SVG plot (default: output)")
+    args = parser.parse_args(argv)
+    try:
+        measured = measure_transformer(args.no_antenna, args.ratio, args.resistor, connect, args.port)
+        print(measured.report, end="")
+        # The name comes from the ratio (already checked against the list) and the time, never typed text.
+        args.out.mkdir(parents=True, exist_ok=True)
+        path = args.out / f"balun-{args.ratio.replace(':', 'to')}-{datetime.now():%Y%m%d-%H%M%S}-swr.svg"
+        path.write_text(measured.swr_svg, encoding="utf-8")
+        print(f"\nPlot: {path}")
+        return 0
+    except (DeviceError, ValueError, OSError) as error:
+        print(f"dipstick: {error}", file=sys.stderr)
+        return 2

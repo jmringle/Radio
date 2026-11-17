@@ -9,6 +9,7 @@ Policy blocks inline styles (and that lets the plots follow dark mode).
 import math
 from xml.sax.saxutils import escape
 
+from dipstick.bands import BANDS
 from dipstick.s11 import Reading
 
 # SWR plot: plot area in SVG units. SWR runs 1 to 10 on a log scale: the part that matters
@@ -35,11 +36,14 @@ STYLE = """
   .note { fill: #2e7d32; }
   .target { stroke: #666; stroke-dasharray: 2 3; }
   .target-label { fill: #666; }
+  .ham-band { fill: #2e7d32; fill-opacity: 0.12; }
 """
 
 
-def swr_svg(readings: list[Reading], band: str, standalone: bool = True, target_hz: int | None = None) -> str:
-    """`target_hz`: the frequency the person wants (already checked to be in the band), marked with a line."""
+def swr_svg(readings: list[Reading], band: str, standalone: bool = True, target_hz: int | None = None,
+            ham_bands: bool = False) -> str:
+    """`target_hz`: the frequency the person wants (already checked to be in the band), marked with a line.
+    `ham_bands`: a sweep across several bands (`band` names what was measured), with the bands shaded."""
     _need_two(readings)
     start, stop = readings[0].hz, readings[-1].hz
 
@@ -49,6 +53,11 @@ def swr_svg(readings: list[Reading], band: str, standalone: bool = True, target_
     pts = [(x(r.hz), _swr_y(r.swr)) for r in readings]
     best = min(range(len(readings)), key=lambda i: readings[i].swr)
     parts = [f'<rect class="plot-area" x="{LEFT}" y="{TOP}" width="{RIGHT - LEFT}" height="{BOTTOM - TOP}"/>']
+    if ham_bands:
+        for low, high in BANDS.values():
+            if start <= low and high <= stop:  # at least 1 unit wide, so 30 m's 50 kHz still shows
+                parts.append(f'<rect class="ham-band" x="{x(low):.2f}" y="{TOP}" '
+                             f'width="{max(1.0, x(high) - x(low)):.2f}" height="{BOTTOM - TOP}"/>')
     for swr in SWR_TICKS:
         y = _swr_y(swr)
         parts.append(f'<line class="grid" x1="{LEFT}" y1="{y:.2f}" x2="{RIGHT}" y2="{y:.2f}"/>')
@@ -68,7 +77,8 @@ def swr_svg(readings: list[Reading], band: str, standalone: bool = True, target_
     parts.append(_polyline("swr", pts))
     bx, by = pts[best]
     parts.append(f'<circle class="best" cx="{bx:.2f}" cy="{by:.2f}" r="4"/>')
-    parts.append(f'<text x="{LEFT}" y="{TOP - 10}">{escape(band)}: SWR across the band (MHz)</text>')
+    what = "SWR (MHz), ham bands shaded" if ham_bands else "SWR across the band (MHz)"
+    parts.append(f'<text x="{LEFT}" y="{TOP - 10}">{escape(band)}: {what}</text>')
     return _svg(W, H, parts, standalone)
 
 

@@ -27,6 +27,10 @@ window.__nanovna = {connected: true, text: "NanoVNA connected (/dev/cu.usbmodem4
 window.__release = null;
 window.__cableCalls = [];
 window.__calCalls = [];
+window.__calBoxes = [];
+window.__balunCalls = [];
+window.__balunAnswer = {ok: true, report: "49:1 transformer, 2450-ohm resistor: SWR 2 or under on every band from 160m to 6m.\\n",
+                        swr_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-balun-swr" viewBox="0 0 10 10"><rect class="ham-band" x="1" y="0" width="1" height="10"/></svg>'};
 window.__calError = null;
 window.__settings = {quiz: true};
 window.__saved = [];
@@ -60,8 +64,14 @@ setTimeout(() => {
       if (!window.__hold) return Promise.resolve(window.__cableAnswer);
       return new Promise(resolve => { window.__release = () => resolve(window.__cableAnswer); });
     },
-    calibrate: (band, step) => {
+    transformer: (noAntenna, ratio, resistor) => {
+      window.__balunCalls.push([noAntenna, ratio, resistor]);
+      if (!window.__hold) return Promise.resolve(window.__balunAnswer);
+      return new Promise(resolve => { window.__release = () => resolve(window.__balunAnswer); });
+    },
+    calibrate: (band, step, noAntenna) => {
       window.__calCalls.push([band, step]);
+      window.__calBoxes.push(noAntenna);
       const answer = window.__calError ? {ok: false, error: window.__calError}
                                        : {ok: true, next: {open: "short", short: "load", load: null}[step]};
       if (!window.__hold) return Promise.resolve(answer);
@@ -203,7 +213,7 @@ def test_a_cable_smith_chart_stays_chart_sized(app: Page):
     # With no SWR plot beside it, it stretched across two-thirds of the window and its labels doubled.
     cable_tab(app)
     app.get_by_label("Velocity factor").fill("0.66")
-    app.get_by_label("No antenna connected").check()
+    app.locator("#cable-panel").get_by_label("No antenna connected").check()
     app.get_by_role("button", name="Check cable").click()
     expect(app.locator("#smith svg")).to_be_visible()
     assert app.locator("#smith").bounding_box()["width"] <= 450
@@ -331,7 +341,7 @@ def test_a_cable_check_shows_its_questions_too(app: Page):
                  'choices: ["20.0 W", "15.9 W", "12.6 W"], answer: 1, why: "1.00 dB one way."}]})')
     cable_tab(app)
     app.get_by_label("Velocity factor").fill("0.66")
-    app.get_by_label("No antenna connected").check()
+    app.locator("#cable-panel").get_by_label("No antenna connected").check()
     app.get_by_role("button", name="Check cable").click()
     expect(app.get_by_role("group", name="A 20 W radio feeds this cable at 28 MHz. How much reaches the far end?")).to_be_visible()
 
@@ -454,7 +464,7 @@ def test_tabs_switch_by_click_and_by_arrow_keys(app: Page):
 
 def test_check_cable_needs_the_no_antenna_box(app: Page):
     cable_tab(app)
-    check, box = app.get_by_role("button", name="Check cable"), app.get_by_label("No antenna connected")
+    check, box = app.get_by_role("button", name="Check cable"), app.locator("#cable-panel").get_by_label("No antenna connected")
     expect(check).to_be_disabled()
     box.check()
     expect(check).to_be_enabled()
@@ -465,35 +475,35 @@ def test_check_cable_needs_the_no_antenna_box(app: Page):
 def test_a_cable_check_shows_the_report_and_smith_chart_then_clears_the_box(app: Page):
     cable_tab(app)
     app.get_by_label("Velocity factor").fill("0.66")
-    app.get_by_label("No antenna connected").check()
+    app.locator("#cable-panel").get_by_label("No antenna connected").check()
     app.get_by_role("button", name="Check cable").click()
     expect(app.locator("#report")).to_contain_text("Far end: open")
     expect(app.locator("#smith svg.test-cable-smith")).to_be_visible()
     expect(app.locator("#swr svg")).to_have_count(0)  # no SWR plot for a cable
     assert app.evaluate("window.__cableCalls") == [[True, "0.66", "", "50 m"]]
     # Confirm again every time: the antenna might be back on by the next check.
-    expect(app.get_by_label("No antenna connected")).not_to_be_checked()
+    expect(app.locator("#cable-panel").get_by_label("No antenna connected")).not_to_be_checked()
     expect(app.get_by_role("button", name="Check cable")).to_be_disabled()
 
 
 def test_a_cable_error_is_shown_and_the_box_clears_too(app: Page):
     app.evaluate('window.__cableAnswer = {ok: false, error: "Give Velocity factor or Length (one of them)"}')
     cable_tab(app)
-    app.get_by_label("No antenna connected").check()
+    app.locator("#cable-panel").get_by_label("No antenna connected").check()
     app.get_by_role("button", name="Check cable").click()
     expect(app.get_by_role("alert")).to_have_text("Give Velocity factor or Length (one of them)")
-    expect(app.get_by_label("No antenna connected")).not_to_be_checked()
+    expect(app.locator("#cable-panel").get_by_label("No antenna connected")).not_to_be_checked()
 
 
 def test_nothing_else_can_start_during_a_cable_check(app: Page):
     app.evaluate("window.__hold = true")
     cable_tab(app)
     app.get_by_label("Length").fill("50ft")
-    app.get_by_label("No antenna connected").check()
+    app.locator("#cable-panel").get_by_label("No antenna connected").check()
     app.get_by_role("button", name="Check cable").click()
     expect(app.get_by_role("status", name="Sweep status")).to_have_text(re.compile("Checking the cable"))
     for control in (app.get_by_role("tab", name="Antenna"), app.get_by_role("button", name="Check cable"),
-                    app.get_by_label("No antenna connected"), app.get_by_label("Length")):
+                    app.locator("#cable-panel").get_by_label("No antenna connected"), app.get_by_label("Length")):
         expect(control).to_be_disabled()
     app.evaluate("window.__release()")
     expect(app.get_by_role("tab", name="Antenna")).to_be_enabled()
@@ -518,17 +528,17 @@ def test_switching_tabs_clears_the_box_and_the_old_results(app: Page):
     cable_tab(app)
     expect(app.locator("#report")).to_be_empty()  # a band's SWR isn't this cable's
     expect(app.locator("#swr svg")).to_have_count(0)
-    app.get_by_label("No antenna connected").check()
+    app.locator("#cable-panel").get_by_label("No antenna connected").check()
     app.get_by_role("tab", name="Antenna").click()
     cable_tab(app)
-    expect(app.get_by_label("No antenna connected")).not_to_be_checked()
+    expect(app.locator("#cable-panel").get_by_label("No antenna connected")).not_to_be_checked()
 
 
 def test_check_cable_waits_until_python_is_reachable(page: Page):
     page.add_init_script(FAKE_API.replace("}, 50);", "}, 10_000);"))
     page.goto(PAGE)
     cable_tab(page)
-    page.get_by_label("No antenna connected").check()
+    page.locator("#cable-panel").get_by_label("No antenna connected").check()
     expect(page.get_by_role("button", name="Check cable")).to_be_disabled()
 
 
@@ -542,7 +552,7 @@ def calibrate_tab(page):
 def test_calibrate_needs_a_band(app: Page):
     calibrate_tab(app)
     band, measure = app.get_by_label("Band to calibrate"), app.get_by_role("button", name="Measure open")
-    expect(band.locator("option")).to_have_count(7)  # "Choose a band" + 6 from Python
+    expect(band.locator("option")).to_have_count(8)  # "Choose a band" + 6 from Python + HF wide
     expect(measure).to_be_disabled()
     band.select_option("40m")
     expect(measure).to_be_enabled()
@@ -788,7 +798,7 @@ def test_cable_questions_follow_the_box_too(app: Page):
     app.evaluate(f"window.__cableAnswer = Object.assign({{}}, window.__cableAnswer, {{quiz: {QUIZ}}})")
     app.get_by_label(SHOW_QUIZ).uncheck()
     app.get_by_role("tab", name="Cable").click()
-    app.get_by_label("No antenna connected").check()
+    app.locator("#cable-panel").get_by_label("No antenna connected").check()
     app.get_by_label("Velocity factor").fill("0.66")
     app.get_by_role("button", name="Check cable").click()
     expect(app.locator("#report")).not_to_be_empty()
@@ -908,3 +918,133 @@ def test_the_page_keeps_working_if_the_port_list_fails(page: Page):
     open_with(page, MISSING + "window.__portsFail = true;")
     page.wait_for_function("window.__portCalls >= 2")
     expect(page.locator("#connection")).to_have_text("No NanoVNA found. Is it plugged in and switched on?")
+
+
+# --- the Balun tab: the transformer test (a wide sweep, so only with no antenna connected) -------
+
+def balun_tab(app: Page):
+    app.get_by_role("tab", name="Balun").click()
+    return app.get_by_role("tabpanel", name="Balun")
+
+
+def test_test_transformer_needs_the_no_antenna_box(app: Page):
+    panel = balun_tab(app)
+    test, box = app.get_by_role("button", name="Test transformer"), panel.get_by_label("No antenna connected")
+    expect(test).to_be_disabled()
+    box.check()
+    expect(test).to_be_enabled()
+    box.uncheck()
+    expect(test).to_be_disabled()
+
+
+def test_a_transformer_test_shows_the_report_and_swr_plot_then_clears_the_box(app: Page):
+    panel = balun_tab(app)
+    app.get_by_label("Ratio").select_option("49:1")
+    app.get_by_label("Resistor").fill("2.4k")
+    panel.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Test transformer").click()
+    expect(app.locator("#report")).to_contain_text("SWR 2 or under on every band")
+    expect(app.locator("#swr svg.test-balun-swr")).to_be_visible()
+    expect(app.locator("#smith")).to_be_empty()  # no Smith chart for a transformer
+    assert app.evaluate("window.__balunCalls") == [[True, "49:1", "2.4k"]]
+    expect(panel.get_by_label("No antenna connected")).not_to_be_checked()
+    expect(app.get_by_role("button", name="Test transformer")).to_be_disabled()
+
+
+def test_the_resistor_hint_follows_the_ratio(app: Page):
+    balun_tab(app)
+    resistor = app.get_by_label("Resistor")
+    for ratio, ohms in (("49:1", "2450"), ("1:1", "50"), ("9:1", "450"), ("4:1", "200")):
+        app.get_by_label("Ratio").select_option(ratio)
+        expect(resistor).to_have_attribute("placeholder", f"{ohms} (default)")
+
+
+def test_a_transformer_error_is_shown_and_the_box_clears_too(app: Page):
+    app.evaluate('window.__balunAnswer = {ok: false, error: "Resistor must be close to 2450 ohms (1634 to 3675)"}')
+    panel = balun_tab(app)
+    panel.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Test transformer").click()
+    expect(app.get_by_role("alert")).to_have_text("Resistor must be close to 2450 ohms (1634 to 3675)")
+    expect(panel.get_by_label("No antenna connected")).not_to_be_checked()
+
+
+def test_nothing_else_can_start_during_a_transformer_test(app: Page):
+    app.evaluate("window.__hold = true")
+    panel = balun_tab(app)
+    panel.get_by_label("No antenna connected").check()
+    app.get_by_role("button", name="Test transformer").click()
+    expect(app.get_by_role("button", name="Test transformer")).to_be_disabled()
+    for name in ("Antenna", "Cable", "Calibrate"):
+        expect(app.get_by_role("tab", name=name)).to_be_disabled()
+    app.evaluate("window.__release()")
+    expect(app.get_by_role("tab", name="Antenna")).to_be_enabled()
+
+
+def test_the_balun_hint_says_the_range_and_never_to_connect_a_radio(app: Page):
+    balun_tab(app)
+    hint = app.locator("#balun-hint")
+    expect(hint).to_contain_text("1.8 to 54 MHz")
+    expect(hint).to_contain_text("Never connect a radio")
+    expect(hint).to_contain_text("2450 ohms")
+
+
+def test_no_check_yourself_box_on_the_balun_tab(app: Page):
+    balun_tab(app)
+    expect(app.get_by_label(SHOW_QUIZ)).to_be_hidden()
+
+
+def test_test_transformer_waits_until_python_is_reachable(page: Page):
+    page.add_init_script(FAKE_API.replace("}, 50);", "}, 10_000);"))
+    page.goto(PAGE)
+    page.get_by_role("tab", name="Balun").click()
+    page.get_by_role("tabpanel", name="Balun").get_by_label("No antenna connected").check()
+    expect(page.get_by_role("button", name="Test transformer")).to_be_disabled()
+
+
+# --- calibrating HF wide: the transformer test's range, so only with no antenna connected ------------
+
+HF_WIDE = "HF wide, 1.8 to 54 MHz (Balun tab)"
+
+
+def test_hf_wide_asks_for_the_no_antenna_box(app: Page):
+    calibrate_tab(app)
+    panel = app.get_by_role("tabpanel", name="Calibrate")
+    box, measure = panel.get_by_label("No antenna connected"), app.get_by_role("button", name="Measure open")
+    expect(box).to_be_hidden()
+    app.get_by_label("Band to calibrate").select_option(label=HF_WIDE)
+    expect(box).to_be_visible()
+    expect(measure).to_be_disabled()
+    box.check()
+    expect(measure).to_be_enabled()
+    app.get_by_label("Band to calibrate").select_option("40m")
+    expect(box).to_be_hidden()
+    expect(measure).to_be_enabled()  # a band needs no box
+
+
+def test_calibrating_hf_wide_sends_the_box_and_says_what_comes_after(app: Page):
+    calibrate_tab(app)
+    panel = app.get_by_role("tabpanel", name="Calibrate")
+    app.get_by_label("Band to calibrate").select_option(label=HF_WIDE)
+    panel.get_by_label("No antenna connected").check()
+    for step in ("open", "short", "load"):
+        app.get_by_role("button", name=f"Measure {step}").click()
+    step = app.locator("#cal-instruction")
+    expect(step).to_contain_text("Calibrated for 1.8 to 54 MHz")
+    expect(step).to_contain_text("keeps sweeping")
+    expect(step).to_contain_text("Balun tab")
+    assert app.evaluate("window.__calCalls") == [["wide", "open"], ["wide", "short"], ["wide", "load"]]
+    assert app.evaluate("window.__calBoxes") == [True, True, True]
+    expect(panel.get_by_label("No antenna connected")).not_to_be_checked()  # confirmed afresh next time
+
+
+def test_a_band_sweep_after_hf_wide_says_it_isnt_calibrated_for_the_band(app: Page):
+    calibrate_tab(app)
+    app.get_by_label("Band to calibrate").select_option(label=HF_WIDE)
+    app.get_by_role("tabpanel", name="Calibrate").get_by_label("No antenna connected").check()
+    for step in ("open", "short", "load"):
+        app.get_by_role("button", name=f"Measure {step}").click()
+    expect(app.locator("#cal-instruction")).to_contain_text("Calibrated for")
+    app.get_by_role("tab", name="Antenna").click()
+    app.get_by_label("Band", exact=True).select_option("40m")
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#report")).to_contain_text("calibrated for 1.8 to 54 MHz (HF wide)")

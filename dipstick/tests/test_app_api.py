@@ -9,6 +9,7 @@ from pathlib import PurePosixPath
 import pytest
 from fakes import FakeLink, UnpluggedLink, recorded
 from test_analysis import antenna
+from test_balun import Z0, rising, sweep as transformer_sweep
 from test_cable_cli import fake_nano as fake_cable_nano
 from test_cable_cli import planned
 from test_device import Port
@@ -200,7 +201,7 @@ def test_the_page_can_only_reach_public_methods():
     assert public == set()
     assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "forget_ports", "nanovna",
                                                                          "serial_ports", "set_quiz", "settings", "sweep",
-                                                                         "use_port"}
+                                                                         "transformer", "use_port"}
 
 
 # --- the cable check: a wide sweep, so only with no antenna connected (T5) ---------------------
@@ -364,6 +365,7 @@ class Calibrator:
     def __call__(self, port):
         self.connects += 1
         link = self.link_class(echo(b"", b"sweep 7000000 7300000 101", b"sweep 14000000 14350000 101",
+                                    b"sweep 1800000 54000000 101",
                                     *(b"cal " + s for s in (b"reset", b"open", b"short", b"load", b"done"))),
                                **self.kwargs)
         link.written = self.sent
@@ -560,7 +562,9 @@ def test_a_page_in_a_folder_with_spaces_is_recognized(tmp_path):
     lambda api: api.sweep("40m", "", 101),
     lambda api: api.cable(True, "0.66", "", "50"),
     lambda api: api.calibrate("40m", "open"),
-], ids=["sweep", "cable", "calibrate"])
+    lambda api: api.transformer(True, "49:1", ""),
+    lambda api: api.calibrate("wide", "open", True),
+], ids=["sweep", "cable", "calibrate", "transformer", "calibrate wide"])
 def test_another_page_is_refused_and_never_connects(call):
     api = Api(connect=lambda port: pytest.fail("never connects"))
     api._current_url = lambda: "http://127.0.0.1:8000/evil.html"
@@ -801,3 +805,109 @@ def test_the_port_choice_is_refused_when_the_window_has_left_the_page():
     api._current_url = lambda: "https://example.com/"
     assert "Only Dipstick's own page" in api.use_port("COM7")["error"]
     assert "Only Dipstick's own page" in api.forget_ports()["error"]
+
+
+# --- the transformer test (Balun tab): a wide sweep, so only with no antenna connected (T5) --------
+
+TRANSFORMER_SCAN = b"scan 1800000 54000000 101 3"
+
+
+def transformer_nano(impedance_at=lambda hz: Z0):
+    return fake_nano(TRANSFORMER_SCAN, reply_for(TRANSFORMER_SCAN, transformer_sweep(impedance_at)))
+
+
+@pytest.mark.parametrize("no_antenna", [False, None, "true", 1, "yes"])
+def test_transformer_refused_unless_no_antenna_is_exactly_true(no_antenna):
+    answer = Api(connect=lambda port: pytest.fail("never connects")).transformer(no_antenna, "49:1", "")
+    assert answer["ok"] is False and "outside the ham bands" in answer["error"]
+    assert "No antenna connected" in answer["error"] and "--" not in answer["error"]
+
+
+def test_transformer_returns_the_report_and_the_plot_for_the_window():
+    answer = Api(connect=lambda port: transformer_nano(rising)).transformer(True, "49:1", "")
+    assert answer["ok"] is True
+    assert answer["report"].startswith("49:1 transformer, 2450-ohm resistor: SWR 2 or under on 160m")
+    assert 'class="ham-band"' in answer["swr_svg"] and "<style>" not in answer["swr_svg"]
+
+
+@pytest.mark.parametrize("ratio, resistor, words", [
+    ("2:1", "", "Ratio must be one of 1:1, 4:1, 9:1, 49:1"),
+    (None, "", "Ratio must be one of"),
+    (49, "", "Ratio must be one of"),
+    ("49:1", "50", "Resistor must be close to 2450 ohms"),
+    ("49:1", "abc", "Resistor must be ohms like 2450"),
+    ("49:1", 2450, "Resistor must be typed as text"),
+])
+def test_transformer_bad_settings_are_explained_in_the_apps_words_and_never_connect(ratio, resistor, words):
+    answer = Api(connect=lambda port: pytest.fail("never connects")).transformer(True, ratio, resistor)
+    assert answer["ok"] is False and words in answer["error"] and "--" not in answer["error"]
+
+
+def test_transformer_waits_its_turn():
+    api = Api(connect=lambda port: pytest.fail("never connects"))
+    api._busy.acquire()
+    assert api.transformer(True, "49:1", "") == {"ok": False, "error": "A sweep is already running"}
+
+
+def test_transformer_nothing_on_the_output_is_a_message():
+    answer = Api(connect=lambda port: transformer_nano(lambda hz: float("inf"))).transformer(True, "49:1", "")
+    assert answer["ok"] is False and "resistor connected" in answer["error"]
+
+
+# --- calibrating over the transformer test's range (HF wide) --------------------------------------
+
+def test_calibrating_hf_wide_covers_the_transformer_sweep_exactly():
+    nano = Calibrator()
+    api = Api(connect=nano)
+    for step, following in (("open", "short"), ("short", "load"), ("load", None)):
+        assert api.calibrate("wide", step, True) == {"ok": True, "next": following}
+    assert nano.commands() == [b"sweep 1800000 54000000 101", b"cal reset", b"cal open",
+                               b"cal short", b"cal load", b"cal done"]
+
+
+@pytest.mark.parametrize("no_antenna", [False, None, "true", 1])
+@pytest.mark.parametrize("step", ["open", "short", "load"])
+def test_calibrating_hf_wide_refused_unless_no_antenna_is_exactly_true(no_antenna, step):
+    # After calibrating, the NanoVNA keeps sweeping the range on its own: never with an antenna on.
+    nano = Calibrator()
+    api = Api(connect=nano)
+    if step != "open":
+        api.calibrate("wide", "open", True)
+        if step == "load":
+            api.calibrate("wide", "short", True)
+    sent = list(nano.commands())
+    answer = api.calibrate("wide", step, no_antenna)
+    assert answer["ok"] is False and "No antenna connected" in answer["error"]
+    assert nano.commands() == sent
+
+
+def test_a_band_calibration_needs_no_box():
+    assert Api(connect=Calibrator()).calibrate("40m", "open")["ok"] is True
+
+
+def test_after_calibrating_hf_wide_the_transformer_report_leaves_out_the_reminder():
+    nano = [Calibrator()]
+    api = Api(connect=lambda port: nano[0](port))
+    for step in ("open", "short", "load"):
+        api.calibrate("wide", step, True)
+    nano[0] = lambda port: transformer_nano()
+    assert "Calibrate tab" not in api.transformer(True, "49:1", "")["report"]
+
+
+def test_after_calibrating_a_band_the_transformer_report_still_reminds():
+    nano = [Calibrator()]
+    api = Api(connect=lambda port: nano[0](port))
+    for step in ("open", "short", "load"):
+        api.calibrate("40m", step)
+    nano[0] = lambda port: transformer_nano()
+    assert "Calibrate tab" in api.transformer(True, "49:1", "")["report"]
+
+
+def test_after_calibrating_hf_wide_a_band_sweep_still_reminds():
+    # 0.522 MHz between calibration points: a band sweep is better calibrated over its own band.
+    nano = [Calibrator()]
+    api = Api(connect=lambda port: nano[0](port))
+    for step in ("open", "short", "load"):
+        api.calibrate("wide", step, True)
+    nano[0] = lambda port: good_40m()
+    assert "recalibrate" in api.sweep("40m", "", 101)["report"]

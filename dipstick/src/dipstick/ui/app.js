@@ -25,10 +25,15 @@ function ready() {
     }
     select.value = "";  // or type a target: Python works out its band
     $("cal-band").append(...[...select.options].map((option) => option.cloneNode(true)));
+    const wide = document.createElement("option");
+    wide.value = WIDE;
+    wide.textContent = "HF wide, 1.8 to 54 MHz (Balun tab)";
+    $("cal-band").append(wide);
     $("cal-band").value = "";
     $("sweep").disabled = $("live").disabled = false;  // only now can a sweep reach Python
     pythonReady = true;
     allowCableCheck();
+    allowBalunCheck();
     showCalibrationStep();
   });
   window.pywebview.api.settings().then((settings) => {
@@ -130,7 +135,7 @@ function show(answer) {
   if (answer.ok && answer.band) $("band").value = answer.band;  // the band actually swept
   // A band other than this session's calibration: the reading isn't calibrated for it.
   const note = answer.ok && answer.band && calibratedBand && answer.band !== calibratedBand
-    ? `Note: the NanoVNA was calibrated for ${calibratedBand} on the Calibrate tab, not for ` +
+    ? `Note: the NanoVNA was calibrated for ${calName(calibratedBand)} on the Calibrate tab, not for ` +
       `${answer.band}, so this reading isn't calibrated for this band (unless you've switched the ` +
       `NanoVNA off and on since, which goes back to its saved calibration). Calibrate ${answer.band} ` +
       "for a reading you can trust.\n\n"
@@ -140,7 +145,7 @@ function show(answer) {
   showQuiz(live ? [] : lastQuiz);
   // The SVG comes from dipstick's own plot code, not from the NanoVNA or anything typed.
   $("swr").innerHTML = answer.ok ? answer.swr_svg || "" : "";  // a cable has no SWR plot
-  $("smith").innerHTML = answer.ok ? answer.smith_svg : "";
+  $("smith").innerHTML = answer.ok ? answer.smith_svg || "" : "";  // a transformer has no Smith chart
 }
 
 // The report is plain text. Lines starting with two spaces explain (report.py's convention) and are
@@ -240,8 +245,8 @@ $("live").addEventListener("click", async () => {
   $("status").textContent = "";
 });
 
-// --- tabs: Antenna (band sweeps), Cable and Calibrate -----------------------------------------
-const tabs = [$("tab-antenna"), $("tab-cable"), $("tab-calibrate")];
+// --- tabs: Antenna (band sweeps), Cable, Balun and Calibrate ----------------------------------
+const tabs = [$("tab-antenna"), $("tab-cable"), $("tab-balun"), $("tab-calibrate")];
 
 function selectTab(tab) {
   if (tab.getAttribute("aria-selected") === "true") return;
@@ -251,11 +256,12 @@ function selectTab(tab) {
     each.tabIndex = selected ? 0 : -1;  // roving tabindex: Tab reaches only the selected tab
     $(each.getAttribute("aria-controls")).hidden = !selected;
   }
-  $("quiz-option").hidden = tab === $("tab-calibrate");  // calibrating asks no questions
-  // A band's results aren't this cable's (or the other way round), and the box is confirmed afresh.
+  $("quiz-option").hidden = tab === $("tab-calibrate") || tab === $("tab-balun");  // these ask no questions
+  // A band's results aren't this cable's (or the other way round), and the boxes are confirmed afresh.
   show({ ok: true, report: "", smith_svg: "" });
-  $("no-antenna").checked = false;
+  $("no-antenna").checked = $("balun-no-antenna").checked = false;
   allowCableCheck();
+  allowBalunCheck();
 }
 
 for (const tab of tabs) {
@@ -297,7 +303,36 @@ $("cable-controls").addEventListener("submit", async (event) => {
   $("status").textContent = "";
 });
 
-// --- calibrating: open, short, load, in that order, over one band ------------------------------
+// --- the transformer test: only with "No antenna connected" ticked, cleared after every test ---
+function allowBalunCheck() {
+  $("check-balun").disabled = !(pythonReady && $("balun-no-antenna").checked);
+}
+
+$("balun-no-antenna").addEventListener("change", allowBalunCheck);
+
+// The resistor that makes a perfect transformer read 50 ohms: 50 times the ratio.
+$("ratio").addEventListener("change", () => {
+  $("resistor").placeholder = `${50 * parseInt($("ratio").value, 10)} (default)`;
+});
+
+$("balun-controls").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const fields = ["balun-no-antenna", "ratio", "resistor", "check-balun"];
+  for (const id of fields) $(id).disabled = true;
+  running(true);
+  $("status").textContent = "Testing the transformer…";
+  await ask(() => window.pywebview.api.transformer($("balun-no-antenna").checked, $("ratio").value,
+                                                    $("resistor").value));
+  $("balun-no-antenna").checked = false;  // the antenna wire might be back on by the next test
+  for (const id of fields) $(id).disabled = false;
+  allowBalunCheck();
+  running(false);
+  $("status").textContent = "";
+});
+
+// --- calibrating: open, short, load, in that order, over one band (or HF wide) ------------------
+const WIDE = "wide";  // app.py's WIDE: the transformer test's range, 1.8 to 54 MHz
+const calName = (band) => band === WIDE ? "1.8 to 54 MHz (HF wide)" : band;
 const CAL_STEPS = {
   open: "Step 1 of 3: screw the open standard onto CH0. An open reflects all of the signal straight " +
         "back, in step: it shows the NanoVNA what nothing connected looks like at its connector.",
@@ -313,9 +348,15 @@ const PARTWAY = "The other tabs open again after the load step. To stop partway,
   "Choose a band and switch the NanoVNA off and on (it goes back to its saved calibration).";
 
 function showCalibrationStep() {
+  const wide = $("cal-band").value === WIDE;
+  $("cal-wide").hidden = !wide;
   $("cal-step").textContent = `Measure ${calStep}`;
-  $("cal-step").disabled = !(pythonReady && $("cal-band").value);
-  $("cal-instruction").textContent = calDone && calStep === "open"
+  $("cal-step").disabled = !(pythonReady && $("cal-band").value && (!wide || $("cal-no-antenna").checked));
+  $("cal-instruction").textContent = calDone === WIDE && calStep === "open"
+    ? "Calibrated for 1.8 to 54 MHz. Test your transformer on the Balun tab. The NanoVNA keeps sweeping " +
+      "that range on its own, so keep antennas off it until you calibrate a band, or switch it off and on " +
+      "(it goes back to its saved calibration)."
+    : calDone && calStep === "open"
     ? `Calibrated for ${calDone}. Put your antenna back on and sweep ${calDone} on the Antenna tab. The ` +
       "calibration lasts until you switch the NanoVNA off and on, which goes back to its saved one."
     : $("cal-band").value ? CAL_STEPS[calStep]
@@ -325,9 +366,12 @@ function showCalibrationStep() {
   $("cal-partway").hidden = !($("cal-band").value && calStep !== "open");
 }
 
+$("cal-no-antenna").addEventListener("change", showCalibrationStep);
+
 $("cal-band").addEventListener("change", () => {
   calStep = "open";  // a calibration covers one band: another band starts over
   calDone = "";
+  $("cal-no-antenna").checked = false;
   running(false);    // a cancelled calibration opens the other tabs again
   showCalibrationStep();
 });
@@ -335,22 +379,23 @@ $("cal-band").addEventListener("change", () => {
 $("cal-controls").addEventListener("submit", async (event) => {
   event.preventDefault();
   const band = $("cal-band").value;
-  $("cal-step").disabled = $("cal-band").disabled = true;
+  $("cal-step").disabled = $("cal-band").disabled = $("cal-no-antenna").disabled = true;
   running(true);
   $("status").textContent = `Measuring the ${calStep} standard…`;
   try {
-    const answer = await window.pywebview.api.calibrate(band, calStep);
+    const answer = await window.pywebview.api.calibrate(band, calStep, $("cal-no-antenna").checked);
     $("error").textContent = answer.ok ? "" : answer.error;
     if (answer.ok) {
       if (calStep === "open") calibratedBand = "";  // open reset the NanoVNA's calibration
       if (!answer.next) calibratedBand = band;
       calDone = answer.next ? "" : band;
       calStep = answer.next || "open";
+      if (!answer.next) $("cal-no-antenna").checked = false;  // confirmed afresh for the next calibration
     }
   } catch (error) {
     $("error").textContent = `Couldn't reach dipstick's Python side: ${error}`;
   }
-  $("cal-band").disabled = false;
+  $("cal-band").disabled = $("cal-no-antenna").disabled = false;
   running(false);
   $("status").textContent = "";
   showCalibrationStep();

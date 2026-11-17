@@ -10,21 +10,24 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from dipstick.analysis import Summary, summarize
+from dipstick import balun
 from dipstick.bands import band_containing, band_range
 from dipstick.cable import MAX_LENGTH_M, CableResult, analyze, sweep_for
 from dipstick.plots import smith_svg, swr_svg
-from dipstick.report import FOOT, cable_report, report
-from dipstick.s11 import Reading
+from dipstick.report import FOOT, cable_report, report, transformer_report
+from dipstick.s11 import Z0, Reading
 from dipstick.scan import MAX_POINTS, scan
 
 _MHZ = re.compile(r"[0-9]+(\.[0-9]{1,6})?")
 _LENGTH = re.compile(r'([0-9]*\.?[0-9]+) ?(ft|m|in|inch|inches|")?', re.IGNORECASE)  # ".6" is 0.6 m; 6" is 6 inches; 6FT too
 _UNITS = {None: 1, "m": 1, "ft": FOOT, "in": FOOT / 12, "inch": FOOT / 12, "inches": FOOT / 12, '"': FOOT / 12}
 _VF = re.compile(r"[0-9]*\.?[0-9]+")
+_OHMS = re.compile(r"([0-9]*\.?[0-9]+) ?(k)? ?(ohms?)?", re.IGNORECASE)  # 2450, 2.45k, 2450 ohms
 
 # What each setting is called where the person typed it, so an error names the right thing:
 # the command's options, or the app's fields.
-COMMAND_NAMES = {"no_antenna": "run again with --no-antenna", "vf": "--vf", "length": "--length", "max_length": "--max-length"}
+COMMAND_NAMES = {"no_antenna": "run again with --no-antenna", "vf": "--vf", "length": "--length", "max_length": "--max-length",
+                 "ratio": "--ratio", "resistor": "--resistor"}
 
 
 @dataclass(frozen=True)
@@ -99,6 +102,52 @@ def measure_cable(no_antenna: bool, vf: str | None, length: str | None, max_leng
         nano.close()
     result = analyze(readings, vf=vf, length_m=length)
     return CableMeasurement(readings, result, cable_report(result, start, stop, points, max_length, names["max_length"]))
+
+
+@dataclass(frozen=True)
+class TransformerMeasurement:
+    readings: list[Reading]
+    result: balun.TransformerResult
+    report: str
+    swr_svg: str
+
+
+def measure_transformer(no_antenna: bool, ratio: str, resistor: str | None, connect, port: str | None = None,
+                        names: dict[str, str] = COMMAND_NAMES, calibrated: bool = False) -> TransformerMeasurement:
+    """An unun's or voltage balun's match on each band, with a resistor on its output. The sweep goes
+    far outside the ham bands, so it runs only when no_antenna is exactly True (T5). `resistor`: the
+    ohms used, as text (None or empty: 50 x the ratio). `calibrated`: calibrated over the sweep here."""
+    if no_antenna is not True:
+        raise ValueError(f"The transformer test sweeps {balun.START_HZ / 1e6:g} to {balun.STOP_HZ / 1e6:g} MHz, "
+                         "outside the ham bands. Take the antenna wire off the transformer, put the resistor on "
+                         f"its output, then {names['no_antenna']}.")
+    if not isinstance(ratio, str) or ratio not in balun.RATIOS:
+        raise ValueError(f"{names['ratio']} must be one of {', '.join(balun.RATIOS)}, got {shown(ratio)}")
+    ohms = _resistor(_given(resistor, names["resistor"]), ratio, names["resistor"])
+    nano = connect(port)
+    try:
+        readings = scan(nano, balun.START_HZ, balun.STOP_HZ, balun.POINTS, no_antenna=True)
+    finally:
+        nano.close()
+    result = balun.analyze_transformer(readings, ratio, ohms)
+    return TransformerMeasurement(readings, result, transformer_report(result, calibrated=calibrated),
+                                  swr_svg(readings, f"{ratio} transformer", ham_bands=True))
+
+
+def _resistor(text: str | None, ratio: str, name: str) -> float:
+    """Ohms, close enough to 50 x the ratio that the test still says something about the transformer."""
+    best = Z0 * balun.RATIOS[ratio]
+    if text is None:
+        return best
+    match = _OHMS.fullmatch(text)
+    if not match:
+        raise ValueError(f"{name} must be ohms like {best:g} or {best / 1000:g}k, got {shown(text)}")
+    ohms = float(match.group(1)) * (1000 if match.group(2) else 1)
+    if not (ohms > 0 and balun.ideal_swr(ratio, ohms) <= balun.MAX_IDEAL_SWR):
+        low, high = best / balun.MAX_IDEAL_SWR, best * balun.MAX_IDEAL_SWR
+        raise ValueError(f"With a {ratio}, {name} must be close to {best:g} ohms ({math.ceil(low):g} to "
+                         f"{math.floor(high):g}), got {shown(text)}")
+    return ohms
 
 
 def _cut(text: str, limit: int = 40) -> str:

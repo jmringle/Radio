@@ -32,7 +32,7 @@ def test_the_window_reaches_python():
                                 "disabled": False, "live": False,
                                 "connection": "No NanoVNA found. Is it plugged in and switched on?",  # no ports given
                                 "cable": False,  # Check cable enabled: the box is ticked and Python is reachable
-                                "calibrate_bands": 16,  # the Calibrate tab's band list, filled in too
+                                "calibrate_bands": 17,  # the Calibrate tab's band list, filled in too, + HF wide
                                 "quiz_box": False,  # Show Check yourself enabled: the settings came through
                                 # The window's own address passes the only-our-page check (on every
                                 # OS CI builds for: Windows writes file:///C:/...), and the check is on.

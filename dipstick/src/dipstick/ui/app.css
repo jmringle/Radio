@@ -90,3 +90,4 @@ svg .edge, svg .r-50, svg .axis { fill: none; stroke: var(--muted); }
 svg .note { fill: var(--good); }
 svg .target { stroke: var(--muted); stroke-dasharray: 2 3; }
 svg .target-label { fill: var(--muted); }
+svg .ham-band { fill: var(--good); fill-opacity: 0.12; }

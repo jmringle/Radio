@@ -1,6 +1,7 @@
 """A band report in plain words: every number comes with what it means."""
 
 from dipstick.analysis import Summary
+from dipstick.balun import MATCHED, POINTS, START_HZ, STOP_HZ, TransformerResult
 from dipstick.cable import CableResult
 from dipstick.s11 import Reading
 
@@ -172,3 +173,49 @@ def _length_lines(r: CableResult, max_length_m: float) -> list[str]:
     return [f"Length: {r.length_m:.2f} m ({feet:.1f} ft) at velocity factor {r.vf:.2f}", *how, *speed, ""] \
         if r.vf_given else \
         [f"Velocity factor: {r.vf:.2f} (for a {r.length_m:.2f} m / {feet:.1f} ft cable)", *speed, ""]
+
+
+def transformer_report(r: TransformerResult, calibrated: bool = False) -> str:
+    """The transformer test in plain words: which bands it matches on, then band by band."""
+    every = f"every band from {r.bands[0].band} to {r.bands[-1].band}"
+    if not r.unmatched:
+        answer = f"SWR 2 or under on {every}."
+    elif not r.matched:
+        answer = f"SWR above 2 on {every}."
+    else:
+        answer = f"SWR 2 or under on {', '.join(r.matched)}; above 2 on {', '.join(r.unmatched)}."
+    ohms = f"{r.resistor_ohms:g}"
+    lines = [
+        f"{r.ratio} transformer, {ohms}-ohm resistor: {answer}",
+        "  The resistor stands in for the antenna at its best, so this is the transformer's own match:",
+        "  with a real antenna on it, the SWR can only be the same or worse.",
+        "",
+        "Band by band (the sweep point nearest each band's middle):",
+        *(f"  {b.band:<5}{_mhz(b.hz):>8} MHz  SWR {_swr(b.swr)}  {_transformer_rating(b.swr)}" for b in r.bands),
+        "  SWR 2 is the usual rule of thumb: many radios start cutting power above about 2:1 (check your",
+        "  radio's manual).",
+    ]
+    if r.ideal_swr >= 1.005:  # shows as 1.01 or more
+        lines.append(f"  With a {ohms}-ohm resistor, even a perfect {r.ratio} reads SWR {_swr(r.ideal_swr)}, so "
+                     "readings near that are as good as it gets.")
+    if r.resistor_ohms >= 1000:
+        # 2 pF at 28 MHz: 1 / (2 pi x 28e6 x 2e-12) = 2.8 kilohms, about the resistor itself.
+        lines += ["  At this many ohms, a couple of picofarads of stray capacitance (the resistor's leads, a clip)",
+                  "  matters as much as the resistor on 10 m, so keep the leads short: the high bands may read worse",
+                  "  than the transformer really is."]
+    lines += ["", f"What the NanoVNA measured: {POINTS} frequencies from {_mhz(START_HZ)} to {_mhz(STOP_HZ)} MHz,",
+              "  into the transformer, with the resistor on its output."]
+    if not calibrated:
+        lines += ["", f"Measured with the NanoVNA's current calibration. For accurate numbers, calibrate over "
+                      f"{START_HZ / 1e6:g} to {STOP_HZ / 1e6:g} MHz",
+                  "  first (the app's Calibrate tab: HF wide), at the end of any cable or adapter you use to reach",
+                  "  the transformer."]
+    return "\n".join(lines) + "\n"
+
+
+def _transformer_rating(swr: float) -> str:
+    if swr <= 1.5:
+        return "excellent"
+    if swr <= MATCHED:
+        return "good"
+    return "high"
