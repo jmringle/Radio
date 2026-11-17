@@ -294,6 +294,30 @@ def test_windows_names_it_in_the_description():
     assert find_port([port]) == "COM3"
 
 
+WINDOWS_NANO = Port("COM6", 0x0483, 0x5740, None, "USB Serial Device (COM6)")  # as pyserial 3.5 reports it on Windows
+
+
+def test_windows_names_it_only_in_the_usb_device():
+    # Hand test 2026-11-17: Windows' own driver names the port "USB Serial Device"; the NanoVNA's
+    # name is only in the USB device's bus-reported description.
+    named = {"COM6": "NanoVNA-H"}
+    assert find_port([WINDOWS_NANO], usb_name=lambda p: named.get(p.device, "")) == "COM6"
+
+
+def test_windows_usb_name_must_say_nanovna_too():
+    # The same generic ST ID with some other STM32 gadget's name is still not guessed (T3).
+    with pytest.raises(DeviceError, match="No NanoVNA found"):
+        find_port([WINDOWS_NANO], usb_name=lambda p: "STM32 Virtual ComPort")
+    with pytest.raises(DeviceError, match="No NanoVNA found"):
+        find_port([WINDOWS_NANO], usb_name=lambda p: "")
+
+
+def test_usb_name_only_counts_with_the_nanovna_usb_id():
+    ch340 = Port("COM7", 0x1A86, 0x7523, None, "USB-SERIAL CH340 (COM7)")
+    with pytest.raises(DeviceError, match="No NanoVNA found"):
+        find_port([ch340], usb_name=lambda p: "NanoVNA-H")
+
+
 @pytest.mark.parametrize("port", [
     Port("/dev/cu.usbmodem2", 0x0483, 0x5740, "STM32 Virtual ComPort"),  # same generic ST USB ID, not a NanoVNA
     Port("/dev/cu.usbserial-1", 0x10C4, 0xEA60, "CP2102 USB to UART"),   # a typical radio CAT cable

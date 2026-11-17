@@ -13,6 +13,7 @@ A command it doesn't know gets "name?" as its answer.
 
 import errno
 import math
+import sys
 import time
 
 import serial
@@ -31,21 +32,61 @@ class DeviceError(Exception):
     """Something went wrong talking to the NanoVNA; the message says what to do."""
 
 
-def nanovna_ports(ports, approved=()) -> list[str]:
+def windows_usb_name(port) -> str:
+    """The name a USB device gives itself, as Windows keeps it, or "" if there isn't one.
+
+    Windows names the NanoVNA's port "USB Serial Device (COM6)" (its own usbser driver, maker
+    "Microsoft"), and pyserial 3.5 leaves `product` empty there, so the name check never matched
+    and Windows found no NanoVNA (hand test 2026-11-17, NanoVNA-H on COM6). The NanoVNA's own name,
+    "NanoVNA-H", is in the device's bus-reported description: read it with cfgmgr32, by the
+    instance ID Windows gives a USB device with a serial number (USB\\VID_0483&PID_5740\\400)."""
+    if sys.platform != "win32" or not getattr(port, "serial_number", None) or port.vid is None:
+        return ""
+    import ctypes
+    import uuid
+    from ctypes import wintypes
+
+    class DEVPROPKEY(ctypes.Structure):
+        _fields_ = [("fmtid", ctypes.c_byte * 16), ("pid", wintypes.ULONG)]
+
+    # DEVPKEY_Device_BusReportedDeviceDesc
+    key = DEVPROPKEY((ctypes.c_byte * 16).from_buffer_copy(uuid.UUID("540b947e-8b40-45bc-a8a2-6a0b894cbda2").bytes_le), 4)
+    instance = f"USB\\VID_{port.vid:04X}&PID_{port.pid:04X}\\{port.serial_number}"
+    try:
+        cfgmgr32 = ctypes.WinDLL("cfgmgr32")
+        node = wintypes.DWORD()
+        if cfgmgr32.CM_Locate_DevNodeW(ctypes.byref(node), ctypes.c_wchar_p(instance), 0) != 0:
+            return ""
+        kind, buffer = wintypes.ULONG(), ctypes.create_unicode_buffer(256)
+        size = wintypes.ULONG(ctypes.sizeof(buffer))
+        if cfgmgr32.CM_Get_DevNode_PropertyW(node, ctypes.byref(key), ctypes.byref(kind), buffer,
+                                             ctypes.byref(size), 0) != 0:
+            return ""
+        return buffer.value
+    except OSError:
+        return ""
+
+
+def nanovna_ports(ports, approved=(), usb_name=windows_usb_name) -> list[str]:
     """The ports in pyserial's list_ports.comports() that are NanoVNAs: the USB ID and the name, or
     a USB ID the person approved (`approved`: (vendor, product) pairs). Clones often use a generic
     chip, such as the CH340, whose ID says nothing about a NanoVNA; only the person can say that
-    one is theirs (T3), and it's their say-so that counts, not the name."""
+    one is theirs (T3), and it's their say-so that counts, not the name. `usb_name`: where else to
+    look for the name (Windows keeps it apart from the port's; see windows_usb_name)."""
+    def named_nanovna(p) -> bool:
+        if "nanovna" in f"{p.product or ''} {p.description or ''}".lower():
+            return True
+        return "nanovna" in usb_name(p).lower()
     return [p.device for p in ports
-            if ((p.vid, p.pid) == USB_ID and "nanovna" in f"{p.product or ''} {p.description or ''}".lower())
+            if ((p.vid, p.pid) == USB_ID and named_nanovna(p))
             or (p.vid is not None and (p.vid, p.pid) in approved)]
 
 
-def find_port(ports, port_option: bool = True, approved=()) -> str:
+def find_port(ports, port_option: bool = True, approved=(), usb_name=windows_usb_name) -> str:
     """The NanoVNA's port, from pyserial's list_ports.comports(). Never guesses (T3): writing
     NanoVNA commands to the wrong port, such as a radio's CAT port, could change its settings.
     `port_option`: whether the person can give --port (the command can; the app can't)."""
-    found = nanovna_ports(ports, approved)
+    found = nanovna_ports(ports, approved, usb_name)
     if len(found) == 1:
         return found[0]
     if found:
