@@ -35,6 +35,7 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\Dipstick.exe
+SetupIconFile=Dipstick.ico
 UninstallDisplayName=Dipstick
 
 [Files]

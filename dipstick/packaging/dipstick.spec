@@ -14,8 +14,10 @@ analysis = Analysis(
     excludes=["pytest", "playwright", "pip_audit", "PyInstaller"],
 )
 archive = PYZ(analysis.pure)
-executable = EXE(archive, analysis.scripts, [], exclude_binaries=True, name="Dipstick", console=False)
+# The icon (packaging/icon.svg, drawn into these by make_icons.py). Linux apps take theirs from the desktop.
+icon = os.path.join(SPECPATH, "Dipstick.icns" if sys.platform == "darwin" else "Dipstick.ico")
+executable = EXE(archive, analysis.scripts, [], exclude_binaries=True, name="Dipstick", console=False, icon=icon)
 collected = COLLECT(executable, analysis.binaries, analysis.datas, name="Dipstick")
 if sys.platform == "darwin":
-    app = BUNDLE(collected, name="Dipstick.app", bundle_identifier="io.github.jmringle.dipstick",
+    app = BUNDLE(collected, name="Dipstick.app", bundle_identifier="io.github.jmringle.dipstick", icon=icon,
                  info_plist={"CFBundleShortVersionString": "0.1.0", "NSHighResolutionCapable": True})

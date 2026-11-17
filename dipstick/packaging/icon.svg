@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Dipstick's icon: an SWR sweep's dip, with an oil dipstick reaching down to read it.
+       The tip's hatched "full" zone sits in the dip: the level you want. Rendered to the app
+       icons by packaging/make_icons.py. -->
+  <defs>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1b2a38"/>
+      <stop offset="1" stop-color="#0a1117"/>
+    </linearGradient>
+    <linearGradient id="steel" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8f9aa5"/>
+      <stop offset="0.45" stop-color="#eef2f5"/>
+      <stop offset="1" stop-color="#9aa5b0"/>
+    </linearGradient>
+    <clipPath id="rod"><rect x="492" y="262" width="40" height="438" rx="20"/></clipPath>
+  </defs>
+  <!-- macOS icon grid: an 824-px body centred in 1024, corner radius about 185 -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#screen)"/>
+  <!-- the VNA's graticule -->
+  <g stroke="#2c3e4f" stroke-width="4">
+    <path d="M100 306H924M100 512H924M100 718H924M306 100V924M718 100V924"/>
+  </g>
+  <!-- the SWR trace: high off resonance, dipping to a good match in the middle -->
+  <path d="M150 300 C 350 300 410 760 512 760 C 614 760 674 300 874 300" fill="none"
+        stroke="#f7c531" stroke-width="40" stroke-linecap="round"/>
+  <!-- the dipstick: steel rod, hatched full zone at the tip, orange loop handle -->
+  <rect x="492" y="262" width="40" height="498" rx="20" fill="url(#steel)"/>
+  <g clip-path="url(#rod)" stroke="#33414e" stroke-width="7">
+    <path d="M480 610 L544 574 M480 650 L544 614 M480 690 L544 654 M480 730 L544 694"/>
+  </g>
+  <path d="M478 590H546M478 700H546" stroke="#33414e" stroke-width="10" stroke-linecap="round"/>
+  <circle cx="512" cy="196" r="74" fill="none" stroke="#ff6a2b" stroke-width="40"/>
+</svg>
