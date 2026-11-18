@@ -122,5 +122,5 @@ Checked against the firmware sources on 2026-11-17 ([DiSlord/NanoVNA-D](https://
 
 ## Next
 
-- **Hardware checks still to do:** the balun tests (needs resistors and a second identical transformer), the two-port calibration with the kit's thru connector, a cable of known length for accuracy, and the EFHW's flat SWR on 40 m. (beta.14 checked by hand on Windows 2026-11-17: found the NanoVNA and swept. The Linux build is checked only in CI.)
+- **Hardware checks still to do:** the balun tests (needs resistors and a second identical transformer), the two-port calibration with the kit's thru connector, a cable of known length for accuracy, and the EFHW's flat SWR on 40 m. (beta.14 checked by hand on Windows 2026-11-17: found the NanoVNA and swept. beta.15, 2026-11-18, changes only the port picker for devices whose name Windows can't read and one status-line wording, so that check still stands. The Linux build is checked only in CI.)
 - **Later:** a distance-to-fault plot (an inverse FFT of the sweep), and saving sweeps for antenna-model to compare with its predictions.

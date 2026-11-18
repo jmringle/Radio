@@ -181,6 +181,10 @@ python packaging/check_build.py dist          # fails if a log, database or .env
 "dist/FT8 Forecast.app/Contents/MacOS/FT8 Forecast" --self-test   # macOS; exit 0 means it works
 ```
 
+On Windows, `ISCC.exe /DAppVersion=0.1.0 packaging\ft8forecast.iss` then wraps the build in the installer, `dist\FT8-Forecast-Windows-Setup.exe` (needs [Inno Setup](https://jrsoftware.org/isinfo.php) 6, which GitHub's Windows runners already have).
+
+**Releases** are made by hand: push a tag like `ft8-forecast-v0.1.0-beta.4`, which runs `.github/workflows/ft8-forecast-app.yml` on the tag (builds, self-tests, and the Windows download check: install the setup as a downloaded file, start it with no Unblock, uninstall). Then download that run's files, write `SHA256SUMS.txt`, and create a draft release with them; publish once it's checked.
+
 To run it from source without building: `python -m ft8_forecast.desktop`.
 
 **Downloading a build.** Ready-made builds are on the [Releases](https://github.com/jmringle/Radio/releases) page (pre-releases for now). Pick the newest release named **FT8 Forecast** (this repository also holds other radio tools' releases) and download only the `FT8-Forecast-` file for your computer; the Source code links there are GitHub's automatic snapshot of the whole Radio repository, not needed to use the app. They aren't code-signed yet, so the computer can't confirm who made them and warns once:
@@ -264,7 +268,7 @@ The sender comes from the standard shapes `CQ [modifier] FROM [GRID]` and `TO FR
 - **License class:** removed 2026-11-07. Every HF FT8 frequency is inside General's data segments (47 CFR 97.301(d), 97.305(c)), so General and Extra gave the same answers. Technician only hid bands you had listened to but can't transmit FT8 on; the forecast now shows what you heard there, since listening needs no license. Decodes still count only inside General's data segments, which keeps out other bands and mistyped dial frequencies. An old `LICENSE_CLASS` line in `.env` is ignored.
 - **Errors:** unexpected errors say where the log file is, not "see the terminal", and the log holds no callsigns or grids. Still no traceback on the page.
 - **Offline:** no update checks, analytics or web calls; a test fails on any connection except to the app's own local server.
-- **Builds:** GitHub Actions builds on macOS and Windows, because PyInstaller only builds for the system it runs on. Each build must start and answer a local request before it counts. Builds are unsigned for now, and the README explains the macOS and Windows warnings. Nothing from `data/` or `.env` may be in a build; a test checks.
+- **Builds:** GitHub Actions builds on macOS and Windows, because PyInstaller only builds for the system it runs on. Each build must start and answer a local request before it counts. Builds are unsigned for now, and the README explains the macOS and Windows warnings. Windows gets an installer, not a zip (2026-11-18), so no Unblock step is needed. Nothing from `data/` or `.env` may be in a build; a test checks.
 
 **Next:**
 - Possible later: solar values typed in by hand (`--k`, `--flux`; no network).
