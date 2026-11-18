@@ -1,13 +1,13 @@
 name: Windows download check (dipstick, ft8-forecast)
-# Installs a released Windows build the way a person does: download, extract with Explorer's zip
-# handling, run. Browsers mark downloads as "from the internet" (a Zone.Identifier stream, the
-# Mark of the Web), Explorer copies that mark onto every file it extracts, and .NET then refuses
-# to load pythonnet's Python.Runtime.dll ("Failed to resolve Python.Runtime.Loader.Initialize").
+# Installs a released Windows build the way a person does: download, install, run. Browsers mark
+# downloads as "from the internet" (a Zone.Identifier stream, the Mark of the Web). Explorer copied
+# that mark onto every file it extracted from a zip, and .NET then refused to load pythonnet's
+# Python.Runtime.dll ("Failed to resolve Python.Runtime.Loader.Initialize"), so both apps now ship
+# an installer (dipstick 2026-11-16, ft8-forecast 2026-11-18). Here the setup file is marked,
+# installed silently, and must leave no marked file behind, start with no Unblock, and uninstall.
 # CI's own builds are never downloaded, so the build workflow can't see this. Run it from the
-# Actions tab ("Run workflow") for a published release, or dipstick-release.yml runs it on the
-# build it just made, before making the draft: it must pass or there's no draft.
-# dipstick ships an installer instead (2026-11-16): the setup file is marked, installed silently,
-# and must leave no marked file behind and start with no Unblock. ft8-forecast still ships a zip.
+# Actions tab ("Run workflow") for a published release; dipstick-release.yml and ft8-forecast-app.yml
+# run it on the build they just made.
 on:
   workflow_dispatch:
     inputs:
@@ -49,26 +49,24 @@ jobs:
           [[ "$TAG" =~ ^(dipstick|ft8-forecast)-v[0-9]+\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]] || { echo "::error::bad tag $TAG"; exit 1; }
           # Each app's download and program names, from its own app workflow.
           case "${BASH_REMATCH[1]}" in
-            dipstick) zip=dipstick-Windows-Setup.exe; kind=installer; exe='installed\Dipstick\Dipstick.exe'; proc=Dipstick ;;
-            ft8-forecast) zip=FT8-Forecast-Windows.zip; kind=zip; exe='installed\FT8 Forecast\FT8 Forecast.exe'; proc='FT8 Forecast' ;;
+            dipstick) setup=dipstick-Windows-Setup.exe; dir='installed\Dipstick'; exe=Dipstick.exe ;;
+            ft8-forecast) setup=FT8-Forecast-Windows-Setup.exe; dir='installed\FT8 Forecast'; exe='FT8 Forecast.exe' ;;
           esac
-          { echo "ZIP=$zip"; echo "KIND=$kind"; echo "EXE=$exe"; echo "PROC=$proc"; } >> "$GITHUB_ENV"
+          { echo "SETUP=$setup"; echo "DIR=$dir"; echo "EXE=$dir\\$exe"; } >> "$GITHUB_ENV"
           mkdir -p download && cd download
           if [ -n "$ARTIFACT" ]; then
-            sha256sum -c "$zip.sha256"  # the build's own checksum file, as the release will list it
+            sha256sum -c "$setup.sha256"  # the build's own checksum file, as the release will list it
           else
-            gh release download "$TAG" -p "$zip" -p SHA256SUMS.txt
+            gh release download "$TAG" -p "$setup" -p SHA256SUMS.txt
             sha256sum -c --ignore-missing SHA256SUMS.txt
           fi
 
-      # --- an installer (dipstick) ---
       - name: Mark the installer as downloaded, install it silently, and check no installed file is marked
-        if: env.KIND == 'installer'
         timeout-minutes: 5
         run: |
-          $setup = (Resolve-Path "download\$env:ZIP").Path
+          $setup = (Resolve-Path "download\$env:SETUP").Path
           Set-Content -Path $setup -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3"  # 3 = Internet, as a browser writes it
-          $dir = Join-Path (Get-Location) "installed\Dipstick"
+          $dir = Join-Path (Get-Location) $env:DIR
           # Started directly (no shell), so Windows' "Open File - Security Warning" can't wait for a click
           # on the runner; a person sees SmartScreen instead, which the README covers.
           $start = New-Object System.Diagnostics.ProcessStartInfo $setup
@@ -84,7 +82,6 @@ jobs:
           if ($marked.Count -ne 0) { $marked | Select-Object -First 5 FullName | Out-String; throw "installed files carry the internet mark: the window won't start" }
 
       - name: Run the installed app with no Unblock (must pass)
-        if: env.KIND == 'installer'
         timeout-minutes: 3
         run: |
           $app = Start-Process -FilePath $env:EXE -ArgumentList "--self-test" -PassThru
@@ -94,75 +91,14 @@ jobs:
           "the installed build passed its self-test with no Unblock"
 
       - name: Uninstall it (must remove the app)
-        if: env.KIND == 'installer'
         timeout-minutes: 3
         run: |
-          $uninstaller = "installed\Dipstick\unins000.exe"
+          $uninstaller = Join-Path $env:DIR "unins000.exe"
           if (-not (Test-Path $uninstaller)) { throw "no uninstaller at $uninstaller" }
           $run = Start-Process -FilePath $uninstaller -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -PassThru
           $handle = $run.Handle
           if (-not $run.WaitForExit(120000)) { $run.Kill(); throw "uninstaller still running after 2 min" }
           # The uninstaller copies itself to a temporary folder and finishes from there, so wait for the app's files to go.
           for ($i = 0; $i -lt 30 -and (Test-Path $env:EXE); $i++) { Start-Sleep -Seconds 1 }
-          if (Test-Path $env:EXE) { throw "Dipstick.exe still there after uninstalling" }
+          if (Test-Path $env:EXE) { throw "$env:EXE still there after uninstalling" }
           "uninstalled"
-
-      # --- a zip (ft8-forecast) ---
-      - name: Mark it as downloaded from the internet and extract it with Explorer's zip handling
-        if: env.KIND == 'zip'
-        run: |
-          $zip = (Resolve-Path "download\$env:ZIP").Path
-          Set-Content -Path $zip -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3"  # 3 = Internet, as a browser writes it
-          New-Item -ItemType Directory installed | Out-Null
-          $shell = New-Object -ComObject Shell.Application
-          $shell.Namespace((Resolve-Path installed).Path).CopyHere($shell.Namespace($zip).Items(), 0x14)  # no dialogs
-          $files = Get-ChildItem installed -Recurse -File
-          $marked = @($files | Where-Object { Get-Item $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue })
-          "extracted $($files.Count) files; $($marked.Count) carry the internet mark"
-          if ($files.Count -eq 0) { throw "nothing extracted" }
-          if ($marked.Count -eq 0) {
-            # Report it plainly rather than pretend: mark them by hand so the next step still tests the mark.
-            "::warning::Explorer's extraction didn't copy the mark on this runner; marking the files by hand"
-            $files | ForEach-Object { Set-Content -Path $_.FullName -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" }
-          }
-
-      - name: Run it with the files still marked (expected to fail if the mark is the cause)
-        if: env.KIND == 'zip'
-        id: marked
-        continue-on-error: true
-        # Its own limit: a stuck app (an error dialog) can keep the step from ending even after
-        # the kill below (found on the first run, which hung until the job's limit).
-        timeout-minutes: 3
-        run: |
-          $app = Start-Process -FilePath $env:EXE -ArgumentList "--self-test" -PassThru
-          $handle = $app.Handle  # without this, ExitCode stays empty
-          if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "still running after 60 s: an error dialog, as on a real PC" }
-          if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
-          "the marked build started fine"
-
-      - name: Close anything the marked run left open
-        if: always() && env.KIND == 'zip'
-        run: |
-          Get-Process $env:PROC, msedgewebview2, WerFault -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, MainWindowTitle -AutoSize | Out-String
-          Get-Process $env:PROC, WerFault -ErrorAction SilentlyContinue | Stop-Process -Force
-
-      - name: Unblock the files and run it again (must pass)
-        if: always() && env.KIND == 'zip'
-        timeout-minutes: 3
-        run: |
-          Get-ChildItem installed -Recurse | Unblock-File
-          $app = Start-Process -FilePath $env:EXE -ArgumentList "--self-test" -PassThru
-          $handle = $app.Handle
-          if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "still running after 60 s, probably an error dialog" }
-          if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
-          "the unblocked build passed its self-test"
-
-      - name: Result
-        if: env.KIND == 'zip'
-        shell: bash  # runs only when the unblocked build passed
-        run: |
-          if [ "${{ steps.marked.outcome }}" = failure ]; then
-            echo "Marked files fail and unblocked files pass: Unblock (as the install steps say) is still needed."
-          else
-            echo "::warning::The marked build started fine too: the internet mark no longer stops it, so the Unblock step may not be needed any more."
-          fi
