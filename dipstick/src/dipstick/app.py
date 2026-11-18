@@ -18,7 +18,7 @@ from pathlib import Path
 
 from dipstick import balun
 from dipstick.bands import BANDS, band_range
-from dipstick.device import USB_ID, DeviceError, NanoVNA, device_name, find_port, nanovna_ports, original_firmware_ports
+from dipstick.device import USB_ID, DeviceError, NanoVNA, device_name, find_port, nanovna_ports, original_firmware_hint
 from dipstick.measure import (band_for_target, measure_band, measure_cable, measure_choke, measure_loss,
                               measure_transformer, shown)
 from dipstick.plots import smith_svg, swr_svg
@@ -61,7 +61,8 @@ def is_app_page(url, page: Path = PAGE) -> bool:
 
 def connect_nanovna(port: str | None, ports=list_ports.comports, approved=()) -> NanoVNA:
     """Opens the NanoVNA. The app has no --port option, so its errors never suggest one.
-    `approved`: (vendor, product) USB IDs the person said are their NanoVNA."""
+    `approved`: USB IDs the person said are their NanoVNA, as (vendor, product), or (vendor, product,
+    name) for the generic ST ID (see device.nanovna_ports)."""
     return NanoVNA.open(port or find_port(ports(), port_option=False, approved=approved))
 
 
@@ -69,7 +70,8 @@ def _usb_id_text(port) -> str:
     """What the picker remembers for `port`: its USB ID, plus the device's name for the generic ST
     ID (see settings.valid_approval). May not be valid: use_port checks before saving it."""
     text = f"{port.vid:04X}:{port.pid:04X}"
-    return f"{text} {device_name(port)}" if (port.vid, port.pid) == USB_ID and device_name(port) else text
+    name = device_name(port) if (port.vid, port.pid) == USB_ID else ""
+    return f"{text} {name}" if name else text
 
 
 def _what_it_says(port) -> str:
@@ -113,14 +115,14 @@ class Api:
     def nanovna(self) -> dict:
         """Is a NanoVNA plugged in? Reads only the computer's list of USB serial ports; never opens
         one, so the page can ask every couple of seconds, even during a sweep."""
-        found = nanovna_ports(self._ports(), self._approved())
+        ports = self._ports()
+        found = nanovna_ports(ports, self._approved())
         if len(found) == 1:
             return {"connected": True, "text": f"NanoVNA connected ({found[0]})"}
         if found:
             return {"connected": False, "text": f"More than one NanoVNA is plugged in ({', '.join(found)}); unplug one"}
-        if maybe := original_firmware_ports(self._ports()):
-            return {"connected": False, "text": f"No NanoVNA found by name. {maybe[0]} may be one with the "
-                                                "original NanoVNA firmware: if it's yours, choose it below."}
+        if hint := original_firmware_hint(ports, port_option=False):
+            return {"connected": False, "text": f"No NanoVNA found by name.{hint}"}
         return {"connected": False, "text": "No NanoVNA found. Is it plugged in and switched on?"}
 
     def serial_ports(self) -> dict:
@@ -307,7 +309,7 @@ class Api:
                                           "so it lasts only until you quit."}
         return {"ok": True}
 
-    def _approved(self) -> tuple[tuple[int, int], ...]:
+    def _approved(self) -> tuple[tuple[int, int] | tuple[int, int, str], ...]:
         return tuple(_usb_id_pair(text) for text in self._settings["ports"])
 
     def _left_page(self) -> dict | None:

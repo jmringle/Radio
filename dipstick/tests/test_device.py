@@ -10,7 +10,7 @@ import pytest
 import serial
 from fakes import FakeLink, UnpluggedLink, recorded
 
-from dipstick.device import DeviceError, NanoVNA, find_port
+from dipstick.device import DeviceError, NanoVNA, device_name, find_port
 
 def device(replies, **kwargs):
     return NanoVNA(FakeLink(replies, **kwargs))
@@ -419,3 +419,28 @@ def test_on_windows_the_approved_name_is_the_usb_devices():
     port = Port("COM5", 0x0483, 0x5740, None, "USB Serial Device (COM5)")
     approved = [(0x0483, 0x5740, "ChibiOS/RT Virtual COM Port")]
     assert find_port([port], approved=approved, usb_name=lambda p: "ChibiOS/RT Virtual COM Port") == "COM5"
+
+
+# --- Windows when the device's own name can't be read (code review 2026-11-18) -------------------------
+# Windows labels every usbser port "USB Serial Device (COMn)". If that label stood in for the name, an
+# approval would match any 0483:5740 gadget that later lands on the same COM number, such as a tinySA (T3).
+
+TINYSA_ON_COM5 = Port("COM5", 0x0483, 0x5740, None, "USB Serial Device (COM5)")  # no serial number, so no name
+
+
+def test_on_windows_the_port_label_is_never_the_approved_name(monkeypatch):
+    monkeypatch.setattr("dipstick.device.sys.platform", "win32")
+    approved = [(0x0483, 0x5740, "USB Serial Device (COM5)")]
+    with pytest.raises(DeviceError, match="No NanoVNA found"):
+        find_port([TINYSA_ON_COM5], approved=approved, usb_name=lambda p: "")
+
+
+def test_on_windows_the_device_name_comes_only_from_the_usb_device(monkeypatch):
+    monkeypatch.setattr("dipstick.device.sys.platform", "win32")
+    assert device_name(TINYSA_ON_COM5, usb_name=lambda p: "") == ""
+    assert device_name(TINYSA_ON_COM5, usb_name=lambda p: " NanoVNA-H ") == "NanoVNA-H"
+
+
+@pytest.mark.parametrize("text", ["n/a", " n/a ", "   "])
+def test_pyserials_n_a_is_no_name_even_padded(text):
+    assert device_name(Port("/dev/cu.usbmodem1", 0x0483, 0x5740, text, text), usb_name=lambda p: "") == ""

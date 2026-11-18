@@ -68,10 +68,13 @@ def windows_usb_name(port) -> str:
 
 
 def device_name(port, usb_name=windows_usb_name) -> str:
-    """What the USB device calls itself: on Windows the bus-reported name (the port's own says
-    "USB Serial Device"), elsewhere pyserial's product, else its description; "" if none."""
-    for text in (usb_name(port), port.product, port.description):
-        if text and text.strip() and text != "n/a":
+    """What the USB device calls itself: on Windows only the bus-reported name, elsewhere pyserial's
+    product, else its description; "" if none. On Windows the port's own label ("USB Serial Device
+    (COM5)") never stands in: an approval saved with it would match any gadget that later lands on
+    COM5 with the same USB ID (T3; code review 2026-11-18)."""
+    candidates = (usb_name(port),) if sys.platform == "win32" else (usb_name(port), port.product, port.description)
+    for text in candidates:
+        if text and text.strip() not in ("", "n/a"):
             return text.strip()
     return ""
 

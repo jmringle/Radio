@@ -1155,3 +1155,13 @@ def test_the_generic_st_id_with_no_usable_name_is_refused(tmp_path):
         answer = api.use_port("/dev/cu.usbmodem7")
         assert answer["ok"] is False and "name" in answer["error"], name
         assert api.serial_ports()["remembered"] == []
+
+
+def test_on_windows_a_port_whose_name_cant_be_read_is_not_remembered(monkeypatch, tmp_path):
+    # No serial number, so Windows can't give the device's own name; its port label must not stand in.
+    monkeypatch.setattr("dipstick.device.sys.platform", "win32")
+    port = Port("COM5", 0x0483, 0x5740, None, "USB Serial Device (COM5)")
+    api = Api(connect=None, ports=lambda: [port], settings_path=tmp_path / "s.json")
+    answer = api.use_port("COM5")
+    assert answer["ok"] is False and "name" in answer["error"]
+    assert api.serial_ports()["remembered"] == []
