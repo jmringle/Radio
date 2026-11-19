@@ -30,7 +30,7 @@ APP_NAME = "Dipstick"  # the window title (the command stays lowercase: dipstick
 PAGE = Path(__file__).parent / "ui" / "index.html"
 # The cable tab's labels, so errors name the field to fix (index.html must match).
 _FIELDS = {"no_antenna": "tick No antenna connected", "vf": "Velocity factor", "length": "Length",
-           "max_length": "Longest cable", "ratio": "Ratio", "resistor": "Resistor"}
+           "max_length": "Longest cable", "ratio": "Ratio", "resistor": "Resistor", "antenna_length": "Antenna length"}
 # The Calibrate tab's choice for the transformer test's range (index.html must match): 1.8 to 54 MHz,
 # the same 101 points, so the test sweeps exactly the calibrated frequencies.
 WIDE = "wide"
@@ -164,9 +164,10 @@ class Api:
             self._settings["ports"] = []
             return self._save_settings("forgetting the port choice")
 
-    def sweep(self, band, target, points) -> dict:
+    def sweep(self, band, target, points, antenna_length=None) -> dict:
         """Measure a band (or, with no band, the band the target is in); answers
-        {"ok": True, band, report, swr_svg, smith_svg} or {"ok": False, error}."""
+        {"ok": True, band, report, detail, swr_svg, smith_svg} or {"ok": False, error}. `report` is the
+        Tune section and `detail` the rest (the page folds it away)."""
         def measure():
             nonlocal band
             text = target if isinstance(target, str) else None
@@ -175,9 +176,10 @@ class Api:
             if not isinstance(band, str):
                 raise ValueError("Choose a band")
             measured = measure_band(band, text, _points(points), self._connect,
-                                    calibrated=self._calibrated_band not in (None, WIDE))
+                                    calibrated=self._calibrated_band not in (None, WIDE),
+                                    antenna_length=antenna_length, names=_FIELDS)
             # The window's stylesheet colors the plots (its security policy blocks inline styles).
-            return {"band": band, "report": measured.report,
+            return {"band": band, "report": measured.tune, "detail": measured.detail,
                     "swr_svg": swr_svg(measured.readings, band, standalone=False, target_hz=measured.target_hz),
                     "smith_svg": smith_svg(measured.readings, standalone=False),
                     "quiz": _quiz(antenna_questions(measured.summary))}
@@ -284,8 +286,8 @@ class Api:
         return self._one_at_a_time(measure)
 
     def settings(self) -> dict:
-        """The saved choices the page shows: {"quiz": True or False}."""
-        return {"quiz": self._settings["quiz"]}
+        """The saved choices the page shows: {"quiz": True or False, "detail": True or False}."""
+        return {"quiz": self._settings["quiz"], "detail": self._settings["detail"]}
 
     def set_quiz(self, on) -> dict:
         """Show the "Check yourself" questions or not; remembered for the next launch. Answers
@@ -297,6 +299,17 @@ class Api:
         with self._saving:
             self._settings["quiz"] = on
             return self._save_settings("the Check yourself setting")
+
+    def set_detail(self, on) -> dict:
+        """Open a band report's More detail or not; remembered for the next launch. Answers
+        {"ok": True} or {"ok": False, error}."""
+        if refusal := self._left_page():
+            return refusal
+        if not isinstance(on, bool):
+            return {"ok": False, "error": f"More detail must be open or closed, got {shown(on)}"}
+        with self._saving:
+            self._settings["detail"] = on
+            return self._save_settings("whether More detail is open")
 
     def _save_settings(self, what: str) -> dict:
         """Writes the settings file (when there is one); the caller holds _saving."""

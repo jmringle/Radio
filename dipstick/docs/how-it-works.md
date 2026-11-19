@@ -4,16 +4,23 @@ What each test measures, how the numbers are worked out, and why the advice is w
 
 ## Antenna sweep
 
-Dipstick sweeps the whole band with up to 101 points and reports:
+Dipstick sweeps the whole band with up to 101 points. The report starts with what you act on:
 
 - **Best match:** the frequency with the lowest SWR, and its rating.
-- **What to do:** how much to shorten or lengthen the antenna to move the best match to your target (the middle of the band unless you give `--target`).
-- **SWR across the band** at the edges and the middle, and the **2:1 bandwidth**: the stretch of the band where SWR is 2 or less.
-- **Impedance** (R + jX) and where X = 0, for the curious.
+- **What to do:** how much to shorten or lengthen the antenna to move the best match to your target (the middle of the band unless you give `--target`), as a percent and in inches and cm, with half of it for each end of a dipole.
+- **At your target now:** the SWR there and what it takes to use it (the tuner words below).
+- **2:1 bandwidth** (no tuner needed) and **3:1 bandwidth** (most built-in tuners): the stretches around the best match where SWR is at most 2 or 3.
+- A one-line calibration reminder, unless you calibrated in the app this session.
 
-It also saves an SWR plot (log scale 1 to 10, with the 2:1 line, best match and target marked) and a Smith chart, as SVG files.
+Then **More detail**: what the NanoVNA measured, SWR at the edges and middle, what the bandwidths and a tuner's range really mean, how trimming works, and impedance (R + jX, where X = 0) for the curious. The command prints both parts; the app shows the first and folds More detail away (display review 2026-11-19).
+
+**Tuner words** (from typical gear, not one radio; approved 2026-11-17, see `docs/plans/multiband-and-compare.md`): SWR 2 or under, no tuner needed; up to 3, within most built-in tuners (Icom IC-7300 and Yaesu FT-991A manuals: 16.7–150 ohms); up to 8, needs a wide-range external tuner (LDG Z-100Plus: 6–800 ohms on HF); above that, beyond most tuners. On 6 m anything over 3 is beyond most tuners (the same LDG covers only 16–150 ohms there). Above 6 m, most VHF and UHF radios have no tuner, so over 2 says to trim or fix the antenna (a judgement, 2026-11-19) and there's no 3:1 line. A tuner's range is really an impedance range, so the SWR limits are approximate.
+
+It also saves an SWR plot (log scale 1 to 10, with the 2:1 and 3:1 lines, the stretches under each shaded, and the best match and target marked) and a Smith chart, as SVG files.
 
 **Why trim advice comes from SWR, not X.** On low-loss coax, SWR is the same at both ends of the cable, so the lowest-SWR frequency is the antenna's own best match whatever the coax length. Impedance changes along the coax, so X = 0 at the radio end usually isn't where the antenna itself is resonant. The trim percentage assumes an antenna you can trim (a wire dipole, an end-fed or an adjustable whip): its best-match frequency moves opposite to its length, roughly as 1 / length. A fixed antenna like a rubber duck can't be trimmed.
+
+**Inches from the percent** (2026-11-19). The percent is of the antenna's length as it is now. Given the length (`--antenna-length` or the app's Antenna length, up to 200 m), Dipstick uses it. Otherwise it estimates a half-wave wire at the best-match frequency with the usual rule of thumb, 468 / MHz feet, and says so. That fits a dipole or an end-fed on its main band; for a quarter-wave vertical the estimate is about twice too much, and for an end-fed on a harmonic band about half, so give the length for those.
 
 **"No clear dip."** If SWR stays above 2 everywhere and the highest SWR is less than 1.25 times the lowest, there's no dip to move, so Dipstick gives no trim advice. Usually the antenna is resonant well outside the band, or something is missing or wrong: the counterpoise or ground it needs, a bad connector, or a lossy cable. A dipole even 10% off frequency rises far more than that across a band.
 

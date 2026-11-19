@@ -1,5 +1,6 @@
-"""The app's saved choices: whether to show the "Check yourself" questions, and the USB IDs of
-serial adapters the person said are their NanoVNA (a clone with a generic chip, such as a CH340).
+"""The app's saved choices: whether to show the "Check yourself" questions, whether a band report's
+More detail is open, and the USB IDs of serial adapters the person said are their NanoVNA (a clone
+with a generic chip, such as a CH340).
 
 Kept in settings.json in the folder each system uses for app settings. The file is input like any
 other (anyone with the account can edit it, and a crash can leave half of it), so anything odd in
@@ -12,7 +13,7 @@ import re
 import sys
 from pathlib import Path
 
-DEFAULTS = {"quiz": True, "ports": []}
+DEFAULTS = {"quiz": True, "detail": False, "ports": []}
 MAX_PORTS = 8  # remembered USB IDs; ours is one or two
 GENERIC_ST_ID = "0483:5740"  # the NanoVNA's USB ID, which is ST's generic one (tinySAs and more use it)
 MAX_NAME = 64
@@ -57,6 +58,8 @@ def load(path: Path | None) -> dict:
         return settings
     if isinstance(saved, dict) and isinstance(saved.get("quiz"), bool):
         settings["quiz"] = saved["quiz"]
+    if isinstance(saved, dict) and isinstance(saved.get("detail"), bool):
+        settings["detail"] = saved["detail"]
     ports = saved.get("ports") if isinstance(saved, dict) else None
     if isinstance(ports, list):  # anything that isn't a USB ID we'd have saved is dropped
         settings["ports"] = [i for i in dict.fromkeys(p for p in ports if isinstance(p, str)) if valid_approval(i)][:MAX_PORTS]

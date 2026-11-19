@@ -19,7 +19,9 @@ PAGE = (Path(__file__).parents[1] / "src" / "dipstick" / "ui" / "index.html").as
 
 FAKE_API = """
 window.__calls = [];
+window.__lengths = [];
 window.__answer = {ok: true, band: "40m", report: "40m: 7.000-7.300 MHz, 101 points\\n\\nBest match: SWR 1.20 at 7.150 MHz (excellent)\\n",
+                   detail: "What the NanoVNA measured: 101 frequencies\\n  At each one it sent a tiny test signal\\n",
                    swr_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-swr" viewBox="0 0 10 10"><polyline class="swr" points="0,0 10,10"/></svg>',
                    smith_svg: '<svg xmlns="http://www.w3.org/2000/svg" class="test-smith" viewBox="0 0 10 10"><circle class="edge" cx="5" cy="5" r="5"/></svg>'};
 window.__hold = false;
@@ -37,8 +39,9 @@ window.__chokeAnswer = {ok: true, report: "Choke: good on 160m, 80m, 40m.\\n"};
 window.__lossCalls = [];
 window.__lossAnswer = {ok: true, report: "Through loss, direct: most 0.50 dB on 6m, least 0.10 dB on 160m.\\n"};
 window.__calError = null;
-window.__settings = {quiz: true};
+window.__settings = {quiz: true, detail: false};
 window.__saved = [];
+window.__detailSaved = [];
 window.__saveAnswer = {ok: true};
 window.__ports = {ports: [], remembered: []};
 window.__portCalls = 0;
@@ -56,11 +59,13 @@ setTimeout(() => {
     nanovna: async () => window.__nanovna,
     settings: async () => window.__settings,
     set_quiz: async (on) => { window.__saved.push(on); return window.__saveAnswer; },
+    set_detail: async (on) => { window.__detailSaved.push(on); return window.__saveAnswer; },
     serial_ports: async () => { window.__portCalls++; if (window.__portsFail) throw new Error("port list failed"); return window.__ports; },
     use_port: async (device) => { window.__used.push(device); return window.__portAnswer; },
     forget_ports: async () => { window.__forgot++; return window.__portAnswer; },
-    sweep: (band, target, points) => {
+    sweep: (band, target, points, length) => {
       window.__calls.push([band, target, points]);
+      window.__lengths.push(length);
       if (!window.__hold) return Promise.resolve(window.__answer);
       return new Promise(resolve => { window.__release = () => resolve(window.__answer); });
     },
@@ -514,12 +519,12 @@ def test_a_cable_error_is_shown_and_the_box_clears_too(app: Page):
 def test_nothing_else_can_start_during_a_cable_check(app: Page):
     app.evaluate("window.__hold = true")
     cable_tab(app)
-    app.get_by_label("Length").fill("50ft")
+    app.get_by_label("Length", exact=True).fill("50ft")
     app.locator("#cable-panel").get_by_label("No antenna connected").check()
     app.get_by_role("button", name="Check cable").click()
     expect(app.get_by_role("status", name="Sweep status")).to_have_text(re.compile("Checking the cable"))
     for control in (app.get_by_role("tab", name="Antenna"), app.get_by_role("button", name="Check cable"),
-                    app.locator("#cable-panel").get_by_label("No antenna connected"), app.get_by_label("Length")):
+                    app.locator("#cable-panel").get_by_label("No antenna connected"), app.get_by_label("Length", exact=True)):
         expect(control).to_be_disabled()
     app.evaluate("window.__release()")
     expect(app.get_by_role("tab", name="Antenna")).to_be_enabled()
@@ -1288,3 +1293,97 @@ def test_hf_wide_sends_the_boxs_real_state_too(app: Page):
     app.evaluate('document.getElementById("cal-controls").requestSubmit()')
     app.wait_for_function("window.__calBoxes.length > 0")  # like Wait Until Keyword Succeeds on a JS check
     assert app.evaluate("window.__calBoxes") == [False]
+
+
+# --- More detail: the band report's background, folded away (display review 2026-11-19) -------------
+# Python sends the Tune section as `report` and the rest as `detail`; the page folds the detail into
+# a closed <details>, and Python remembers whether you left it open.
+
+MORE = "More detail"
+
+
+def test_more_detail_is_there_but_closed_after_a_sweep(app: Page):
+    expect(app.locator("#detail")).to_be_hidden()  # nothing to show before a sweep
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#detail")).to_be_visible()
+    expect(app.get_by_text(MORE)).to_be_visible()
+    expect(app.locator("#detail-text")).to_be_hidden()
+
+
+def test_opening_more_detail_shows_it_and_tells_python(app: Page):
+    app.get_by_role("button", name="Sweep").click()
+    app.get_by_text(MORE).click()
+    expect(app.locator("#detail-text")).to_contain_text("What the NanoVNA measured: 101 frequencies")
+    expect(app.locator("#detail-text .explain")).to_have_text("  At each one it sent a tiny test signal\n")  # dimmer
+    app.get_by_text(MORE).click()
+    expect(app.locator("#detail-text")).to_be_hidden()
+    app.wait_for_function("window.__detailSaved.length === 2")
+    assert app.evaluate("window.__detailSaved") == [True, False]
+
+
+def test_more_detail_opens_by_itself_when_python_remembers_open(page: Page):
+    page.add_init_script(FAKE_API + "window.__settings = {quiz: true, detail: true};")
+    page.goto(PAGE)
+    page.get_by_role("button", name="Sweep").click()
+    expect(page.locator("#detail-text")).to_contain_text("What the NanoVNA measured")
+    assert page.evaluate("window.__detailSaved") == []  # opening it from the setting isn't a change to save
+
+
+def test_open_more_detail_stays_open_for_the_next_sweep(app: Page):
+    app.get_by_role("button", name="Sweep").click()
+    app.get_by_text(MORE).click()
+    app.evaluate("window.__answer = Object.assign({}, window.__answer, {detail: 'Across the band: second sweep\\n'})")
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#detail-text")).to_have_text("Across the band: second sweep\n")
+
+
+def test_more_detail_is_text_not_markup(app: Page):
+    app.evaluate("window.__answer = Object.assign({}, window.__answer, {detail: '<img src=x onerror=alert(1)>\\n'})")
+    app.get_by_role("button", name="Sweep").click()
+    app.get_by_text(MORE).click()
+    expect(app.locator("#detail-text")).to_have_text("<img src=x onerror=alert(1)>\n")
+    expect(app.locator("#detail-text img")).to_have_count(0)
+
+
+def test_an_error_or_another_test_hides_more_detail(app: Page):
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#detail")).to_be_visible()
+    app.evaluate('window.__answer = {ok: false, error: "No NanoVNA found. Is it plugged in?"}')
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.get_by_role("alert")).to_be_visible()
+    expect(app.locator("#detail")).to_be_hidden()
+
+
+def test_a_failed_save_of_more_detail_says_so(app: Page):
+    app.evaluate('window.__saveAnswer = {ok: false, error: "Couldn\'t save whether More detail is open (disk full)"}')
+    app.get_by_role("button", name="Sweep").click()
+    app.get_by_text(MORE).click()
+    expect(app.get_by_role("alert")).to_contain_text("Couldn't save whether More detail is open")
+
+
+# --- the antenna's length, for the trim in inches (2026-11-19) ---------------------------------------
+
+LENGTH = "Antenna length (optional)"
+
+
+def test_the_antenna_length_typed_is_sent_with_the_sweep(app: Page):
+    app.get_by_label(LENGTH).fill("66 ft")
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#report")).not_to_be_empty()
+    assert app.evaluate("window.__lengths") == ["66 ft"]
+
+
+def test_an_empty_antenna_length_is_sent_empty(app: Page):
+    app.get_by_role("button", name="Sweep").click()
+    expect(app.locator("#report")).not_to_be_empty()
+    assert app.evaluate("window.__lengths") == [""]
+
+
+def test_the_antenna_length_is_locked_while_live_runs(app: Page):
+    app.get_by_label(LENGTH).fill("20 m")
+    app.get_by_role("button", name="Live").click()
+    expect(app.get_by_label(LENGTH)).to_be_disabled()
+    app.wait_for_function("window.__calls.length >= 2")
+    app.get_by_role("button", name="Stop").click()
+    expect(app.get_by_label(LENGTH)).to_be_enabled()
+    assert set(app.evaluate("window.__lengths")) == {"20 m"}

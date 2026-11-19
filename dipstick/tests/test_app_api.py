@@ -210,7 +210,7 @@ def test_the_page_can_only_reach_public_methods():
     public = {name for name in vars(Api(connect=None)) if not name.startswith("_")}
     assert public == set()
     assert {name for name in dir(Api) if not name.startswith("_")} == {"bands", "cable", "calibrate", "choke", "forget_ports", "loss", "nanovna",
-                                                                         "serial_ports", "set_quiz", "settings", "sweep",
+                                                                         "serial_ports", "set_detail", "set_quiz", "settings", "sweep",
                                                                          "transformer", "use_port"}
 
 
@@ -731,15 +731,15 @@ def test_a_cable_answer_carries_its_questions():
 # can leave half of it. Anything odd falls back to the default (on), never an error.
 
 def test_check_yourself_starts_on(tmp_path):
-    assert Api(connect=None, settings_path=tmp_path / "settings.json").settings() == {"quiz": True}
+    assert Api(connect=None, settings_path=tmp_path / "settings.json").settings() == {"quiz": True, "detail": False}
 
 
 def test_turning_it_off_is_remembered_by_the_next_launch(tmp_path):
     path = tmp_path / "dipstick" / "settings.json"  # the folder doesn't exist yet
     assert Api(connect=None, settings_path=path).set_quiz(False) == {"ok": True}
-    assert Api(connect=None, settings_path=path).settings() == {"quiz": False}
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": False, "detail": False}
     assert Api(connect=None, settings_path=path).set_quiz(True) == {"ok": True}
-    assert Api(connect=None, settings_path=path).settings() == {"quiz": True}
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": True, "detail": False}
 
 
 @pytest.mark.parametrize("on", ["false", 0, 1, None, [], {"quiz": False}])
@@ -748,7 +748,7 @@ def test_only_true_or_false_is_accepted(tmp_path, on):
     api = Api(connect=None, settings_path=path)
     answer = api.set_quiz(on)
     assert answer["ok"] is False and "on or off" in answer["error"]
-    assert api.settings() == {"quiz": True}
+    assert api.settings() == {"quiz": True, "detail": False}
     assert not path.exists()
 
 
@@ -759,19 +759,79 @@ def test_only_true_or_false_is_accepted(tmp_path, on):
 def test_a_broken_or_strange_file_means_on(tmp_path, content):
     path = tmp_path / "settings.json"
     path.write_bytes(content)
-    assert Api(connect=None, settings_path=path).settings() == {"quiz": True}
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": True, "detail": False}
+
+
+# --- More detail: open or closed, remembered like the quiz box (display review 2026-11-19) ---------
+
+def test_a_sweep_answers_the_tune_section_and_the_detail_apart():
+    answer = Api(connect=lambda port: good_40m()).sweep("40m", "", 101)
+    assert answer["report"].startswith("40m: best match SWR 1.00 at 7.153 MHz")
+    assert "bandwidth (no tuner needed)" in answer["report"] and "For the curious" not in answer["report"]
+    assert answer["detail"].startswith("What the NanoVNA measured") and "For the curious" in answer["detail"]
+
+
+def test_a_sweep_takes_the_antennas_length_for_inches():
+    answer = Api(connect=lambda port: good_40m()).sweep("40m", "7.074", 101, "66 ft")
+    assert "From the antenna length you gave: 66.0 ft" in answer["report"]
+
+
+def test_with_no_length_the_estimate_names_the_apps_field():
+    answer = Api(connect=lambda port: good_40m()).sweep("40m", "7.074", 101, "")
+    assert "give its length (Antenna length)" in answer["report"]
+
+
+@pytest.mark.parametrize("length, words", [("long", "must be a length like"), (66, "typed as text"),
+                                           ("999m", "at most 200 m")])
+def test_a_bad_antenna_length_is_explained_in_the_apps_words_and_never_connects(length, words):
+    opened = []
+    answer = Api(connect=lambda port: opened.append(port)).sweep("40m", "", 101, length)
+    assert answer["ok"] is False and "Antenna length" in answer["error"] and words in answer["error"]
+    assert opened == []
+
+
+def test_more_detail_starts_closed_and_is_remembered(tmp_path):
+    path = tmp_path / "settings.json"
+    assert Api(connect=None, settings_path=path).set_detail(True) == {"ok": True}
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": True, "detail": True}
+    assert Api(connect=None, settings_path=path).set_detail(False) == {"ok": True}
+    assert Api(connect=None, settings_path=path).settings()["detail"] is False
+
+
+@pytest.mark.parametrize("on", ["true", 1, None, [], {"detail": True}])
+def test_more_detail_takes_only_true_or_false(tmp_path, on):
+    path = tmp_path / "settings.json"
+    api = Api(connect=None, settings_path=path)
+    answer = api.set_detail(on)
+    assert answer["ok"] is False and "open or closed" in answer["error"]
+    assert api.settings()["detail"] is False and not path.exists()
+
+
+@pytest.mark.parametrize("content", [b'{"detail": "yes"}', b'{"detail": 1}', b'{"detail": null}', b'[true]'])
+def test_an_odd_detail_in_the_file_means_closed(tmp_path, content):
+    path = tmp_path / "settings.json"
+    path.write_bytes(content)
+    assert Api(connect=None, settings_path=path).settings()["detail"] is False
+
+
+def test_another_page_cant_open_more_detail(tmp_path):
+    path = tmp_path / "settings.json"
+    api = Api(connect=None, settings_path=path)
+    api._current_url = lambda: "http://127.0.0.1:8000/evil.html"
+    assert "Only Dipstick's own page" in api.set_detail(True)["error"]
+    assert not path.exists()
 
 
 def test_unknown_keys_are_ignored(tmp_path):
     path = tmp_path / "settings.json"
     path.write_text('{"quiz": false, "port": "/dev/evil"}')
-    assert Api(connect=None, settings_path=path).settings() == {"quiz": False}
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": False, "detail": False}
 
 
 def test_a_settings_folder_that_cant_be_read_means_on(tmp_path):
     path = tmp_path / "settings.json"
     path.mkdir()  # a folder where the file should be
-    assert Api(connect=None, settings_path=path).settings() == {"quiz": True}
+    assert Api(connect=None, settings_path=path).settings() == {"quiz": True, "detail": False}
 
 
 def test_a_failed_save_says_so_and_still_applies_until_quit(tmp_path):
@@ -780,14 +840,14 @@ def test_a_failed_save_says_so_and_still_applies_until_quit(tmp_path):
     api = Api(connect=None, settings_path=blocker / "settings.json")
     answer = api.set_quiz(False)
     assert answer["ok"] is False and "Couldn't save" in answer["error"] and "until you quit" in answer["error"]
-    assert api.settings() == {"quiz": False}
+    assert api.settings() == {"quiz": False, "detail": False}
 
 
 def test_with_no_settings_file_nothing_is_saved_but_it_works():
     # The self-test and these tests use no file, so they never change the real one.
     api = Api(connect=None)
     assert api.set_quiz(False) == {"ok": True}
-    assert api.settings() == {"quiz": False}
+    assert api.settings() == {"quiz": False, "detail": False}
 
 
 def test_another_page_cant_change_the_setting(tmp_path):
@@ -855,7 +915,7 @@ def test_choosing_the_port_is_remembered_across_launches(tmp_path):
     assert again.serial_ports() == {"ports": [{"device": "/dev/cu.usbserial-1410", "id": "10C4:EA60",
                                                "label": "/dev/cu.usbserial-1410: CP2102 USB to UART"}],
                                     "remembered": ["1A86:7523"]}
-    assert again.settings() == {"quiz": True}  # the page's settings are still only the quiz
+    assert again.settings() == {"quiz": True, "detail": False}  # the page never sees the remembered ports
 
 
 def test_a_sweep_connects_to_the_remembered_port(monkeypatch):

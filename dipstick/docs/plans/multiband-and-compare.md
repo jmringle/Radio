@@ -45,7 +45,7 @@ Judged from each band's best SWR, with the same words everywhere a band is rated
 
 - **6 m is stricter:** the same LDG tuner covers only 16–150 Ω on 6 m (about 3:1), so on 6 m anything over 3.0 reads "beyond most tuners".
 - **Caveats in the report, once:** a tuner's range is really an impedance range, so the SWR limit is approximate (reactance matters too). A tuner at the radio protects the radio but doesn't fix the antenna, and the coax still loses more at high SWR. Check your own tuner's manual.
-- **Single-band runs use the same words.** This replaces today's "high: you'll need a tuner" for anything up to SWR 5 **(approved 2026-11-17)**. Build it first, as its own small change, since it fixes wording in the released app.
+- **Single-band runs use the same words.** This replaces today's "high: you'll need a tuner" for anything up to SWR 5 **(approved 2026-11-17)**. Build it first, as its own small change, since it fixes wording in the released app. **Built 2026-11-19** with the report's Tune / More detail split (`report.tuner_need`), plus a 3:1 bandwidth line and VHF/UHF wording.
 
 **Negative and boundary**
 7. A duplicate band (`40m 40m`) is refused before connecting.

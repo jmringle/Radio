@@ -14,7 +14,7 @@ from dipstick import balun
 from dipstick.bands import band_containing, band_range
 from dipstick.cable import MAX_LENGTH_M, CableResult, analyze, sweep_for
 from dipstick.plots import smith_svg, swr_svg
-from dipstick.report import FOOT, cable_report, choke_report, loss_report, report, transformer_report
+from dipstick.report import FOOT, cable_report, choke_report, loss_report, report_parts, transformer_report
 from dipstick.s11 import Z0, Reading
 from dipstick.scan import MAX_POINTS, calibration_status, scan, scan_s21, thru_calibrated
 
@@ -27,7 +27,8 @@ _OHMS = re.compile(r"([0-9]*\.?[0-9]+) ?(k)? ?(ohms?)?", re.IGNORECASE)  # 2450,
 # What each setting is called where the person typed it, so an error names the right thing:
 # the command's options, or the app's fields.
 COMMAND_NAMES = {"no_antenna": "run again with --no-antenna", "vf": "--vf", "length": "--length", "max_length": "--max-length",
-                 "ratio": "--ratio", "resistor": "--resistor"}
+                 "ratio": "--ratio", "resistor": "--resistor", "antenna_length": "--antenna-length"}
+MAX_ANTENNA_M = 200  # a full-wave 160 m loop is about 165 m; anything longer is a typo
 
 
 @dataclass(frozen=True)
@@ -36,7 +37,9 @@ class BandMeasurement:
     readings: list[Reading]
     target_hz: int
     summary: Summary
-    report: str
+    report: str  # the whole report (the command prints it): tune, a blank line, detail
+    tune: str  # what you act on (the app shows it)
+    detail: str  # everything else (the app's More detail)
     swr_svg: str
     smith_svg: str
 
@@ -61,16 +64,22 @@ def check_band(band: str, target: str | None, points: int) -> tuple[int, int, in
 
 
 def measure_band(band: str, target: str | None, points: int, connect, port: str | None = None,
-                 calibrated: bool = False) -> BandMeasurement:
-    """`calibrated`: the app calibrated in this session, so the report leaves out its reminder."""
+                 calibrated: bool = False, antenna_length: str | None = None,
+                 names: dict[str, str] = COMMAND_NAMES) -> BandMeasurement:
+    """`calibrated`: the app calibrated in this session, so the report leaves out its reminder.
+    `antenna_length`: the antenna's length as typed (optional), for the trim in inches."""
     start, stop, target_hz = check_band(band, target, points)
+    name = names["antenna_length"]
+    length_m = _given(antenna_length, name)
+    length_m = None if length_m is None else _length(length_m, name, MAX_ANTENNA_M)
     nano = connect(port)
     try:
         readings = scan(nano, start, stop, points)
     finally:
         nano.close()
     summary = summarize(readings, target_hz=target_hz)
-    return BandMeasurement(band, readings, target_hz, summary, report(summary, band, calibrated=calibrated),
+    tune, detail = report_parts(summary, band, calibrated=calibrated, length_m=length_m, length_name=name)
+    return BandMeasurement(band, readings, target_hz, summary, tune + "\n" + detail, tune, detail,
                            swr_svg(readings, band, target_hz=target_hz), smith_svg(readings))
 
 
@@ -225,13 +234,13 @@ def _vf(text: str, name: str) -> float:
     return vf
 
 
-def _length(text: str, name: str) -> float:
+def _length(text: str, name: str, maximum: float = MAX_LENGTH_M) -> float:
     match = _LENGTH.fullmatch(text)
     if not match:
         raise ValueError(f"{name} must be a length like 15.2 (meters), 50ft or 6in, got {shown(text)}")
     meters = float(match.group(1)) * _UNITS[match.group(2) and match.group(2).lower()]
-    if not 0 < meters <= MAX_LENGTH_M:
-        raise ValueError(f"{name} must be above 0 and at most {MAX_LENGTH_M} m, got {shown(text)}")
+    if not 0 < meters <= maximum:
+        raise ValueError(f"{name} must be above 0 and at most {maximum:g} m, got {shown(text)}")
     return meters
 
 

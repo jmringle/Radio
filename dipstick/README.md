@@ -2,7 +2,7 @@
 
 Dipstick reads your NanoVNA over USB and tells you, in plain words, what it measured:
 
-- **Antennas:** where the best match is on a band, the SWR across it, the 2:1 bandwidth and how much to trim.
+- **Antennas:** where the best match is on a band, how much to trim, and whether you need a tuner (and what kind) at your frequency.
 - **Coax:** a cable's length (or velocity factor), what's at the far end, and its loss.
 - **Baluns and ununs:** a transformer's match on each HF band, a choke's choking impedance, and through loss.
 
@@ -54,7 +54,7 @@ Plug in the NanoVNA. The header says **NanoVNA connected** when Dipstick has fou
 
 | Tab | What it does |
 |---|---|
-| **Antenna** | Choose a band (or type a target frequency, such as `146.52`) and press **Sweep**. You get the report, an SWR plot and a Smith chart. **Live (repeat)** sweeps again and again while you trim. |
+| **Antenna** | Choose a band (or type a target frequency, such as `146.52`) and press **Sweep**. Fill in **Antenna length** if you know it, so the trim in inches is from your antenna rather than an estimate. You get a short report of what to do (trim, tuner need, the 2:1 and 3:1 ranges), an SWR plot with those ranges shaded, and a Smith chart. The explanations are under **More detail**, which stays open if you leave it open. **Live (repeat)** sweeps again and again while you trim. |
 | **Cable** | Remove the antenna, leave the cable's far end open or shorted, tick **No antenna connected**, and give the velocity factor (to get the length) or the length (to get the velocity factor). |
 | **Balun** | Test a transformer with a resistor of 50 × its ratio on the output, a choke's impedance, or through loss. The tab shows the wiring for each test. |
 | **Calibrate** | Walks you through open, short and load (and optionally isolation and thru for two-port tests) for the band you'll measure, using the kit that came with the NanoVNA. |
@@ -70,6 +70,7 @@ The same measurements without the window. To install it, see [Run from source](d
 ```
 dipstick 40m                                   # sweep 40 m; trim advice for the middle of the band
 dipstick 40m --target 7.074                    # trim advice for the FT8 frequency
+dipstick 20m --antenna-length 16ft             # trim in inches from your antenna's real length
 dipstick 915                                   # a frequency: sweeps its band (33 cm)
 dipstick cable --no-antenna --vf 0.66          # cable length from the velocity factor
 dipstick cable --no-antenna --length 50ft      # velocity factor from a known length

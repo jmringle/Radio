@@ -102,7 +102,7 @@ There's no web server, so no web page in your browser can reach the NanoVNA. The
 | `bands.py` | Amateur band edges (47 CFR 97.301(a), (b)) |
 | `measure.py` | Shared input checks and measurements for the command and the app |
 | `app.py`, `ui/` | The app's Python side and its page |
-| `settings.py` | The app's one file, `settings.json` (Check yourself on/off, approved USB IDs) |
+| `settings.py` | The app's one file, `settings.json` (Check yourself on/off, More detail open or closed, approved USB IDs) |
 
 ## NanoVNA compatibility
 

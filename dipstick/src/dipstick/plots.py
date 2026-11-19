@@ -9,6 +9,7 @@ Policy blocks inline styles (and that lets the plots follow dark mode).
 import math
 from xml.sax.saxutils import escape
 
+from dipstick.analysis import THREE_TO_ONE, TWO_TO_ONE, spans
 from dipstick.bands import BANDS
 from dipstick.s11 import Reading
 
@@ -37,13 +38,19 @@ STYLE = """
   .target { stroke: #666; stroke-dasharray: 2 3; }
   .target-label { fill: #666; }
   .ham-band { fill: #2e7d32; fill-opacity: 0.12; }
+  .under-2 { fill: #2e7d32; fill-opacity: 0.14; }
+  .under-3 { fill: #b26a00; fill-opacity: 0.12; }
+  .three-to-one { stroke: #b26a00; stroke-dasharray: 5 4; fill: none; }
+  .note-3 { fill: #b26a00; }
 """
 
 
 def swr_svg(readings: list[Reading], band: str, standalone: bool = True, target_hz: int | None = None,
             ham_bands: bool = False) -> str:
     """`target_hz`: the frequency the person wants (already checked to be in the band), marked with a line.
-    `ham_bands`: a sweep across several bands (`band` names what was measured), with the bands shaded."""
+    `ham_bands`: a sweep across several bands (`band` names what was measured), with the bands shaded.
+    Otherwise it's one band's antenna, shaded where SWR is 3 or under (most built-in tuners) and 2 or
+    under (no tuner), with a 3:1 line beside the 2:1 one."""
     _need_two(readings)
     start, stop = readings[0].hz, readings[-1].hz
 
@@ -58,6 +65,11 @@ def swr_svg(readings: list[Reading], band: str, standalone: bool = True, target_
             if start <= low and high <= stop:  # at least 1 unit wide, so 30 m's 50 kHz still shows
                 parts.append(f'<rect class="ham-band" x="{x(low):.2f}" y="{TOP}" '
                              f'width="{max(1.0, x(high) - x(low)):.2f}" height="{BOTTOM - TOP}"/>')
+    else:
+        for limit, cls in ((THREE_TO_ONE, "under-3"), (TWO_TO_ONE, "under-2")):  # 2:1 drawn over 3:1
+            for low, high in spans(readings, limit):
+                parts.append(f'<rect class="{cls}" x="{x(low):.2f}" y="{TOP}" '
+                             f'width="{max(1.0, x(high) - x(low)):.2f}" height="{BOTTOM - TOP}"/>')
     for swr in SWR_TICKS:
         y = _swr_y(swr)
         parts.append(f'<line class="grid" x1="{LEFT}" y1="{y:.2f}" x2="{RIGHT}" y2="{y:.2f}"/>')
@@ -65,6 +77,10 @@ def swr_svg(readings: list[Reading], band: str, standalone: bool = True, target_
     y2 = _swr_y(2)
     parts.append(f'<line class="two-to-one" x1="{LEFT}" y1="{y2:.2f}" x2="{RIGHT}" y2="{y2:.2f}"/>')
     parts.append(f'<text class="note" x="{RIGHT - 4}" y="{y2 - 5:.2f}" text-anchor="end">2:1</text>')
+    if not ham_bands:
+        y3 = _swr_y(THREE_TO_ONE)
+        parts.append(f'<line class="three-to-one" x1="{LEFT}" y1="{y3:.2f}" x2="{RIGHT}" y2="{y3:.2f}"/>')
+        parts.append(f'<text class="note-3" x="{RIGHT - 4}" y="{y3 - 5:.2f}" text-anchor="end">3:1</text>')
     for hz, anchor in ((start, "start"), ((start + stop) / 2, "middle"), (stop, "end")):  # edge labels stay inside
         parts.append(f'<text x="{x(hz):.2f}" y="{BOTTOM + 18}" text-anchor="{anchor}">{hz / 1e6:.3f}</text>')
     if target_hz is not None:

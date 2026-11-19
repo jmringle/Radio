@@ -1,4 +1,4 @@
-/* An instrument panel: neutral ground, the trace in blue, 2:1 in green, the best match in red,
+/* An instrument panel: neutral ground, the trace in blue, 2:1 in green, 3:1 in amber, the best match in red,
    the same as the saved plots. Follows the system's light or dark mode. */
 :root {
   color-scheme: light dark;
@@ -10,6 +10,7 @@
   --grid: #e6eaee;
   --trace: #1f4fa3;
   --good: #2e7d32;
+  --tuner: #b26a00;
   --best: #c62828;
 }
 @media (prefers-color-scheme: dark) {
@@ -22,6 +23,7 @@
     --grid: #2a3038;
     --trace: #7aa7ff;
     --good: #6cc070;
+    --tuner: #e0a040;
     --best: #ff7a70;
   }
 }
@@ -37,7 +39,7 @@ label { color: var(--muted); }
 select, input, button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--rule);
   border-radius: 4px; padding: 0.3rem 0.5rem; }
 button { background: var(--trace); color: var(--panel); border-color: var(--trace); padding: 0.3rem 1.1rem; cursor: pointer; }
-#target { width: 9em; }
+#target, #antenna-length { width: 9em; }
 button:disabled { opacity: 0.55; cursor: progress; }
 :focus-visible { outline: 2px solid var(--trace); outline-offset: 2px; }
 #live { background: var(--panel); color: var(--trace); }
@@ -66,10 +68,12 @@ figure:empty { display: none; }
 figure svg { display: block; width: 100%; height: auto; }
 /* Alone (a cable has no SWR plot) it would fill the wide column and blow its labels up. */
 #smith { max-width: 26rem; }
-#report { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; margin: 1rem 0 0;
-  font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+#report, #detail { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; margin: 1rem 0 0; }
+#report, #detail-text { font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 #report:empty { display: none; }
-#report .explain { color: var(--muted); }
+#report .explain, #detail-text .explain { color: var(--muted); }
+#detail summary { cursor: pointer; color: var(--muted); }
+#detail-text { margin: 0.6rem 0 0; }
 #quiz { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 0.9rem 1rem; margin: 1rem 0 0; }
 #quiz h2 { margin: 0 0 0.5rem; font-size: 1.05rem; }
 #quiz fieldset { border: 0; margin: 0; padding: 0.5rem 0 0.4rem; }
@@ -92,3 +96,7 @@ svg .note { fill: var(--good); }
 svg .target { stroke: var(--muted); stroke-dasharray: 2 3; }
 svg .target-label { fill: var(--muted); }
 svg .ham-band { fill: var(--good); fill-opacity: 0.12; }
+svg .under-2 { fill: var(--good); fill-opacity: 0.14; }
+svg .under-3 { fill: var(--tuner); fill-opacity: 0.12; }
+svg .three-to-one { stroke: var(--tuner); stroke-dasharray: 5 4; fill: none; }
+svg .note-3 { fill: var(--tuner); }

@@ -39,6 +39,8 @@
     <form id="controls">
       <label for="band">Band</label> <select id="band"></select>
       <label for="target">Target (MHz, optional)</label> <input id="target" inputmode="decimal" placeholder="e.g. 7.074" autocomplete="off">
+      <!-- For the trim in inches; left empty, Python estimates it for a half-wave wire. -->
+      <label for="antenna-length">Antenna length (optional)</label> <input id="antenna-length" placeholder="e.g. 66ft or 20.1 m" autocomplete="off">
       <button id="sweep" type="submit" disabled>Sweep</button>  <!-- enabled once Python is reachable -->
       <button id="live" type="button" disabled>Live (repeat)</button>  <!-- sweeps again and again; becomes Stop -->
     </form>
@@ -125,6 +127,11 @@
       <figure id="smith" aria-label="Smith chart"></figure>
     </div>
     <pre id="report"></pre>
+    <!-- A band report's background (Python's More detail): closed unless you left it open last time. -->
+    <details id="detail" hidden>
+      <summary>More detail: what was measured, what the numbers mean, impedance</summary>
+      <pre id="detail-text"></pre>
+    </details>
     <!-- Questions about this result, from Python with the answer (Phase 4). Shown after a sweep, not
          during Live, where each pass would redraw them while you answered. -->
     <section id="quiz" aria-labelledby="quiz-title" hidden>

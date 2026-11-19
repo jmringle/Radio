@@ -10,6 +10,7 @@ let live = false;             // true while live mode runs; Stop sets it false
 let pythonReady = false;      // the bridge's functions have arrived
 let lastQuiz = [];            // the last result's "Check yourself" questions, shown once Live stops
 let quizOn = true;            // the Show Check yourself box; Python remembers it between launches
+let detailOpen = false;       // a band report's More detail; Python remembers it too
 
 function ready() {
   window.pywebview.api.bands().then((bands) => {
@@ -38,6 +39,7 @@ function ready() {
   });
   window.pywebview.api.settings().then((settings) => {
     quizOn = $("quiz-on").checked = settings.quiz !== false;
+    $("detail").open = detailOpen = settings.detail === true;
     $("quiz-on").disabled = false;
   });
   checkConnection();
@@ -116,10 +118,11 @@ async function ask(call) {
   }
 }
 
-const sweepOnce = () => ask(() => window.pywebview.api.sweep($("band").value, $("target").value, POINTS));
+const sweepOnce = () => ask(() => window.pywebview.api.sweep($("band").value, $("target").value, POINTS,
+                                                             $("antenna-length").value));
 
 function lock(locked) {
-  for (const id of ["band", "target", "sweep"]) $(id).disabled = locked;
+  for (const id of ["band", "target", "antenna-length", "sweep"]) $(id).disabled = locked;
 }
 
 // One NanoVNA: while anything sweeps, the other tab can't be opened. Partway through a calibration
@@ -140,7 +143,9 @@ function show(answer) {
       `NanoVNA off and on since, which goes back to its saved calibration). Calibrate ${answer.band} ` +
       "for a reading you can trust.\n\n"
     : "";
-  showReport(answer.ok ? note + answer.report : "");
+  showLines($("report"), answer.ok ? note + answer.report : "");
+  showLines($("detail-text"), answer.ok ? answer.detail || "" : "");  // only a band sweep has detail
+  $("detail").hidden = !(answer.ok && answer.detail);
   lastQuiz = answer.ok && Array.isArray(answer.quiz) ? answer.quiz : [];
   showQuiz(live ? [] : lastQuiz);
   // The SVG comes from dipstick's own plot code, not from the NanoVNA or anything typed.
@@ -150,9 +155,9 @@ function show(answer) {
 
 // The report is plain text. Lines starting with two spaces explain (report.py's convention) and are
 // shown dimmer, so the answers stand out. Each line goes in as text, never markup.
-function showReport(text) {
+function showLines(element, text) {
   const lines = text ? text.split("\n") : [];
-  $("report").replaceChildren(...lines.map((line) => {
+  element.replaceChildren(...lines.map((line) => {
     const span = document.createElement("span");
     if (line.startsWith("  ")) span.className = "explain";
     span.textContent = line + "\n";
@@ -202,6 +207,18 @@ $("quiz-on").addEventListener("change", async () => {
     if (!answer.ok) $("error").textContent = answer.error;
   } catch (error) {
     $("error").textContent = `Couldn't save the Check yourself setting: ${error}`;
+  }
+});
+
+// "toggle" also fires when the saved setting opens it at start; only a change from what Python has is saved.
+$("detail").addEventListener("toggle", async () => {
+  if ($("detail").open === detailOpen) return;
+  detailOpen = $("detail").open;
+  try {
+    const answer = await window.pywebview.api.set_detail(detailOpen);
+    if (!answer.ok) $("error").textContent = answer.error;
+  } catch (error) {
+    $("error").textContent = `Couldn't save whether More detail is open: ${error}`;
   }
 });
 

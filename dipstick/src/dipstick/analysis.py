@@ -13,6 +13,7 @@ from dipstick.s11 import Reading
 
 NOTHING_SWR = 10  # best SWR above this everywhere: nothing connected, or something badly wrong
 TWO_TO_ONE = 2.0
+THREE_TO_ONE = 3.0  # what most radios' built-in tuners reach (see report.py's tuner words)
 # Highest SWR in the band under 1.25 times the lowest, with the lowest above 2: no dip to move.
 # A dipole even 10% off frequency rises far more than that across a band.
 FLAT_RATIO = 1.25
@@ -35,6 +36,10 @@ class Summary:
     worst: Reading  # highest SWR
     flat: bool  # SWR high and nearly the same across the band: no clear dip, so no trim advice
     points: int
+    at_target: Reading  # the reading nearest the target: where you'll operate
+    three_to_one: tuple[float, float] | None  # as two_to_one, for SWR <= 3 (most built-in tuners)
+    three_to_one_reaches_low: bool
+    three_to_one_reaches_high: bool
 
 
 def summarize(readings: list[Reading], target_hz: int) -> Summary:
@@ -49,34 +54,45 @@ def summarize(readings: list[Reading], target_hz: int) -> Summary:
     best = readings[best_index]
     nothing = best.swr > NOTHING_SWR
     edge = "low" if best_index == 0 else "high" if best_index == len(readings) - 1 else None
-    two_to_one, reaches_low, reaches_high = (None, False, False) if nothing else _two_to_one(readings, best_index)
+    two_to_one, reaches_low, reaches_high = (None, False, False) if nothing else _around(readings, best, TWO_TO_ONE)
+    three, three_low, three_high = (None, False, False) if nothing else _around(readings, best, THREE_TO_ONE)
     trim = None if nothing else (best.hz / target_hz - 1) * 100
     worst = max(readings, key=lambda r: r.swr)
     flat = not nothing and best.swr > TWO_TO_ONE and worst.swr < best.swr * FLAT_RATIO
     return Summary(low, middle, high, best, edge, two_to_one, reaches_low, reaches_high,
-                   _zero_reactance(readings), target_hz, trim, nothing, worst, flat, len(readings))
+                   _zero_reactance(readings), target_hz, trim, nothing, worst, flat, len(readings),
+                   min(readings, key=lambda r: abs(r.hz - target_hz)), three, three_low, three_high)
 
 
-def _two_to_one(readings: list[Reading], best: int) -> tuple[tuple[float, float] | None, bool, bool]:
-    """Walk out from the best reading both ways to where SWR goes over 2, interpolating the crossing."""
-    if readings[best].swr > TWO_TO_ONE:
-        return None, False, False
-    lo = best
-    while lo > 0 and readings[lo - 1].swr <= TWO_TO_ONE:
-        lo -= 1
-    hi = best
-    while hi < len(readings) - 1 and readings[hi + 1].swr <= TWO_TO_ONE:
-        hi += 1
-    low_hz = readings[0].hz if lo == 0 else _crossing(readings[lo], readings[lo - 1])
-    high_hz = readings[-1].hz if hi == len(readings) - 1 else _crossing(readings[hi], readings[hi + 1])
-    return (low_hz, high_hz), lo == 0, hi == len(readings) - 1
+def spans(readings: list[Reading], limit: float) -> list[tuple[float, float]]:
+    """Every stretch of the sweep where SWR is at or under `limit`, as (low, high) Hz. Ends between
+    two readings are interpolated; a stretch that starts or ends at the sweep's edge ends exactly there."""
+    found, start = [], None
+    for i, r in enumerate(readings):
+        inside = r.swr <= limit
+        if inside and start is None:
+            start = r.hz if i == 0 else _crossing(r, readings[i - 1], limit)
+        elif not inside and start is not None:
+            found.append((start, _crossing(readings[i - 1], r, limit)))
+            start = None
+    if start is not None:
+        found.append((start, readings[-1].hz))
+    return found
 
 
-def _crossing(inside: Reading, outside: Reading) -> float:
-    """Where SWR passes 2 between a reading at or under 2 and its neighbor over 2 (straight line)."""
+def _around(readings: list[Reading], best: Reading, limit: float) -> tuple[tuple[float, float] | None, bool, bool]:
+    """The stretch under `limit` that holds the best match, and whether it runs into each edge."""
+    for low, high in spans(readings, limit):
+        if low <= best.hz <= high:
+            return (low, high), low == readings[0].hz, high == readings[-1].hz
+    return None, False, False
+
+
+def _crossing(inside: Reading, outside: Reading, limit: float) -> float:
+    """Where SWR passes `limit` between a reading at or under it and its neighbor over it (straight line)."""
     if math.isinf(outside.swr):
         return inside.hz  # can't draw a line to infinity; the last good point is the safe answer
-    fraction = (TWO_TO_ONE - inside.swr) / (outside.swr - inside.swr)
+    fraction = (limit - inside.swr) / (outside.swr - inside.swr)
     return inside.hz + fraction * (outside.hz - inside.hz)
 
 

@@ -67,7 +67,8 @@ def test_target_frequency(capsys):
     command = b"scan 7000000 7300000 101 3"
     nano = fake_nano(command, reply_for(command, antenna(7_153_000, 60_000)))
     _, out, _, _ = run(capsys, ["40m", "--target", "7.074"], nano)
-    assert "Lengthen the antenna about 1.1% to move the best match to 7.074 MHz" in out
+    assert "Lengthen the antenna about 1.1% (about 8.8 in / 22 cm; on a dipole, 4.4 in / 11 cm on each end) " \
+           "to move the best match to 7.074 MHz" in out
 
 
 def test_a_frequency_instead_of_a_band_sweeps_its_band_and_trims_for_it(capsys):
@@ -157,3 +158,31 @@ def test_a_folder_that_cant_be_written_is_one_line_and_exit_2(capsys, tmp_path):
     nano = fake_nano(b"scan 7000000 7300000 11 3", recorded("scan_40m_11_3"))
     code, _, err, _ = run(capsys, ["40m", "--points", "11", "--out", str(blocker)], nano)
     assert code == 2 and err.startswith("dipstick: ") and err.count("\n") == 1
+
+
+# --- the trim in inches from the antenna's real length (2026-11-19) ---------------------------------
+
+def test_antenna_length_gives_the_trim_in_inches_from_it(capsys):
+    command = b"scan 7000000 7300000 101 3"
+    nano = fake_nano(command, reply_for(command, antenna(7_051_000, 60_000)))
+    code, out, _, _ = run(capsys, ["40m", "--target", "7.150", "--antenna-length", "66ft"], nano)
+    assert code == 0
+    assert "(about 11 in / 28 cm; on a dipole, 5.5 in / 14 cm off each end)" in out
+    assert "From the antenna length you gave: 66.0 ft (20.12 m)." in out
+
+
+def test_with_no_antenna_length_the_inches_are_an_estimate_naming_the_option(capsys):
+    command = b"scan 7000000 7300000 101 3"
+    nano = fake_nano(command, reply_for(command, antenna(7_051_000, 60_000)))
+    _, out, _, _ = run(capsys, ["40m", "--target", "7.150"], nano)
+    assert "468 / MHz rule of thumb" in out and "(--antenna-length)" in out
+
+
+@pytest.mark.parametrize("length, words", [
+    ("abc", "must be a length like"), ("0", "above 0"), ("-5", "must be a length like"),
+    ("201m", "at most 200 m"), ("7000000\rclearconfig", "must be a length like"),
+])
+def test_a_bad_antenna_length_is_refused_before_connecting(capsys, length, words):
+    code, _, err, opened = run(capsys, ["40m", "--antenna-length", length], nano=None)
+    assert code == 2 and "--antenna-length" in err and words in err
+    assert opened == []

@@ -37,6 +37,9 @@ def main(argv: list[str] | None = None, connect=connect) -> int:
     parser.add_argument("band", help=f"one of: {', '.join(BANDS)}; or a frequency in MHz, e.g. 915, to sweep its "
                                      "band and trim for it")
     parser.add_argument("--target", metavar="MHZ", help="frequency to trim for, e.g. 7.074 (default: the band's middle)")
+    parser.add_argument("--antenna-length", metavar="LENGTH",
+                        help="the antenna's length, e.g. 66ft or 20.1 (meters), for the trim in inches "
+                             "(default: estimated for a half-wave wire)")
     parser.add_argument("--points", type=int, default=MAX_POINTS, help=f"2 to {MAX_POINTS} (default {MAX_POINTS})")
     parser.add_argument("--port", help="the NanoVNA's serial port, if dipstick can't find it")
     parser.add_argument("--out", type=Path, default=Path("output"), help="folder for the SVG plots (default: output)")
@@ -47,7 +50,7 @@ def main(argv: list[str] | None = None, connect=connect) -> int:
             if target is not None:
                 raise ValueError(f"{band} is already the target; give a band with --target, or the frequency alone")
             band, target = band_for_target(band), band
-        measured = measure_band(band, target, args.points, connect, args.port)
+        measured = measure_band(band, target, args.points, connect, args.port, antenna_length=args.antenna_length)
         print(measured.report, end="")
         print(f"\nPlots: {', '.join(str(p) for p in _save_plots(measured, args.out))}")
         return 0

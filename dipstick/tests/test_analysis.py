@@ -125,3 +125,40 @@ def test_reactance_crossing_between_readings():
     # X is a straight line in frequency here, so interpolating finds 7.1515 MHz exactly.
     s = summarize(antenna(7_151_500, 60_000), target_hz=7_150_000)
     assert s.zero_reactance == pytest.approx([7_151_500], abs=1)
+
+
+# --- what a tuner can reach (display review 2026-11-19) ---------------------------------------
+# For the test antenna SWR = 3 where |S11| = 1/2: 4 X^2 = 100^2 + X^2, so |X| = 57.74 ohms,
+# 57.74 / 35.36 = 1.633 times as far from f0 as the 2:1 points.
+
+def test_three_to_one_range_is_wider_than_two_to_one():
+    s = summarize(antenna(7_150_000, 60_000), target_hz=7_150_000)
+    assert s.three_to_one == pytest.approx((7_052_020, 7_247_980), abs=1_500)
+    assert (s.three_to_one_reaches_low, s.three_to_one_reaches_high) == (False, False)
+
+
+def test_three_to_one_running_into_an_edge():
+    s = summarize(antenna(7_051_000, 60_000), target_hz=7_150_000)
+    assert s.three_to_one[0] == 7_000_000 and s.three_to_one_reaches_low and not s.three_to_one_reaches_high
+
+
+def test_no_three_to_one_when_the_best_is_worse():
+    s = summarize(antenna(7_150_000, 60_000, r=200), target_hz=7_150_000)  # SWR 4 at best
+    assert s.three_to_one is None and not s.three_to_one_reaches_low and not s.three_to_one_reaches_high
+
+
+def test_the_reading_at_the_target_is_the_nearest_one():
+    s = summarize(antenna(7_150_000, 60_000), target_hz=7_074_000)  # readings at 7.072 and 7.075
+    assert s.at_target.hz == 7_075_000
+
+
+def test_spans_under_a_limit_find_every_stretch():
+    from dipstick.analysis import spans
+    readings = antenna(7_150_000, 60_000)
+    [found] = spans(readings, 2.0)
+    assert found == pytest.approx((7_090_000, 7_210_000), abs=1_500)
+    assert spans(antenna(7_150_000, 60_000, r=200), 2.0) == []  # SWR 4 at best
+    # Two dips: under 2 around 7.05 and 7.25, over 2 between.
+    two_dips = antenna(7_050_000, 30_000)[:51] + antenna(7_250_000, 30_000)[51:]
+    assert len(spans(two_dips, 2.0)) == 2
+    assert spans(antenna(7_150_000, 1_000_000), 2.0) == [(7_000_000, 7_300_000)]  # the whole band

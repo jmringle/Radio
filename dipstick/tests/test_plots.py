@@ -106,6 +106,48 @@ def test_axis_labels():
     assert any("40m" in label for label in labels)
 
 
+# Display review 2026-11-19: where it works with no tuner (SWR 2 or under) and with most built-in
+# tuners (3 or under) is shaded, so the usable stretch shows at a glance.
+
+def shade_x(root, cls):
+    [area] = find(root, "rect", "plot-area")
+    left, width = float(area.get("x")), float(area.get("width"))
+    return [((float(r.get("x")) - left) / width * 300_000 + 7_000_000,
+             (float(r.get("x")) + float(r.get("width")) - left) / width * 300_000 + 7_000_000)
+            for r in find(root, "rect", cls)]
+
+
+def test_the_2_to_1_and_3_to_1_stretches_are_shaded():
+    root = swr_plot(antenna(7_150_000, 60_000))
+    [(low2, high2)] = shade_x(root, "under-2")
+    [(low3, high3)] = shade_x(root, "under-3")
+    assert (low2, high2) == pytest.approx((7_090_000, 7_210_000), abs=1_500)
+    assert (low3, high3) == pytest.approx((7_052_020, 7_247_980), abs=1_500)
+
+
+def test_a_3_to_1_line_is_drawn_and_labelled():
+    root = swr_plot(antenna(7_150_000, 60_000))
+    [line] = find(root, "line", "three-to-one")
+    assert [e for e in find(root, "line", "grid") if e.get("y1") == line.get("y1")]  # on the 3 tick
+    assert "3:1" in [t.text for t in root.iter(SVG + "text")]
+
+
+def test_every_stretch_is_shaded_not_just_the_best():
+    two_dips = antenna(7_050_000, 30_000)[:51] + antenna(7_250_000, 30_000)[51:]
+    assert len(shade_x(swr_plot(two_dips), "under-2")) == 2
+
+
+def test_nothing_under_3_means_no_shading():
+    root = swr_plot(antenna(7_150_000, 60_000, r=200))  # SWR 4 at best
+    assert not [e for e in root.iter(SVG + "rect") if {"under-2", "under-3"} & set(e.get("class", "").split())]
+
+
+def test_a_sweep_across_bands_shades_the_bands_not_the_tuner_ranges():
+    root = parse(swr_svg(antenna(7_150_000, 60_000), "1:1 transformer", ham_bands=True))
+    assert not [e for e in root.iter(SVG + "rect") if "under-2" in e.get("class", "")]
+    assert not [e for e in root.iter(SVG + "line") if "three-to-one" in e.get("class", "")]
+
+
 # --- Smith chart ------------------------------------------------------------------------------
 
 def smith(readings):
