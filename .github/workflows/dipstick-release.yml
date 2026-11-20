@@ -81,6 +81,37 @@ jobs:
         run: |
           version="${TAG#dipstick-v}"
           prerelease=""; [[ "$version" == *-* ]] && prerelease="--prerelease"
+          # The install half of the notes; add "What's new" at the top by hand before publishing.
+          # Quoted 'EOF' so the backticks stay literal; the repo name is filled in after.
+          cat > ../release-notes.md <<'EOF'
+          ## Download and install
+
+          Dipstick is the NanoVNA explainer as an app for macOS, Windows and Linux. GitHub Actions built every file below from this tag, and each build opened its window and passed its self-test.
+
+          - **Windows:** run `dipstick-Windows-Setup.exe`. It installs just for you (no administrator needed) and adds a Start menu entry and an uninstaller. No Unblock step is needed any more.
+          - **macOS (Apple Silicon only):** open the dmg and drag **Dipstick** onto the Applications shortcut.
+          - **Linux:** extract the archive and run `Dipstick/Dipstick` (needs WebKitGTK).
+
+          More detail is in the README's Install section.
+
+          ## The "unidentified developer" warning
+
+          These builds aren't code-signed yet, so your computer warns you once.
+
+          - **Windows:** SmartScreen says "Windows protected your PC". Click **More info → Run anyway**.
+          - **macOS:** go to **System Settings → Privacy & Security** and click **Open Anyway**.
+
+          ## Check your download
+
+          - **Not altered:** compare it with `SHA256SUMS.txt`
+            - macOS: `shasum -a 256 -c --ignore-missing SHA256SUMS.txt`
+            - Linux: `sha256sum -c --ignore-missing SHA256SUMS.txt`
+            - Windows: `Get-FileHash <file>`
+          - **Built here by GitHub Actions from this tag:** `gh attestation verify <file> -R REPO_NAME`
+
+          The app is the `dipstick-` files above. The Source code links are GitHub's automatic snapshot of the whole Radio repository; you don't need them to use Dipstick.
+          EOF
+          sed -i "s|REPO_NAME|$GH_REPO|" ../release-notes.md
           gh release create "$TAG" --verify-tag --draft $prerelease --title "dipstick $version" \
-            --notes "dipstick $version: the NanoVNA explainer as an app for macOS, Windows and Linux. Built by GitHub Actions from this tag; each build opened its window and passed its self-test. Not code-signed, so your computer warns once. **Windows:** run dipstick-Windows-Setup.exe (installs just for you, no administrator needed; Start menu entry and uninstaller included). SmartScreen may say \"Windows protected your PC\": More info → Run anyway. No Unblock step any more. **macOS (Apple Silicon only):** open the dmg, drag Dipstick onto the Applications shortcut, then System Settings → Privacy & Security → Open Anyway. **Linux:** extract and run Dipstick/Dipstick (needs WebKitGTK). Details in the README's Install section. Check a download with SHA256SUMS.txt: \`shasum -a 256 -c --ignore-missing SHA256SUMS.txt\` (macOS), \`sha256sum -c --ignore-missing SHA256SUMS.txt\` (Linux) or \`Get-FileHash <file>\` (Windows). To confirm a file was built here by GitHub Actions from this tag: \`gh attestation verify <file> -R ${{ github.repository }}\`. The app is the \`dipstick-\` files above; the Source code links are GitHub's automatic snapshot of the whole Radio repository, not needed to use Dipstick." \
+            --notes-file ../release-notes.md \
             dipstick-macOS.dmg dipstick-Windows-Setup.exe dipstick-Linux.tar.gz SHA256SUMS.txt
