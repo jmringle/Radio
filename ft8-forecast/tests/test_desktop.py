@@ -38,6 +38,15 @@ def test_windows_folder():
         PureWindowsPath(roaming) / "FT8 Forecast")
 
 
+def test_renamed_app_keeps_the_old_data_folder():
+    """Renamed to Skipcast (2026-11-20), but the data folder keeps its first name, so people who
+    used FT8 Forecast find their imported logs and settings after updating."""
+    assert desktop.APP_NAME == "Skipcast"
+    home = PurePosixPath("/Users/n0call")
+    assert desktop.app_dir("darwin", {}, home).name == "FT8 Forecast"
+    assert desktop.app_dir("linux", {}, home).name == "FT8 Forecast"
+
+
 def test_windows_folder_without_appdata():
     home = PureWindowsPath(r"C:\Users\n0call")
     assert desktop.app_dir("win32", {}, home) == home / "AppData/Roaming/FT8 Forecast"

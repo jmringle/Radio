@@ -50,7 +50,7 @@ jobs:
           # Each app's download and program names, from its own app workflow.
           case "${BASH_REMATCH[1]}" in
             dipstick) setup=dipstick-Windows-Setup.exe; dir='installed\Dipstick'; exe=Dipstick.exe ;;
-            ft8-forecast) setup=FT8-Forecast-Windows-Setup.exe; dir='installed\FT8 Forecast'; exe='FT8 Forecast.exe' ;;
+            ft8-forecast) setup=Skipcast-Windows-Setup.exe; dir='installed\Skipcast'; exe='Skipcast.exe' ;;
           esac
           { echo "SETUP=$setup"; echo "DIR=$dir"; echo "EXE=$dir\\$exe"; } >> "$GITHUB_ENV"
           mkdir -p download && cd download

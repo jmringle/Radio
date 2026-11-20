@@ -384,15 +384,19 @@ def test_only_adif_imported_asks_for_all_txt(client, db):
 
 def test_tab_title_shows_the_hour_and_best_bet(client, db, five_days):
     _, page = get(client)
-    assert "<title>FT8 forecast · 15:00 UTC · best bet 20m</title>" in page
+    assert "<title>Skipcast · 15:00 UTC · best bet 20m</title>" in page
     _, page = get(client, query_string={"hour": "all"})
-    assert "<title>FT8 forecast · all hours · best bet 20m</title>" in page
+    assert "<title>Skipcast · all hours · best bet 20m</title>" in page
     _, page = get(client, query_string={"hour": "3"})
-    assert "<title>FT8 forecast · 03:00 UTC</title>" in page  # no best bet at that hour
+    assert "<title>Skipcast · 03:00 UTC</title>" in page  # no best bet at that hour
 
 
 def test_tab_title_without_data(client, db):
-    assert "<title>FT8 forecast</title>" in get(client)[1]
+    assert "<title>Skipcast</title>" in get(client)[1]
+
+
+def test_page_heading_is_the_app_name(client, db):
+    assert "<h1>Skipcast</h1>" in get(client)[1]
 
 
 def test_native_controls_follow_dark_mode(client):

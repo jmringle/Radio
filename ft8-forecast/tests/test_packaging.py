@@ -34,3 +34,14 @@ def test_the_build_includes_every_page_file():
     files = [path.relative_to(source).as_posix() for folder in ("templates", "static")
              for path in (source / folder).iterdir() if path.is_file()]
     assert files and [name for name in files if f"{{source}}/{name}" not in spec_text] == []
+
+
+def test_installer_updates_an_ft8_forecast_install_cleanly():
+    """Same AppId, so Windows treats Skipcast as an update of FT8 Forecast and installs into the old
+    folder; the old exe and shortcuts must go, or the Start menu would show both names."""
+    iss = (Path(__file__).resolve().parents[1] / "packaging" / "ft8forecast.iss").read_text()
+    assert "AppId={{FD4B3BBE-8D50-416C-A3FE-FF841F0C3206}" in iss
+    assert "AppName=Skipcast" in iss
+    for old in (r'"{app}\FT8 Forecast.exe"', r'"{autoprograms}\FT8 Forecast.lnk"',
+                r'"{autodesktop}\FT8 Forecast.lnk"'):
+        assert f"Type: files; Name: {old}" in iss

@@ -20,10 +20,13 @@ from werkzeug.serving import BaseWSGIServer, make_server
 
 from ft8_forecast import cli, web
 
-APP_NAME = "FT8 Forecast"
+APP_NAME = "Skipcast"
+# The app was called FT8 Forecast until 2026-11-20; its data folder keeps that name, so an update
+# still finds what people imported before.
+DATA_FOLDER = "FT8 Forecast"
 LOG_NAME = "ft8forecast.log"
 # The osascript text is fixed: the message arrives as an argument, so it can't act as a script.
-_MAC_DIALOG = 'on run argv\n display alert "FT8 Forecast" message (item 1 of argv) as critical\nend run'
+_MAC_DIALOG = 'on run argv\n display alert "Skipcast" message (item 1 of argv) as critical\nend run'
 
 
 def app_dir(platform: str = sys.platform, environ: Mapping[str, str] = os.environ, home: PurePath | None = None) -> PurePath:
@@ -31,10 +34,10 @@ def app_dir(platform: str = sys.platform, environ: Mapping[str, str] = os.enviro
     home = Path.home() if home is None else home
     if platform == "win32":
         base = environ.get("APPDATA")
-        return type(home)(base) / APP_NAME if base else home / "AppData" / "Roaming" / APP_NAME
+        return type(home)(base) / DATA_FOLDER if base else home / "AppData" / "Roaming" / DATA_FOLDER
     if platform == "darwin":
-        return home / "Library" / "Application Support" / APP_NAME
-    return home / ".local" / "share" / APP_NAME
+        return home / "Library" / "Application Support" / DATA_FOLDER
+    return home / ".local" / "share" / DATA_FOLDER
 
 
 def start_server(folder: Path) -> BaseWSGIServer:
@@ -68,7 +71,7 @@ def run(folder: Path, window: Callable[[str], None] = open_window) -> int:
     except Exception as error:
         log = folder / LOG_NAME
         web.log_failure(log, error)
-        show_error(f"FT8 Forecast couldn't start. Details are in {log}")
+        show_error(f"Skipcast couldn't start. Details are in {log}")
         return 1
     finally:
         if server is not None:
@@ -86,7 +89,7 @@ def self_test(folder: Path) -> int:
         # No proxy: a proxy setting on this computer must not see, or break, a local request.
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(url(server), timeout=10) as response:
-            return 0 if response.status == 200 and "FT8 forecast" in response.read().decode() else 1
+            return 0 if response.status == 200 and "Skipcast" in response.read().decode() else 1
     finally:
         server.shutdown()
 

@@ -1,4 +1,4 @@
-# FT8 Forecast
+# Skipcast (FT8 Forecast)
 
 Answers "which band should I try for FT8 right now?" from your own WSJT-X/JTDX data: what you've decoded (`ALL.TXT`) and who you've worked (ADIF log), hour by hour. It only reads files; it never talks to a radio or transmits.
 
@@ -170,7 +170,7 @@ Exit codes: `0` imported or forecast shown (for `serve`: stopped with Ctrl+C), `
 
 ### The standalone app
 
-A double-clickable app for macOS and Windows: the same page in its own window, with no terminal or Python needed. It keeps its database, settings and error log in `~/Library/Application Support/FT8 Forecast` (macOS) or `%APPDATA%\FT8 Forecast` (Windows), separate from `data/` and `.env`, so importing into one doesn't change the other. Set your grid and log folder under **Settings** on the page. Each time it opens with saved data it first asks for your latest log (import a file or press **Import from folder**), or press **Use saved data** to see the forecast from what you imported before.
+A double-clickable app for macOS and Windows: the same page in its own window, with no terminal or Python needed. It keeps its database, settings and error log in `~/Library/Application Support/FT8 Forecast` (macOS) or `%APPDATA%\FT8 Forecast` (Windows), separate from `data/` and `.env`, so importing into one doesn't change the other. (The app was called FT8 Forecast until 2026-11-20; the folder keeps that name so an update finds the data you already imported.) Set your grid and log folder under **Settings** on the page. Each time it opens with saved data it first asks for your latest log (import a file or press **Import from folder**), or press **Use saved data** to see the forecast from what you imported before.
 
 To build it on the system you want it for:
 
@@ -178,19 +178,19 @@ To build it on the system you want it for:
 pip install -r requirements-app.txt
 pyinstaller --noconfirm packaging/ft8forecast.spec
 python packaging/check_build.py dist          # fails if a log, database or .env got in
-"dist/FT8 Forecast.app/Contents/MacOS/FT8 Forecast" --self-test   # macOS; exit 0 means it works
+"dist/Skipcast.app/Contents/MacOS/Skipcast" --self-test   # macOS; exit 0 means it works
 ```
 
-On Windows, `ISCC.exe /DAppVersion=0.1.0 packaging\ft8forecast.iss` then wraps the build in the installer, `dist\FT8-Forecast-Windows-Setup.exe` (needs [Inno Setup](https://jrsoftware.org/isinfo.php) 6, which GitHub's Windows runners already have).
+On Windows, `ISCC.exe /DAppVersion=0.1.0 packaging\ft8forecast.iss` then wraps the build in the installer, `dist\Skipcast-Windows-Setup.exe` (needs [Inno Setup](https://jrsoftware.org/isinfo.php) 6, which GitHub's Windows runners already have).
 
 **Releases** are made by hand: push a tag like `ft8-forecast-v0.1.0-beta.4`, which runs `.github/workflows/ft8-forecast-app.yml` on the tag (builds, self-tests, and the Windows download check: install the setup as a downloaded file, start it with no Unblock, uninstall). Then download that run's files, write `SHA256SUMS.txt`, and create a draft release with them; publish once it's checked.
 
 To run it from source without building: `python -m ft8_forecast.desktop`.
 
-**Downloading a build.** Ready-made builds are on the [Releases](https://github.com/jmringle/Radio/releases) page (pre-releases for now). Pick the newest release named **FT8 Forecast** (this repository also holds other radio tools' releases) and download only the `FT8-Forecast-` file for your computer; the Source code links there are GitHub's automatic snapshot of the whole Radio repository, not needed to use the app. They aren't code-signed yet, so the computer can't confirm who made them and warns once:
+**Downloading a build.** Ready-made builds are on the [Releases](https://github.com/jmringle/Radio/releases) page (pre-releases for now). Pick the newest release named **Skipcast** (called **FT8 Forecast** up to beta 4; this repository also holds other radio tools' releases) and download only the `Skipcast-` file for your computer; the Source code links there are GitHub's automatic snapshot of the whole Radio repository, not needed to use the app. They aren't code-signed yet, so the computer can't confirm who made them and warns once:
 
-- **macOS:** the first open is blocked. Go to System Settings → Privacy & Security, scroll down, click **Open Anyway** next to FT8 Forecast and confirm. (Right-click → Open no longer skips this on macOS 15 and later.)
-- **Windows:** run `FT8-Forecast-Windows-Setup.exe`. It installs just for you (no administrator needed), adds FT8 Forecast to the Start menu, and can be removed from Settings → Apps. SmartScreen may say "Windows protected your PC": click **More info → Run anyway**. Uninstalling leaves your data in `%APPDATA%\FT8 Forecast`. (Builds up to beta 3 were a zip that needed an Unblock step first, because Windows marks a downloaded zip as from the internet and the window's library then refuses to load; files an installer writes don't get that mark. `.github/workflows/windows-download-check.yml` installs every Windows build that way and checks it starts.)
+- **macOS:** the first open is blocked. Go to System Settings → Privacy & Security, scroll down, click **Open Anyway** next to Skipcast and confirm. (Right-click → Open no longer skips this on macOS 15 and later.)
+- **Windows:** run `Skipcast-Windows-Setup.exe`. It installs just for you (no administrator needed), adds Skipcast to the Start menu, and can be removed from Settings → Apps. SmartScreen may say "Windows protected your PC": click **More info → Run anyway**. Uninstalling leaves your data in `%APPDATA%\FT8 Forecast`. Installing it over FT8 Forecast beta 4 or earlier updates that install and replaces its Start menu entry. (Builds up to beta 3 were a zip that needed an Unblock step first, because Windows marks a downloaded zip as from the internet and the window's library then refuses to load; files an installer writes don't get that mark. `.github/workflows/windows-download-check.yml` installs every Windows build that way and checks it starts.)
 
 To check a download wasn't altered, compare it with the release's `SHA256SUMS.txt`: `shasum -a 256 -c --ignore-missing SHA256SUMS.txt` in the download folder (macOS; it skips the file you didn't download), or `Get-FileHash <file>` (Windows PowerShell; it prints the hash in capitals). CI writes each build's `.sha256` in this same standard format and checks it reads before uploading.
 

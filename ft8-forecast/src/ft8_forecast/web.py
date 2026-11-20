@@ -317,8 +317,8 @@ def _corner(grid: str) -> tuple[float, float]:
 def _tab_title(result: forecast.Forecast | None, hour: int | None, by: str) -> str:
     """The browser tab: the answer at a glance while the page sits in a tab."""
     if result is None:
-        return "FT8 forecast"
-    parts = ["FT8 forecast", "all hours" if hour is None else f"{hour:02d}:00 UTC"]
+        return "Skipcast"
+    parts = ["Skipcast", "all hours" if hour is None else f"{hour:02d}:00 UTC"]
     if best := forecast.best_bet(result.bands, by):
         parts.append(f"best bet {best.band}")
     return " · ".join(parts)

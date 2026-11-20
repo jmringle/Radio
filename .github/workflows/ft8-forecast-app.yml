@@ -36,13 +36,13 @@ jobs:
       - name: Start the built app (macOS)
         if: runner.os == 'macOS'
         timeout-minutes: 2
-        run: '"dist/FT8 Forecast.app/Contents/MacOS/FT8 Forecast" --self-test'
+        run: '"dist/Skipcast.app/Contents/MacOS/Skipcast" --self-test'
       - name: Start the built app (Windows)
         if: runner.os == 'Windows'
         # A windowed app reports its exit code only if waited on. The time limit is because a
         # crash can open an error dialog that nobody on a runner can dismiss.
         run: |
-          $app = Start-Process -FilePath "dist\FT8 Forecast\FT8 Forecast.exe" -ArgumentList "--self-test" -PassThru
+          $app = Start-Process -FilePath "dist\Skipcast\Skipcast.exe" -ArgumentList "--self-test" -PassThru
           $handle = $app.Handle  # without this, ExitCode stays empty
           if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "self-test still running after 60 s, probably an error dialog" }
           if ($app.ExitCode -ne 0) { throw "self-test failed: exit $($app.ExitCode)" }
@@ -50,8 +50,8 @@ jobs:
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
-          hdiutil create -volname "FT8 Forecast" -srcfolder "dist/FT8 Forecast.app" -format UDZO dist/FT8-Forecast-macOS.dmg
-          cd dist && shasum -a 256 FT8-Forecast-macOS.dmg > FT8-Forecast-macOS.dmg.sha256
+          hdiutil create -volname "Skipcast" -srcfolder "dist/Skipcast.app" -format UDZO dist/Skipcast-macOS.dmg
+          cd dist && shasum -a 256 Skipcast-macOS.dmg > Skipcast-macOS.dmg.sha256
       - name: Package (Windows)
         if: runner.os == 'Windows'
         run: |
@@ -65,18 +65,18 @@ jobs:
           & $iscc /Qp "/DAppVersion=$version" packaging\ft8forecast.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed: exit $LASTEXITCODE" }
           # The standard "hash  name" line (lowercase, LF, no BOM), so `shasum -c` and `sha256sum -c` read it.
-          $hash = (Get-FileHash dist\FT8-Forecast-Windows-Setup.exe -Algorithm SHA256).Hash.ToLower()
-          [IO.File]::WriteAllText("$PWD\dist\FT8-Forecast-Windows-Setup.exe.sha256", "$hash  FT8-Forecast-Windows-Setup.exe`n")
+          $hash = (Get-FileHash dist\Skipcast-Windows-Setup.exe -Algorithm SHA256).Hash.ToLower()
+          [IO.File]::WriteAllText("$PWD\dist\Skipcast-Windows-Setup.exe.sha256", "$hash  Skipcast-Windows-Setup.exe`n")
       - name: Check the checksum file reads with the standard tools
         shell: bash  # Git Bash on Windows
         run: |
           cd dist
-          if command -v sha256sum >/dev/null; then sha256sum -c FT8-Forecast-*.sha256; else shasum -a 256 -c FT8-Forecast-*.sha256; fi
+          if command -v sha256sum >/dev/null; then sha256sum -c Skipcast-*.sha256; else shasum -a 256 -c Skipcast-*.sha256; fi
       - uses: actions/upload-artifact@v7
         with:
           name: ft8-forecast-${{ runner.os }}
           path: |
-            ft8-forecast/dist/FT8-Forecast-*
+            ft8-forecast/dist/Skipcast-*
           if-no-files-found: error
           retention-days: 14
 

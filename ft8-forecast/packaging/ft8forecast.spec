@@ -19,8 +19,11 @@ analysis = Analysis(
     excludes=["pytest", "playwright", "pip_audit", "PyInstaller"],
 )
 archive = PYZ(analysis.pure)
-executable = EXE(archive, analysis.scripts, [], exclude_binaries=True, name="FT8 Forecast", console=False)
-collected = COLLECT(executable, analysis.binaries, analysis.datas, name="FT8 Forecast")
+# The icon (packaging/icon.svg, drawn into these by make_icons.py).
+icon = os.path.join(SPECPATH, "Skipcast.icns" if sys.platform == "darwin" else "Skipcast.ico")
+executable = EXE(archive, analysis.scripts, [], exclude_binaries=True, name="Skipcast", console=False, icon=icon)
+collected = COLLECT(executable, analysis.binaries, analysis.datas, name="Skipcast")
 if sys.platform == "darwin":
-    app = BUNDLE(collected, name="FT8 Forecast.app", bundle_identifier="io.github.jmringle.ft8forecast",
+    # The bundle id predates the Skipcast name; kept so macOS treats it as the same app.
+    app = BUNDLE(collected, name="Skipcast.app", bundle_identifier="io.github.jmringle.ft8forecast", icon=icon,
                  info_plist={"CFBundleShortVersionString": "0.1.0", "NSHighResolutionCapable": True})

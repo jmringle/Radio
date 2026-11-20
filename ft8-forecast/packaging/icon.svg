@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Skipcast's icon: an HF signal skipping off the ionosphere to a station over the horizon, with the
+       sun above (it ionizes the layer, and the hour of the day sets which bands open). -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b1622"/>
+      <stop offset="1" stop-color="#1d3346"/>
+    </linearGradient>
+    <linearGradient id="earth" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f8f6a"/>
+      <stop offset="1" stop-color="#14402f"/>
+    </linearGradient>
+    <clipPath id="body"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+  <g clip-path="url(#body)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#sky)"/>
+    <!-- the ionosphere: a glowing layer concentric with the Earth -->
+    <circle cx="512" cy="1500" r="1000" fill="none" stroke="#3fc1c9" stroke-opacity="0.22" stroke-width="70"/>
+    <circle cx="512" cy="1500" r="1000" fill="none" stroke="#3fc1c9" stroke-width="10"/>
+    <!-- the sun, above the layer -->
+    <circle cx="745" cy="275" r="80" fill="#ff9d2b"/>
+    <!-- the Earth's curve -->
+    <circle cx="512" cy="1500" r="760" fill="url(#earth)"/>
+    <!-- the signal: one skip, up to the layer and back down, far over the horizon -->
+    <path d="M190 812 L512 500 L834 812" fill="none" stroke="#f7c531"
+          stroke-width="40" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="512" cy="500" r="44" fill="#fff6d0"/>
+  </g>
+</svg>
